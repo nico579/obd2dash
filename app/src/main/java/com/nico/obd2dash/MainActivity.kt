@@ -61,6 +61,8 @@ class MainActivity : ComponentActivity() {
                                 state = state,
                                 onConnect = { host, port -> viewModel.connect(host, port) },
                                 onDisconnect = { viewModel.disconnect() },
+                                onHostChange = { viewModel.updateHost(it) },
+                                onPortChange = { viewModel.updatePort(it) },
                                 modifier = Modifier.padding(padding)
                             )
                             Screen.DTC -> DtcScreen(

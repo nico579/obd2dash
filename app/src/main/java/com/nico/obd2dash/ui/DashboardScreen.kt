@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -40,12 +42,12 @@ private const val UNAVAILABLE_AFTER_MS = 10_000L
 @Composable
 fun DashboardScreen(
     state: ObdUiState,
-    onConnect: (host: String, port: Int) -> Unit,
+    onConnect: (host: String, port: String) -> Unit,
     onDisconnect: () -> Unit,
+    onHostChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var host by remember { mutableStateOf("192.168.0.10") }
-    var port by remember { mutableStateOf("35000") }
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -57,6 +59,7 @@ fun DashboardScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -65,19 +68,19 @@ fun DashboardScreen(
 
         if (state.connectionState != ConnectionState.CONNECTED) {
             OutlinedTextField(
-                value = host,
-                onValueChange = { host = it },
+                value = state.host,
+                onValueChange = onHostChange,
                 label = { Text("IP de la sonde") },
                 modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
-                value = port,
-                onValueChange = { port = it },
+                value = state.port,
+                onValueChange = onPortChange,
                 label = { Text("Port") },
                 modifier = Modifier.fillMaxWidth()
             )
             Button(
-                onClick = { onConnect(host, port.toIntOrNull() ?: 35000) },
+                onClick = { onConnect(state.host, state.port) },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(

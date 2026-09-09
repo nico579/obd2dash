@@ -28,5 +28,9 @@ object DtcDictionary {
         "P0505" to "Système de régulation de ralenti",
     )
 
-    fun describe(code: String): String = known[code.uppercase()] ?: "Code générique SAE, non répertorié ici"
+    // "Générique SAE" par défaut serait trompeur : un code absent d'ici peut tout aussi
+    // bien être générique que spécifique au constructeur (le premier chiffre après la
+    // lettre le distingue, mais cette liste ne prétend pas classer ce qu'elle ne connaît pas).
+    fun describe(code: String): String =
+        known[code.uppercase()] ?: "Code non répertorié ici : générique SAE ou spécifique au constructeur."
 }

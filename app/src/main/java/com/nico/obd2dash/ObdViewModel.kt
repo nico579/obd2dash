@@ -1,6 +1,7 @@
 package com.nico.obd2dash
 
 import android.app.Application
+import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -27,6 +28,11 @@ data class GaugeValue(val text: String, val updatedAtMs: Long)
 data class ObdUiState(
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
     val errorMessage: String? = null,
+    // Survivent à la navigation Dashboard -> DTC -> Dashboard (contrairement à un
+    // `remember` local à DashboardScreen, détruit quand l'écran sort de la composition)
+    // et sont persistés au moment de la connexion.
+    val host: String = "192.168.0.10",
+    val port: String = "35000",
     val supportedPids: Set<Int> = emptySet(),
     val values: Map<Int, GaugeValue> = emptyMap(),
     val vin: String? = null,
@@ -45,7 +51,14 @@ data class ObdUiState(
 
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _state = MutableStateFlow(ObdUiState())
+    private val prefs = application.getSharedPreferences("obd2dash", Context.MODE_PRIVATE)
+
+    private val _state = MutableStateFlow(
+        ObdUiState(
+            host = prefs.getString(KEY_HOST, null) ?: "192.168.0.10",
+            port = prefs.getString(KEY_PORT, null) ?: "35000"
+        )
+    )
     val state: StateFlow<ObdUiState> = _state
 
     private var client: Elm327Client? = null
@@ -55,8 +68,29 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var vehicleId: String = DtcHistoryStore.UNKNOWN_VEHICLE
     private val historyStore = DtcHistoryStore(application)
 
-    fun connect(host: String, port: Int) {
+    fun updateHost(value: String) {
+        _state.update { it.copy(host = value) }
+    }
+
+    fun updatePort(value: String) {
+        _state.update { it.copy(port = value) }
+    }
+
+    fun connect(host: String, portText: String) {
         if (_state.value.connectionState == ConnectionState.CONNECTING) return
+
+        val port = portText.toIntOrNull()
+        if (host.isBlank() || port == null || port !in 1..65535) {
+            _state.update {
+                it.copy(
+                    connectionState = ConnectionState.ERROR,
+                    errorMessage = "Adresse IP ou port invalide (port entre 1 et 65535)."
+                )
+            }
+            return
+        }
+
+        prefs.edit().putString(KEY_HOST, host).putString(KEY_PORT, portText).apply()
         _state.update { it.copy(connectionState = ConnectionState.CONNECTING, errorMessage = null) }
 
         viewModelScope.launch {
@@ -269,7 +303,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         unregisterNetworkCallback()
         val c = client
         client = null
-        _state.update { ObdUiState() }
+        // Repart d'un état par défaut, mais en gardant l'hôte/port actuellement affichés
+        // (sinon une déconnexion effacerait ce que l'utilisateur vient de configurer).
+        _state.update { ObdUiState(host = it.host, port = it.port) }
         // Fermeture hors du thread principal : socket.close() est désormais rapide
         // (voir Elm327Client.disconnect()), mais autant ne pas en dépendre.
         if (c != null) {
@@ -279,5 +315,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         disconnect()
+    }
+
+    companion object {
+        private const val KEY_HOST = "conn_host"
+        private const val KEY_PORT = "conn_port"
     }
 }

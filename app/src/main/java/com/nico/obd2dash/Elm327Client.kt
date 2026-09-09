@@ -111,7 +111,7 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
      * DTC de plusieurs ECU, distinguer leurs trames) demanderait d'activer les headers
      * (ATH1) et de revalider le format exact sur le véhicule réel, non fait ici.
      */
-    private fun reassembleHex(response: String, expectedPrefix: String): String {
+    internal fun reassembleHex(response: String, expectedPrefix: String): String {
         val lines = response.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }
         val frameRegex = Regex("^([0-9A-Fa-f]):(.+)$")
         val frames = sortedMapOf<Int, String>()
@@ -139,11 +139,20 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val expectedPrefix = "41$pidHex"
         val response = sendRaw("01$pidHex")
         val hexstr = reassembleHex(response, expectedPrefix)
-        if (!hexstr.uppercase().startsWith(expectedPrefix)) return null
+        return parseHexPayload(hexstr, expectedPrefix)
+    }
+
+    /**
+     * Vérifie le préfixe attendu et découpe le reste en octets. Fonction pure (pas
+     * d'accès réseau), testée indépendamment.
+     *
+     * Un nombre impair de caractères signale une trame tronquée (un demi-octet ne peut
+     * pas être une donnée valide) : mieux vaut rejeter que deviner un octet à partir d'un
+     * seul caractère. Idem si un des groupes n'est pas de l'hexadécimal.
+     */
+    internal fun parseHexPayload(hexstr: String, expectedPrefix: String): List<Int>? {
+        if (!hexstr.uppercase().startsWith(expectedPrefix.uppercase())) return null
         val dataHex = hexstr.substring(expectedPrefix.length)
-        // Un nombre impair de caractères signale une trame tronquée (un demi-octet ne
-        // peut pas être une donnée valide) : mieux vaut rejeter que deviner un octet à
-        // partir d'un seul caractère. Idem si un des groupes n'est pas de l'hexadécimal.
         if (dataHex.isEmpty() || dataHex.length % 2 != 0) return null
         val bytes = dataHex.chunked(2).map { it.toIntOrNull(16) }
         if (bytes.any { it == null }) return null
@@ -192,8 +201,20 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
 
     suspend fun readPendingDtcs(): List<String> = readDtcs(mode = "07", expectedPrefix = "47")
 
+    /** Décode les DTC d'un mode donné (03=stockés, 07=en attente). Voir [parseDtcResponse]. */
+    private suspend fun readDtcs(mode: String, expectedPrefix: String): List<String> {
+        val response = sendRaw(mode)
+        val hexstr = reassembleHex(response, expectedPrefix)
+        if (!hexstr.uppercase().startsWith(expectedPrefix)) {
+            throw IOException("Réponse DTC inattendue: ${response.ifBlank { "(vide)" }}")
+        }
+        return parseDtcResponse(hexstr, expectedPrefix)
+    }
+
     /**
-     * Décode les DTC d'un mode donné (03=stockés, 07=en attente).
+     * Extrait les DTC d'une réponse déjà reformée en une seule chaîne hexadécimale
+     * commençant par le préfixe attendu (vérifié par l'appelant). Fonction pure (pas
+     * d'accès réseau), testée indépendamment avec les captures de l'audit.
      *
      * En CAN (ISO 15765-4), l'octet qui suit immédiatement l'écho de mode (43/47) est le
      * NOMBRE de DTC annoncés, pas le début du premier code (contrairement à K-Line/KWP2000
@@ -201,16 +222,11 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
      * "43 01 00 87" (1 défaut) se lisait "01 00" -> P0100 en jetant le "87", alors que c'est
      * "01"(compteur=1) puis "00 87" -> P0087. Se borner exactement à ce compteur élimine
      * aussi le padding de fin de trame (0x00 ou 0xAA selon calculateur) sans avoir besoin
-     * de le deviner. Toute réponse qui ne correspond pas au préfixe attendu, ou trop
-     * courte pour contenir ne serait-ce que le compteur, est une erreur de lecture et doit
-     * être signalée comme telle, pas confondue avec "0 défaut confirmé".
+     * de le deviner. Toute réponse trop courte pour contenir ne serait-ce que le compteur
+     * est une erreur de lecture et doit être signalée comme telle, pas confondue avec
+     * "0 défaut confirmé".
      */
-    private suspend fun readDtcs(mode: String, expectedPrefix: String): List<String> {
-        val response = sendRaw(mode)
-        val hexstr = reassembleHex(response, expectedPrefix)
-        if (!hexstr.uppercase().startsWith(expectedPrefix)) {
-            throw IOException("Réponse DTC inattendue: ${response.ifBlank { "(vide)" }}")
-        }
+    internal fun parseDtcResponse(hexstr: String, expectedPrefix: String): List<String> {
         val payload = hexstr.substring(expectedPrefix.length)
         if (payload.length < 2) {
             throw IOException("Réponse DTC tronquée (pas de compteur): $hexstr")
@@ -228,10 +244,15 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
             if (b1 == null || b2 == null) throw IOException("Octet DTC illisible: $hexstr")
             codes.add(decodeDtc(b1, b2))
         }
+        // Le compteur promettait plus de codes que la trame n'en contenait réellement :
+        // trame tronquée, pas "moins de défauts que prévu".
+        if (codes.size != declaredCount) {
+            throw IOException("Nombre de DTC incohérent (annoncé $declaredCount, lu ${codes.size}): $hexstr")
+        }
         return codes
     }
 
-    private fun decodeDtc(b1: Int, b2: Int): String {
+    internal fun decodeDtc(b1: Int, b2: Int): String {
         val letter = when ((b1 shr 6) and 0b11) {
             0 -> "P"; 1 -> "C"; 2 -> "B"; else -> "U"
         }
@@ -302,12 +323,8 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val expectedPrefix = "42$pidHex"
         val response = sendRaw("02$pidHex$frameHex")
         val hexstr = reassembleHex(response, expectedPrefix)
-        if (!hexstr.uppercase().startsWith(expectedPrefix)) return null
-        var dataHex = hexstr.substring(expectedPrefix.length)
-        if (dataHex.length < 2) return null
-        dataHex = dataHex.substring(2) // écho du numéro de trame, pas de la donnée
-        if (dataHex.isEmpty()) return null
-        return dataHex.chunked(2).mapNotNull { it.toIntOrNull(16) }
+        val bytes = parseHexPayload(hexstr, expectedPrefix) ?: return null
+        return bytes.drop(1).ifEmpty { null } // 1er octet = écho du numéro de trame, pas la donnée
     }
 
     /**
@@ -320,13 +337,9 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val expectedPrefix = "4902"
         val response = sendRaw("0902")
         val hexstr = reassembleHex(response, expectedPrefix)
-        if (!hexstr.uppercase().startsWith(expectedPrefix)) return null
-        var dataHex = hexstr.substring(expectedPrefix.length)
-        if (dataHex.length < 2) return null
-        dataHex = dataHex.substring(2) // octet "nombre d'items"
-        if (dataHex.isEmpty() || dataHex.length % 2 != 0) return null
-        val bytes = dataHex.chunked(2).mapNotNull { it.toIntOrNull(16) }
-        val vin = bytes.filter { it in 0x20..0x7E }.map { it.toChar() }.joinToString("")
+        val bytes = parseHexPayload(hexstr, expectedPrefix) ?: return null
+        val vinBytes = bytes.drop(1) // octet "nombre d'items"
+        val vin = vinBytes.filter { it in 0x20..0x7E }.map { it.toChar() }.joinToString("")
         return vin.ifBlank { null }
     }
 }
