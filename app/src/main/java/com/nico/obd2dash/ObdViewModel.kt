@@ -7,6 +7,8 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -19,11 +21,15 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
+/** Valeur d'une jauge avec l'instant de sa dernière lecture réussie, pour en afficher la fraîcheur. */
+data class GaugeValue(val text: String, val updatedAtMs: Long)
+
 data class ObdUiState(
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
     val errorMessage: String? = null,
     val supportedPids: Set<Int> = emptySet(),
-    val values: Map<Int, String> = emptyMap(),
+    val values: Map<Int, GaugeValue> = emptyMap(),
+    val vin: String? = null,
     // null = jamais lu avec succès (pas encore connecté, ou dernière lecture en échec) :
     // distinct de "lu et confirmé sans défaut", pour ne pas afficher un faux résultat propre.
     val milOn: Boolean? = null,
@@ -44,6 +50,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     private var client: Elm327Client? = null
     private var pollJob: Job? = null
+    private var dtcJob: Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var vehicleId: String = DtcHistoryStore.UNKNOWN_VEHICLE
     private val historyStore = DtcHistoryStore(application)
 
     fun connect(host: String, port: Int) {
@@ -51,6 +60,15 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(connectionState = ConnectionState.CONNECTING, errorMessage = null) }
 
         viewModelScope.launch {
+            // Referme une éventuelle connexion précédente (ex: reconnexion après une
+            // erreur) avant d'en ouvrir une nouvelle, pour ne pas laisser un socket
+            // orphelin tourner en tâche de fond.
+            pollJob?.cancel()
+            dtcJob?.cancel()
+            unregisterNetworkCallback()
+            client?.disconnect()
+            client = null
+
             val c = Elm327Client(host, port)
             try {
                 // Le téléphone a souvent WiFi (sonde, sans Internet) + 4G actifs en même
@@ -72,15 +90,24 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 client = c
 
                 val supported = c.discoverSupportedPids()
+                // Best-effort : sert à isoler l'historique DTC par véhicule, mais son
+                // absence ne doit pas empêcher le reste de l'app de fonctionner.
+                val vin = runCatching { c.readVin() }.getOrNull()
+                vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
                 _state.update {
                     it.copy(
                         connectionState = ConnectionState.CONNECTED,
                         supportedPids = supported,
-                        dtcHistory = historyStore.load()
+                        vin = vin,
+                        dtcHistory = historyStore.load(vehicleId)
                     )
                 }
                 startPolling(c, supported)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                c.disconnect()
+                client = null
                 _state.update {
                     it.copy(connectionState = ConnectionState.ERROR, errorMessage = e.message ?: "Connexion échouée")
                 }
@@ -102,13 +129,20 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    cm.unregisterNetworkCallback(this)
+                    // Ne se désinscrit plus ici : la requête doit rester active tant que
+                    // la session dure, sinon Android peut ne plus se sentir tenu de garder
+                    // ce réseau WiFi disponible pour l'app. Libérée dans disconnect().
                     if (cont.isActive) cont.resume(network, onCancellation = null)
                 }
             }
 
+            networkCallback = callback
             cm.requestNetwork(request, callback)
-            cont.invokeOnCancellation { runCatching { cm.unregisterNetworkCallback(callback) } }
+            cont.invokeOnCancellation {
+                // Là, aucun réseau n'a été obtenu (timeout) : rien à garder.
+                runCatching { cm.unregisterNetworkCallback(callback) }
+                networkCallback = null
+            }
         }
     }
 
@@ -117,7 +151,16 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     // clone ELM327 bon marché peut décrocher (répondre n'importe quoi) si on l'arrose de
     // deux flux de commandes en même temps sans respirer. On met donc le poll en pause
     // pendant un refresh DTC plutôt que de les laisser cogner en parallèle.
-    @Volatile private var dtcOperationInProgress = false
+    //
+    // Compteur plutôt que booléen : refreshDtcs() annule un refresh précédent avant de
+    // relancer le sien (double entrée sur l'écran DTC), mais l'ancienne coroutine peut
+    // rester bloquée dans une lecture socket jusqu'à 3s (timeout) avant de vraiment
+    // s'arrêter. Avec un simple booléen, son "finally" pourrait remettre le drapeau à
+    // faux APRÈS que la nouvelle coroutine l'ait déjà mis à vrai, réactivant le polling
+    // pendant que le nouveau refresh tourne encore. Un compteur incrémenté/décrémenté
+    // par chacune reste correct quel que soit l'ordre de terminaison.
+    @Volatile private var dtcOperationCount = 0
+    private val dtcOperationInProgress: Boolean get() = dtcOperationCount > 0
 
     private fun startPolling(c: Elm327Client, supported: Set<Int>) {
         val toPoll = PidCatalog.defs.filter { it.pid in supported }
@@ -126,16 +169,23 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             while (c.isConnected) {
                 if (!dtcOperationInProgress) {
                     try {
-                        val newValues = mutableMapOf<Int, String>()
+                        val now = System.currentTimeMillis()
+                        val newValues = mutableMapOf<Int, GaugeValue>()
                         for (def in toPoll) {
                             val bytes = c.readPidBytes(def.pid)
-                            if (bytes != null) newValues[def.pid] = def.decode(bytes)
+                            if (bytes != null && bytes.size >= def.expectedBytes) {
+                                runCatching { def.decode(bytes) }.getOrNull()?.let {
+                                    newValues[def.pid] = GaugeValue(it, now)
+                                }
+                            }
                         }
                         // Fusionne plutôt que remplace : une lecture ratée ponctuelle garde
                         // la dernière valeur connue au lieu d'afficher "--" en régression.
                         if (newValues.isNotEmpty()) {
                             _state.update { it.copy(values = it.values + newValues) }
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         _state.update {
                             it.copy(connectionState = ConnectionState.ERROR, errorMessage = e.message ?: "Lecture échouée")
@@ -154,8 +204,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun refreshDtcs() {
         val c = client ?: return
-        viewModelScope.launch {
-            dtcOperationInProgress = true
+        // Une deuxième entrée sur l'écran DTC pendant qu'un refresh tourne encore
+        // annule le précédent plutôt que de les laisser cogner en parallèle sur le fil.
+        dtcJob?.cancel()
+        dtcJob = viewModelScope.launch {
+            dtcOperationCount++
             _state.update { it.copy(dtcLoading = true, dtcError = null) }
             try {
                 val (mil, count) = c.readMilStatus()
@@ -168,7 +221,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     val values = mutableMapOf<Int, String>()
                     for (def in PidCatalog.defs.filter { it.pid in supported }) {
                         val bytes = c.readFreezeFrameBytes(def.pid)
-                        if (bytes != null) {
+                        if (bytes != null && bytes.size >= def.expectedBytes) {
                             runCatching { def.decode(bytes) }.getOrNull()?.let { values[def.pid] = it }
                         }
                     }
@@ -177,7 +230,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     emptyMap()
                 }
 
-                val history = historyStore.record(stored)
+                val history = historyStore.record(vehicleId, stored)
 
                 _state.update {
                     it.copy(
@@ -191,19 +244,37 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         dtcLoading = false
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _state.update { it.copy(dtcLoading = false, dtcError = e.message ?: "Lecture DTC échouée") }
             } finally {
-                dtcOperationInProgress = false
+                dtcOperationCount--
             }
         }
     }
 
+    private fun unregisterNetworkCallback() {
+        networkCallback?.let { cb ->
+            val cm = getApplication<Application>()
+                .getSystemService(Application.CONNECTIVITY_SERVICE) as ConnectivityManager
+            runCatching { cm.unregisterNetworkCallback(cb) }
+        }
+        networkCallback = null
+    }
+
     fun disconnect() {
         pollJob?.cancel()
-        client?.disconnect()
+        dtcJob?.cancel()
+        unregisterNetworkCallback()
+        val c = client
         client = null
         _state.update { ObdUiState() }
+        // Fermeture hors du thread principal : socket.close() est désormais rapide
+        // (voir Elm327Client.disconnect()), mais autant ne pas en dépendre.
+        if (c != null) {
+            viewModelScope.launch(Dispatchers.IO) { c.disconnect() }
+        }
     }
 
     override fun onCleared() {

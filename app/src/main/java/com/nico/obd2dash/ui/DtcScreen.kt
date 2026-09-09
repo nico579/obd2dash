@@ -107,7 +107,10 @@ fun DtcScreen(
 
         if (state.dtcHistory.isNotEmpty()) {
             HorizontalDivider()
-            Text("Historique sur ce véhicule", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (state.vin != null) "Historique (VIN ${state.vin})" else "Historique (véhicule non identifié)",
+                style = MaterialTheme.typography.titleMedium
+            )
             for (entry in state.dtcHistory) {
                 HistoryRow(entry)
             }

@@ -15,16 +15,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionState
+import com.nico.obd2dash.GaugeValue
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
+import kotlinx.coroutines.delay
+
+// Au-delà de ce délai sans nouvelle lecture, une valeur est affichée atténuée (une pause
+// de polling pendant un refresh DTC dure normalement moins longtemps que ça). Au-delà du
+// second délai, plus large pour ne pas clignoter pendant une pause normale, elle est
+// masquée : trop vieille pour être présentée comme l'état actuel du véhicule.
+private const val STALE_AFTER_MS = 3_000L
+private const val UNAVAILABLE_AFTER_MS = 10_000L
 
 @Composable
 fun DashboardScreen(
@@ -35,6 +46,13 @@ fun DashboardScreen(
 ) {
     var host by remember { mutableStateOf("192.168.0.10") }
     var port by remember { mutableStateOf("35000") }
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(500)
+            nowMs = System.currentTimeMillis()
+        }
+    }
 
     Column(
         modifier = modifier
@@ -77,7 +95,7 @@ fun DashboardScreen(
             val secondaryDefs = PidCatalog.defs.filter { it.pid !in PidCatalog.PRIMARY_PIDS && it.pid in state.supportedPids }
 
             for (def in primaryDefs) {
-                GaugeRow(def.label, state.values[def.pid] ?: "--")
+                GaugeRow(def.label, state.values[def.pid], nowMs)
             }
 
             if (secondaryDefs.isNotEmpty()) {
@@ -89,7 +107,7 @@ fun DashboardScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(secondaryDefs) { def ->
-                        SmallGauge(def.label, state.values[def.pid] ?: "--")
+                        SmallGauge(def.label, state.values[def.pid], nowMs)
                     }
                 }
             }
@@ -101,18 +119,39 @@ fun DashboardScreen(
     }
 }
 
-@Composable
-private fun GaugeRow(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelLarge)
-        Text(value, style = MaterialTheme.typography.displayMedium)
+/** Texte à afficher, et s'il faut le présenter atténué (probablement périmé). */
+private fun staleness(value: GaugeValue?, nowMs: Long): Pair<String, Boolean> {
+    if (value == null) return "--" to false
+    val age = nowMs - value.updatedAtMs
+    return when {
+        age > UNAVAILABLE_AFTER_MS -> "--" to false
+        age > STALE_AFTER_MS -> value.text to true
+        else -> value.text to false
     }
 }
 
 @Composable
-private fun SmallGauge(label: String, value: String) {
+private fun GaugeRow(label: String, value: GaugeValue?, nowMs: Long) {
+    val (text, stale) = staleness(value, nowMs)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Text(
+            text,
+            style = MaterialTheme.typography.displayMedium,
+            color = if (stale) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified
+        )
+    }
+}
+
+@Composable
+private fun SmallGauge(label: String, value: GaugeValue?, nowMs: Long) {
+    val (text, stale) = staleness(value, nowMs)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 2)
-        Text(value, style = MaterialTheme.typography.titleMedium)
+        Text(
+            text,
+            style = MaterialTheme.typography.titleMedium,
+            color = if (stale) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified
+        )
     }
 }

@@ -1,6 +1,7 @@
 package com.nico.obd2dash
 
 import android.net.Network
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,9 +50,12 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
     }
 
     fun disconnect() {
+        // Fermer le socket EN PREMIER interrompt immédiatement une lecture bloquée
+        // (reader.close() attend le même verrou interne que r.read(), donc le fermer
+        // avant le socket pouvait bloquer l'appelant jusqu'au timeout de lecture).
+        runCatching { socket?.close() }
         runCatching { reader?.close() }
         runCatching { out?.close() }
-        runCatching { socket?.close() }
         socket = null
     }
 
@@ -63,31 +67,51 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
             val o = out ?: error("Non connecté")
             val r = reader ?: error("Non connecté")
 
-            o.write("$command\r".toByteArray())
-            o.flush()
+            try {
+                o.write("$command\r".toByteArray())
+                o.flush()
 
-            val sb = StringBuilder()
-            while (true) {
-                val c = r.read()
-                // Une fin de flux avant '>' signifie que la connexion a été coupée
-                // (sonde éteinte, WiFi perdu) : ce n'est pas une réponse normale, il ne
-                // faut pas la traiter comme telle sous peine de la confondre plus tard
-                // avec un résultat de lecture valide (ex: "0 défaut").
-                if (c == -1) throw IOException("Connexion perdue (fin de flux avant '>')")
-                val ch = c.toChar()
-                if (ch == '>') break
-                sb.append(ch)
+                val sb = StringBuilder()
+                while (true) {
+                    val c = r.read()
+                    // Une fin de flux avant '>' signifie que la connexion a été coupée
+                    // (sonde éteinte, WiFi perdu) : ce n'est pas une réponse normale, il
+                    // ne faut pas la traiter comme telle sous peine de la confondre plus
+                    // tard avec un résultat de lecture valide (ex: "0 défaut").
+                    if (c == -1) throw IOException("Connexion perdue (fin de flux avant '>')")
+                    val ch = c.toChar()
+                    if (ch == '>') break
+                    sb.append(ch)
+                }
+                sb.toString().trim()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Un timeout (soTimeout=3000) ou une coupure en cours d'échange laisse le
+                // flux dans un état qu'on ne peut pas resynchroniser de façon fiable : une
+                // réponse tardive à cette commande serait sinon lue comme réponse à la
+                // suivante. On ferme la session plutôt que de risquer de mélanger deux
+                // échanges ; toute réutilisation échouera franchement ("Non connecté").
+                disconnect()
+                throw e
             }
-            sb.toString().trim()
         }
     }
 
     /**
      * Recolle les réponses multi-trames ISO-TP affichées en lignes "N: <hex>" (headers
      * off mais réponse trop longue pour une seule trame CAN, ex: VIN, DTC nombreux).
-     * Sinon retombe sur la première ligne purement hexadécimale de la réponse.
+     * Sinon retombe sur une ligne purement hexadécimale de la réponse.
+     *
+     * Limite connue (non résolue ici) : les headers sont désactivés (ATH0), donc rien
+     * n'identifie quel calculateur a répondu quoi. Si plusieurs ECU répondent à une même
+     * requête broadcast, leurs lignes/trames peuvent se mélanger ou s'écraser. On limite
+     * les dégâts en préférant, parmi plusieurs lignes candidates, celle qui correspond au
+     * préfixe attendu plutôt que la première venue ; une résolution complète (agréger les
+     * DTC de plusieurs ECU, distinguer leurs trames) demanderait d'activer les headers
+     * (ATH1) et de revalider le format exact sur le véhicule réel, non fait ici.
      */
-    private fun reassembleHex(response: String): String {
+    private fun reassembleHex(response: String, expectedPrefix: String): String {
         val lines = response.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }
         val frameRegex = Regex("^([0-9A-Fa-f]):(.+)$")
         val frames = sortedMapOf<Int, String>()
@@ -96,7 +120,10 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
             frames[m.groupValues[1].toInt(16)] = m.groupValues[2].trim()
         }
         if (frames.isNotEmpty()) return frames.values.joinToString("")
-        return lines.firstOrNull { line -> line.all { c -> c in '0'..'9' || c in 'A'..'F' || c in 'a'..'f' } } ?: ""
+        val hexLines = lines.filter { line -> line.all { c -> c in '0'..'9' || c in 'A'..'F' || c in 'a'..'f' } }
+        return hexLines.firstOrNull { it.uppercase().startsWith(expectedPrefix.uppercase()) }
+            ?: hexLines.firstOrNull()
+            ?: ""
     }
 
     /**
@@ -111,11 +138,16 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val pidHex = "%02X".format(pid)
         val expectedPrefix = "41$pidHex"
         val response = sendRaw("01$pidHex")
-        val hexstr = reassembleHex(response)
+        val hexstr = reassembleHex(response, expectedPrefix)
         if (!hexstr.uppercase().startsWith(expectedPrefix)) return null
         val dataHex = hexstr.substring(expectedPrefix.length)
-        if (dataHex.isEmpty()) return null
-        return dataHex.chunked(2).mapNotNull { it.toIntOrNull(16) }
+        // Un nombre impair de caractères signale une trame tronquée (un demi-octet ne
+        // peut pas être une donnée valide) : mieux vaut rejeter que deviner un octet à
+        // partir d'un seul caractère. Idem si un des groupes n'est pas de l'hexadécimal.
+        if (dataHex.isEmpty() || dataHex.length % 2 != 0) return null
+        val bytes = dataHex.chunked(2).map { it.toIntOrNull(16) }
+        if (bytes.any { it == null }) return null
+        return bytes.filterNotNull()
     }
 
     /**
@@ -175,7 +207,7 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
      */
     private suspend fun readDtcs(mode: String, expectedPrefix: String): List<String> {
         val response = sendRaw(mode)
-        val hexstr = reassembleHex(response)
+        val hexstr = reassembleHex(response, expectedPrefix)
         if (!hexstr.uppercase().startsWith(expectedPrefix)) {
             throw IOException("Réponse DTC inattendue: ${response.ifBlank { "(vide)" }}")
         }
@@ -209,9 +241,17 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
     }
 
     private val continuousMonitors = listOf("Misfire", "Système carburant", "Composants")
-    private val nonContinuousMonitors = listOf(
+
+    // SAE J1979 définit deux tables différentes pour les 8 moniteurs non-continus selon le
+    // type de moteur (bit 3 de l'octet B, cf. readReadiness) : les positions de bits ne
+    // désignent pas les mêmes moniteurs en essence et en diesel.
+    private val nonContinuousMonitorsSpark = listOf(
         "Catalyseur", "Catalyseur chauffé", "Système EVAP", "Air secondaire",
         "Climatisation (obsolète)", "Sonde O2", "Chauffage sonde O2", "EGR/VVT"
+    )
+    private val nonContinuousMonitorsCompression = listOf(
+        "Catalyseur NMHC", "NOx/SCR", "(réservé)", "Suralimentation",
+        "(réservé)", "Capteur gaz d'échappement", "Filtre à particules", "EGR/VVT"
     )
 
     /**
@@ -224,6 +264,16 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val byteB = bytes[1]
         val byteC = bytes[2]
         val byteD = bytes[3]
+
+        // Bit 3 de l'octet B : 0 = allumage commandé (essence), 1 = allumage par
+        // compression (diesel). Détermine quelle table de moniteurs non-continus
+        // s'applique aux octets C/D (mêmes positions de bits, moniteurs différents).
+        val isCompressionIgnition = (byteB shr 3) and 1 == 1
+        val nonContinuousMonitors = if (isCompressionIgnition) {
+            nonContinuousMonitorsCompression
+        } else {
+            nonContinuousMonitorsSpark
+        }
 
         val result = mutableListOf<ReadinessMonitor>()
         for (i in continuousMonitors.indices) {
@@ -251,13 +301,33 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val frameHex = "%02X".format(frame)
         val expectedPrefix = "42$pidHex"
         val response = sendRaw("02$pidHex$frameHex")
-        val hexstr = reassembleHex(response)
+        val hexstr = reassembleHex(response, expectedPrefix)
         if (!hexstr.uppercase().startsWith(expectedPrefix)) return null
         var dataHex = hexstr.substring(expectedPrefix.length)
         if (dataHex.length < 2) return null
         dataHex = dataHex.substring(2) // écho du numéro de trame, pas de la donnée
         if (dataHex.isEmpty()) return null
         return dataHex.chunked(2).mapNotNull { it.toIntOrNull(16) }
+    }
+
+    /**
+     * VIN du véhicule (mode 09, PID 02) : sert à distinguer l'historique DTC d'un
+     * véhicule à l'autre. Réponse multi-trames (17 caractères ASCII ne tiennent pas dans
+     * une seule trame CAN), réassemblée par reassembleHex. Un octet "nombre d'items"
+     * (toujours 1 en pratique) précède les 17 octets ASCII du VIN.
+     */
+    suspend fun readVin(): String? {
+        val expectedPrefix = "4902"
+        val response = sendRaw("0902")
+        val hexstr = reassembleHex(response, expectedPrefix)
+        if (!hexstr.uppercase().startsWith(expectedPrefix)) return null
+        var dataHex = hexstr.substring(expectedPrefix.length)
+        if (dataHex.length < 2) return null
+        dataHex = dataHex.substring(2) // octet "nombre d'items"
+        if (dataHex.isEmpty() || dataHex.length % 2 != 0) return null
+        val bytes = dataHex.chunked(2).mapNotNull { it.toIntOrNull(16) }
+        val vin = bytes.filter { it in 0x20..0x7E }.map { it.toChar() }.joinToString("")
+        return vin.ifBlank { null }
     }
 }
 
