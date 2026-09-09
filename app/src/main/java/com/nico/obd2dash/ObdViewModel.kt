@@ -47,7 +47,10 @@ data class ObdUiState(
     val freezeFrame: Map<Int, String> = emptyMap(),
     val dtcHistory: List<DtcHistoryEntry> = emptyList(),
     val dtcLoading: Boolean = false,
-    val dtcError: String? = null
+    val dtcError: String? = null,
+    // Diagnostic ponctuel pour préparer le fix multi-ECU (finding 3), pas une donnée
+    // du véhicule. À retirer une fois ce format confirmé. Voir Elm327Client.probeHeaderFormat.
+    val headerProbeResult: String? = null
 )
 
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
@@ -284,6 +287,31 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(dtcLoading = false, dtcError = e.message ?: "Lecture DTC échouée") }
+            } finally {
+                dtcOperationCount--
+            }
+        }
+    }
+
+    /**
+     * Diagnostic ponctuel pour préparer le vrai correctif du finding 3 (multi-ECU) :
+     * capture le format de réponse avec headers CAN activés sur le véhicule réellement
+     * connecté, au lieu de deviner. Voir Elm327Client.probeHeaderFormat. Partage la même
+     * pause du polling que refreshDtcs, pour la même raison (ne pas cogner le fil en même
+     * temps que le poll live).
+     */
+    fun probeHeaderFormat() {
+        val c = client ?: return
+        dtcJob?.cancel()
+        dtcJob = viewModelScope.launch {
+            dtcOperationCount++
+            _state.update { it.copy(headerProbeResult = "Lecture...") }
+            try {
+                _state.update { it.copy(headerProbeResult = c.probeHeaderFormat()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(headerProbeResult = "Échec: ${e.message}") }
             } finally {
                 dtcOperationCount--
             }

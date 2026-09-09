@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
                             Screen.DTC -> DtcScreen(
                                 state = state,
                                 onRefresh = { viewModel.refreshDtcs() },
+                                onProbeHeaders = { viewModel.probeHeaderFormat() },
                                 modifier = Modifier.padding(padding)
                             )
                         }

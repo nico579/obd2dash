@@ -101,6 +101,21 @@ class Elm327ClientTest {
         assertEquals("49020131323334353637", client.reassembleHex(response, "4902"))
     }
 
+    @Test
+    fun `reassembleHex detecte une collision multi-frame entre deux ECU et echoue proprement`() {
+        // Meme numero de sequence (0), contenu different : deux calculateurs qui
+        // repondraient tous deux en multi-trame sans qu'on puisse les distinguer
+        // (headers desactives). Ne doit ni ecraser l'un par l'autre, ni les concatener.
+        val response = "0:490201313233\r0:4902013AB233"
+        assertEquals("", client.reassembleHex(response, "4902"))
+    }
+
+    @Test
+    fun `reassembleHex ne signale pas de collision sur une trame dupliquee identique`() {
+        val response = "0:490201313233\r0:490201313233"
+        assertEquals("490201313233", client.reassembleHex(response, "4902"))
+    }
+
     // --- parseHexPayload ---
 
     @Test

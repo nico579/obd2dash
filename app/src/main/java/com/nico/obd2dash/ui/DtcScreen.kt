@@ -29,6 +29,7 @@ import com.nico.obd2dash.ReadinessMonitor
 fun DtcScreen(
     state: ObdUiState,
     onRefresh: () -> Unit,
+    onProbeHeaders: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(Unit) { onRefresh() }
@@ -122,6 +123,21 @@ fun DtcScreen(
             for (entry in state.dtcHistory) {
                 HistoryRow(entry)
             }
+        }
+
+        HorizontalDivider()
+        Text(
+            "Diagnostic ponctuel (finding 3) : capture le format des trames avec les " +
+                "headers CAN activés, pour préparer la prise en charge multi-calculateur. " +
+                "Sans effet sur le fonctionnement normal.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Button(onClick = onProbeHeaders, modifier = Modifier.fillMaxWidth()) {
+            Text("Capturer le format headers-on")
+        }
+        state.headerProbeResult?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

@@ -136,11 +136,17 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
      *
      * Limite connue (non résolue ici) : les headers sont désactivés (ATH0), donc rien
      * n'identifie quel calculateur a répondu quoi. Si plusieurs ECU répondent à une même
-     * requête broadcast, leurs lignes/trames peuvent se mélanger ou s'écraser. On limite
-     * les dégâts en préférant, parmi plusieurs lignes candidates, celle qui correspond au
-     * préfixe attendu plutôt que la première venue ; une résolution complète (agréger les
-     * DTC de plusieurs ECU, distinguer leurs trames) demanderait d'activer les headers
-     * (ATH1) et de revalider le format exact sur le véhicule réel, non fait ici.
+     * requête broadcast, leurs lignes/trames peuvent se mélanger. On limite les dégâts de
+     * deux façons sans deviner le format headers-on (jamais vérifié sur un véhicule réel,
+     * cf. [probeHeaderFormat]) :
+     * - Repli une ligne : on préfère, parmi plusieurs lignes candidates, celle qui
+     *   correspond au préfixe attendu plutôt que la première venue.
+     * - Multi-trame : deux calculateurs qui répondraient tous deux en multi-trame
+     *   produiraient des numéros de séquence qui se chevauchent avec un contenu
+     *   différent. Plutôt que d'écraser silencieusement l'un par l'autre (résultat
+     *   arbitraire et faux), on détecte le conflit et on renvoie une chaîne vide :
+     *   l'appelant la traite comme une lecture ratée, pas comme une donnée corrompue
+     *   présentée comme valide.
      */
     internal fun reassembleHex(response: String, expectedPrefix: String): String {
         val lines = response.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }
@@ -148,13 +154,36 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val frames = sortedMapOf<Int, String>()
         for (line in lines) {
             val m = frameRegex.find(line) ?: continue
-            frames[m.groupValues[1].toInt(16)] = m.groupValues[2].trim()
+            val index = m.groupValues[1].toInt(16)
+            val data = m.groupValues[2].trim()
+            val existing = frames[index]
+            if (existing != null && existing != data) return ""
+            frames[index] = data
         }
         if (frames.isNotEmpty()) return frames.values.joinToString("")
         val hexLines = lines.filter { line -> line.all { c -> c in '0'..'9' || c in 'A'..'F' || c in 'a'..'f' } }
         return hexLines.firstOrNull { it.uppercase().startsWith(expectedPrefix.uppercase()) }
             ?: hexLines.firstOrNull()
             ?: ""
+    }
+
+    /**
+     * Diagnostic ponctuel, pas utilisé en fonctionnement normal : capture la réponse brute
+     * de `0100` (toujours supporté) sans puis avec les headers CAN activés, pour connaître
+     * le format exact que produit CETTE sonde sur CE véhicule avant d'adopter ATH1 pour de
+     * bon dans [connect]. Remet les headers dans leur état normal (désactivés) avant de
+     * retourner, quoi qu'il arrive. À supprimer une fois le format headers-on confirmé et
+     * le vrai correctif multi-ECU écrit.
+     */
+    suspend fun probeHeaderFormat(): String {
+        val withoutHeaders = sendRaw("0100")
+        try {
+            sendRaw("ATH1")
+            val withHeaders = sendRaw("0100")
+            return "Sans headers (ATH0): $withoutHeaders\nAvec headers (ATH1): $withHeaders"
+        } finally {
+            sendRaw("ATH0")
+        }
     }
 
     /**
