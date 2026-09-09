@@ -11,6 +11,8 @@ android {
         applicationId = "com.nico.obd2dash"
         minSdk = 26
         targetSdk = 34
+        // À incrémenter avant de pousser un tag vX.Y (voir .github/workflows/release.yml) :
+        // rien ne les synchronise automatiquement avec le tag.
         versionCode = 1
         versionName = "0.1"
     }
