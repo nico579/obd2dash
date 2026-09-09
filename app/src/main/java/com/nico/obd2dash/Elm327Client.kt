@@ -29,6 +29,16 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
     // sous peine de mélanger les réponses. Ce verrou serialise tout accès au fil.
     private val mutex = Mutex()
 
+    // Protocole effectivement sélectionné par ATSP0 (auto), détecté à la connexion.
+    // Conditionne le décodage DTC (voir parseDtcResponse) : en CAN, un octet compteur
+    // suit l'écho de mode ; en K-Line/KWP2000, les paires de DTC s'enchaînent directement.
+    // Vrai par défaut/en cas d'échec de détection : seul cas validé sur un véhicule réel
+    // à ce jour (SEAT diesel, CAN 11 bits).
+    var isCanProtocol: Boolean = true
+        private set
+    var detectedProtocol: String? = null
+        private set
+
     suspend fun connect(network: Network? = null) = withContext(Dispatchers.IO) {
         val s = Socket()
         // Force le socket à sortir par le WiFi de la sonde plutôt que par la 4G,
@@ -47,6 +57,27 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         sendRaw("ATS0")  // espaces off
         sendRaw("ATH0")  // headers off
         sendRaw("ATSP0") // protocole auto
+        detectProtocol()
+    }
+
+    /**
+     * Demande à l'ELM327 le protocole qu'il a effectivement choisi (ATDPN : numéro, préfixé
+     * de "A" si sélectionné automatiquement par ATSP0). Protocoles 6-9/A-C = ISO 15765-4
+     * CAN ; 1-5 = SAE J1850/ISO 9141-2/ISO 14230 KWP, non-CAN. Une réponse inattendue (ex:
+     * ATDPN non supporté par un clone bon marché) retombe sur l'hypothèse CAN plutôt que
+     * de faire échouer toute la connexion pour une commande secondaire.
+     */
+    private suspend fun detectProtocol() {
+        try {
+            val raw = sendRaw("ATDPN").trim().uppercase()
+            detectedProtocol = raw.ifBlank { null }
+            val code = raw.removePrefix("A").firstOrNull()
+            isCanProtocol = code == null || code in "6789ABC"
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            isCanProtocol = true
+        }
     }
 
     fun disconnect() {
@@ -208,7 +239,7 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         if (!hexstr.uppercase().startsWith(expectedPrefix)) {
             throw IOException("Réponse DTC inattendue: ${response.ifBlank { "(vide)" }}")
         }
-        return parseDtcResponse(hexstr, expectedPrefix)
+        return parseDtcResponse(hexstr, expectedPrefix, isCanProtocol)
     }
 
     /**
@@ -216,38 +247,56 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
      * commençant par le préfixe attendu (vérifié par l'appelant). Fonction pure (pas
      * d'accès réseau), testée indépendamment avec les captures de l'audit.
      *
-     * En CAN (ISO 15765-4), l'octet qui suit immédiatement l'écho de mode (43/47) est le
-     * NOMBRE de DTC annoncés, pas le début du premier code (contrairement à K-Line/KWP2000
-     * où les paires s'enchaînent directement). L'ignorer décale tout le décodage d'un octet :
-     * "43 01 00 87" (1 défaut) se lisait "01 00" -> P0100 en jetant le "87", alors que c'est
-     * "01"(compteur=1) puis "00 87" -> P0087. Se borner exactement à ce compteur élimine
-     * aussi le padding de fin de trame (0x00 ou 0xAA selon calculateur) sans avoir besoin
-     * de le deviner. Toute réponse trop courte pour contenir ne serait-ce que le compteur
-     * est une erreur de lecture et doit être signalée comme telle, pas confondue avec
-     * "0 défaut confirmé".
+     * Le format dépend du protocole, d'où le paramètre `isCan` (voir [detectProtocol]) :
+     * - **CAN** (ISO 15765-4) : l'octet qui suit l'écho de mode (43/47) est le NOMBRE de
+     *   DTC annoncés, pas le début du premier code. L'ignorer décale tout le décodage d'un
+     *   octet : "43 01 00 87" (1 défaut) se lisait "01 00" -> P0100 en jetant le "87",
+     *   alors que c'est "01"(compteur=1) puis "00 87" -> P0087. Se borner exactement à ce
+     *   compteur élimine aussi le padding de fin de trame CAN (0x00/0xAA) sans le deviner.
+     * - **K-Line/KWP2000** (ISO 9141-2, ISO 14230) : pas de compteur, les paires de DTC
+     *   s'enchaînent directement après l'écho de mode ; la trame se termine naturellement
+     *   avec le dernier DTC (contrairement au CAN, ces protocoles n'imposent pas un cadre
+     *   fixe de 8 octets à remplir de padding).
+     *
+     * Dans les deux cas, une réponse trop courte pour contenir un DTC complet, ou (en CAN)
+     * pour contenir ne serait-ce que le compteur, est une erreur de lecture et doit être
+     * signalée comme telle, pas confondue avec "0 défaut confirmé".
      */
-    internal fun parseDtcResponse(hexstr: String, expectedPrefix: String): List<String> {
+    internal fun parseDtcResponse(hexstr: String, expectedPrefix: String, isCan: Boolean): List<String> {
         val payload = hexstr.substring(expectedPrefix.length)
-        if (payload.length < 2) {
-            throw IOException("Réponse DTC tronquée (pas de compteur): $hexstr")
+        val declaredCount: Int?
+        val dtcData: String
+        if (isCan) {
+            if (payload.length < 2) {
+                throw IOException("Réponse DTC tronquée (pas de compteur): $hexstr")
+            }
+            declaredCount = payload.substring(0, 2).toIntOrNull(16)
+                ?: throw IOException("Compteur DTC illisible: $hexstr")
+            dtcData = payload.substring(2)
+        } else {
+            declaredCount = null
+            dtcData = payload
         }
-        val declaredCount = payload.substring(0, 2).toIntOrNull(16)
-            ?: throw IOException("Compteur DTC illisible: $hexstr")
-        val dtcData = payload.substring(2)
 
         val codes = mutableListOf<String>()
         var i = 0
-        while (i + 4 <= dtcData.length && codes.size < declaredCount) {
+        while (i + 4 <= dtcData.length && (declaredCount == null || codes.size < declaredCount)) {
             val b1 = dtcData.substring(i, i + 2).toIntOrNull(16)
             val b2 = dtcData.substring(i + 2, i + 4).toIntOrNull(16)
             i += 4
             if (b1 == null || b2 == null) throw IOException("Octet DTC illisible: $hexstr")
             codes.add(decodeDtc(b1, b2))
         }
-        // Le compteur promettait plus de codes que la trame n'en contenait réellement :
-        // trame tronquée, pas "moins de défauts que prévu".
-        if (codes.size != declaredCount) {
-            throw IOException("Nombre de DTC incohérent (annoncé $declaredCount, lu ${codes.size}): $hexstr")
+        if (declaredCount != null) {
+            // En CAN, le compteur promettait plus de codes que la trame n'en contenait
+            // réellement : trame tronquée, pas "moins de défauts que prévu".
+            if (codes.size != declaredCount) {
+                throw IOException("Nombre de DTC incohérent (annoncé $declaredCount, lu ${codes.size}): $hexstr")
+            }
+        } else if (i < dtcData.length) {
+            // Non-CAN : pas de compteur pour se caler dessus, donc un reste plus court
+            // qu'une paire complète ne peut être qu'une trame tronquée en transmission.
+            throw IOException("Trame DTC tronquée (reste incomplet): $hexstr")
         }
         return codes
     }

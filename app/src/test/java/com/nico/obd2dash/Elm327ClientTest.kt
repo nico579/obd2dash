@@ -33,32 +33,50 @@ class Elm327ClientTest {
         assertEquals("P0300", client.decodeDtc(0x03, 0x00))
     }
 
-    // --- parseDtcResponse : capture reelle de l'audit, avant le fix lisait "P0100" ---
+    // --- parseDtcResponse (CAN) : capture reelle de l'audit, avant le fix lisait "P0100" ---
 
     @Test
-    fun `parseDtcResponse un seul DTC prend en compte l'octet compteur`() {
-        assertEquals(listOf("P0087"), client.parseDtcResponse("43010087", "43"))
+    fun `parseDtcResponse CAN un seul DTC prend en compte l'octet compteur`() {
+        assertEquals(listOf("P0087"), client.parseDtcResponse("43010087", "43", isCan = true))
     }
 
     @Test
-    fun `parseDtcResponse deux DTC`() {
-        assertEquals(listOf("P0100", "P0300"), client.parseDtcResponse("430201000300", "43"))
+    fun `parseDtcResponse CAN deux DTC`() {
+        assertEquals(listOf("P0100", "P0300"), client.parseDtcResponse("430201000300", "43", isCan = true))
     }
 
     @Test
-    fun `parseDtcResponse zero DTC confirme`() {
-        assertEquals(emptyList<String>(), client.parseDtcResponse("4300", "43"))
+    fun `parseDtcResponse CAN zero DTC confirme`() {
+        assertEquals(emptyList<String>(), client.parseDtcResponse("4300", "43", isCan = true))
     }
 
     @Test
-    fun `parseDtcResponse trop courte pour contenir un compteur leve une erreur`() {
-        assertThrows(IOException::class.java) { client.parseDtcResponse("43", "43") }
+    fun `parseDtcResponse CAN trop courte pour contenir un compteur leve une erreur`() {
+        assertThrows(IOException::class.java) { client.parseDtcResponse("43", "43", isCan = true) }
     }
 
     @Test
-    fun `parseDtcResponse compteur promet plus de codes que la trame n'en contient`() {
+    fun `parseDtcResponse CAN compteur promet plus de codes que la trame n'en contient`() {
         // Compteur = 2 mais une seule paire de donnees derriere : trame tronquee.
-        assertThrows(IOException::class.java) { client.parseDtcResponse("43020100", "43") }
+        assertThrows(IOException::class.java) { client.parseDtcResponse("43020100", "43", isCan = true) }
+    }
+
+    // --- parseDtcResponse (non-CAN, K-Line/KWP2000) : pas de compteur, paires enchainees ---
+
+    @Test
+    fun `parseDtcResponse non-CAN deux DTC sans compteur`() {
+        assertEquals(listOf("P0087", "P0300"), client.parseDtcResponse("4300870300", "43", isCan = false))
+    }
+
+    @Test
+    fun `parseDtcResponse non-CAN zero DTC confirme`() {
+        assertEquals(emptyList<String>(), client.parseDtcResponse("43", "43", isCan = false))
+    }
+
+    @Test
+    fun `parseDtcResponse non-CAN paire incomplete leve une erreur`() {
+        // 3 caracteres apres le prefixe : ni un DTC complet, ni vide.
+        assertThrows(IOException::class.java) { client.parseDtcResponse("4300870", "43", isCan = false) }
     }
 
     // --- reassembleHex ---

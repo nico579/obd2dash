@@ -36,6 +36,7 @@ data class ObdUiState(
     val supportedPids: Set<Int> = emptySet(),
     val values: Map<Int, GaugeValue> = emptyMap(),
     val vin: String? = null,
+    val protocol: String? = null,
     // null = jamais lu avec succès (pas encore connecté, ou dernière lecture en échec) :
     // distinct de "lu et confirmé sans défaut", pour ne pas afficher un faux résultat propre.
     val milOn: Boolean? = null,
@@ -133,6 +134,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         connectionState = ConnectionState.CONNECTED,
                         supportedPids = supported,
                         vin = vin,
+                        protocol = c.detectedProtocol,
                         dtcHistory = historyStore.load(vehicleId)
                     )
                 }

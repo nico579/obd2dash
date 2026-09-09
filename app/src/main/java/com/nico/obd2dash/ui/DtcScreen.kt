@@ -67,6 +67,17 @@ fun DtcScreen(
             )
         }
 
+        if (state.vin != null || state.protocol != null) {
+            Text(
+                listOfNotNull(
+                    state.vin?.let { "VIN $it" },
+                    state.protocol?.let { "Protocole $it" }
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
         Button(onClick = onRefresh, enabled = !state.dtcLoading, modifier = Modifier.fillMaxWidth()) {
             Text(if (state.dtcLoading) "Lecture..." else "Rafraîchir")
         }
@@ -107,10 +118,7 @@ fun DtcScreen(
 
         if (state.dtcHistory.isNotEmpty()) {
             HorizontalDivider()
-            Text(
-                if (state.vin != null) "Historique (VIN ${state.vin})" else "Historique (véhicule non identifié)",
-                style = MaterialTheme.typography.titleMedium
-            )
+            Text("Historique sur ce véhicule", style = MaterialTheme.typography.titleMedium)
             for (entry in state.dtcHistory) {
                 HistoryRow(entry)
             }
