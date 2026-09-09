@@ -24,10 +24,12 @@ data class ObdUiState(
     val errorMessage: String? = null,
     val supportedPids: Set<Int> = emptySet(),
     val values: Map<Int, String> = emptyMap(),
-    val milOn: Boolean = false,
-    val dtcCount: Int = 0,
-    val storedDtcs: List<String> = emptyList(),
-    val pendingDtcs: List<String> = emptyList(),
+    // null = jamais lu avec succès (pas encore connecté, ou dernière lecture en échec) :
+    // distinct de "lu et confirmé sans défaut", pour ne pas afficher un faux résultat propre.
+    val milOn: Boolean? = null,
+    val dtcCount: Int? = null,
+    val storedDtcs: List<String>? = null,
+    val pendingDtcs: List<String>? = null,
     val readiness: List<ReadinessMonitor> = emptyList(),
     val freezeFrame: Map<Int, String> = emptyMap(),
     val dtcHistory: List<DtcHistoryEntry> = emptyList(),
@@ -156,7 +158,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             dtcOperationInProgress = true
             _state.update { it.copy(dtcLoading = true, dtcError = null) }
             try {
-                val (mil, count) = c.readMilStatus() ?: (false to 0)
+                val (mil, count) = c.readMilStatus()
                 val stored = c.readStoredDtcs()
                 val pending = c.readPendingDtcs()
                 val readiness = c.readReadiness() ?: emptyList()

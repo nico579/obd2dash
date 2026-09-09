@@ -48,12 +48,20 @@ fun DtcScreen(
             Text("Codes défaut", style = MaterialTheme.typography.headlineSmall)
             AssistChip(
                 onClick = {},
-                label = { Text(if (state.milOn) "MIL allumé" else "MIL éteint") },
+                label = {
+                    Text(
+                        when (state.milOn) {
+                            true -> "MIL allumé"
+                            false -> "MIL éteint"
+                            null -> "MIL non lu"
+                        }
+                    )
+                },
                 colors = AssistChipDefaults.assistChipColors(
-                    containerColor = if (state.milOn) {
-                        MaterialTheme.colorScheme.errorContainer
-                    } else {
-                        MaterialTheme.colorScheme.secondaryContainer
+                    containerColor = when (state.milOn) {
+                        true -> MaterialTheme.colorScheme.errorContainer
+                        false -> MaterialTheme.colorScheme.secondaryContainer
+                        null -> MaterialTheme.colorScheme.surfaceVariant
                     }
                 )
             )
@@ -65,8 +73,8 @@ fun DtcScreen(
 
         state.dtcError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
-        DtcSection(title = "Stockés (${state.storedDtcs.size})", codes = state.storedDtcs)
-        DtcSection(title = "En attente (${state.pendingDtcs.size})", codes = state.pendingDtcs)
+        DtcSection(title = "Stockés (${state.storedDtcs?.size ?: "?"})", codes = state.storedDtcs)
+        DtcSection(title = "En attente (${state.pendingDtcs?.size ?: "?"})", codes = state.pendingDtcs)
 
         Text(
             "Descriptions limitées aux codes génériques les plus courants, non exhaustif.",
@@ -108,10 +116,16 @@ fun DtcScreen(
 }
 
 @Composable
-private fun DtcSection(title: String, codes: List<String>) {
+private fun DtcSection(title: String, codes: List<String>?) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium)
-        if (codes.isEmpty()) {
+        if (codes == null) {
+            Text(
+                "Non lu",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else if (codes.isEmpty()) {
             Text("Aucun", style = MaterialTheme.typography.bodyMedium)
         } else {
             for (code in codes) {

@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.InetSocketAddress
@@ -68,7 +69,11 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
             val sb = StringBuilder()
             while (true) {
                 val c = r.read()
-                if (c == -1) break
+                // Une fin de flux avant '>' signifie que la connexion a été coupée
+                // (sonde éteinte, WiFi perdu) : ce n'est pas une réponse normale, il ne
+                // faut pas la traiter comme telle sous peine de la confondre plus tard
+                // avec un résultat de lecture valide (ex: "0 défaut").
+                if (c == -1) throw IOException("Connexion perdue (fin de flux avant '>')")
                 val ch = c.toChar()
                 if (ch == '>') break
                 sb.append(ch)
@@ -140,42 +145,55 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         return supported
     }
 
-    /** Statut MIL (voyant moteur) et nombre de DTC stockés, PID 01. */
-    suspend fun readMilStatus(): Pair<Boolean, Int>? {
-        val bytes = readPidBytes(0x01) ?: return null
-        val a = bytes.getOrNull(0) ?: return null
+    /**
+     * Statut MIL (voyant moteur) et nombre de DTC stockés, PID 01. PID quasi universel
+     * sur tout véhicule OBD2 : une non-réponse est traitée comme une erreur de lecture,
+     * pas comme "MIL éteint, 0 défaut" (ça a été une source de faux négatif silencieux).
+     */
+    suspend fun readMilStatus(): Pair<Boolean, Int> {
+        val bytes = readPidBytes(0x01) ?: throw IOException("PID01 (statut MIL) illisible")
+        val a = bytes.getOrNull(0) ?: throw IOException("PID01 (statut MIL) tronqué")
         return (a and 0x80 != 0) to (a and 0x7F)
     }
 
-    suspend fun readStoredDtcs(): List<String> {
-        val count = readMilStatus()?.second
-        return readDtcs(mode = "03", expectedPrefix = "43", maxCodes = count)
-    }
+    suspend fun readStoredDtcs(): List<String> = readDtcs(mode = "03", expectedPrefix = "43")
 
-    suspend fun readPendingDtcs(): List<String> {
-        return readDtcs(mode = "07", expectedPrefix = "47", maxCodes = null)
-    }
+    suspend fun readPendingDtcs(): List<String> = readDtcs(mode = "07", expectedPrefix = "47")
 
     /**
-     * Décode les DTC d'un mode donné (03=stockés, 07=en attente). Pour le mode 03 on
-     * borne au nombre exact annoncé par PID01 : la trame peut contenir du padding en
-     * fin (octets 0x00 ou 0xAA selon le calculateur) qui ressemblerait sinon à un
-     * faux code supplémentaire.
+     * Décode les DTC d'un mode donné (03=stockés, 07=en attente).
+     *
+     * En CAN (ISO 15765-4), l'octet qui suit immédiatement l'écho de mode (43/47) est le
+     * NOMBRE de DTC annoncés, pas le début du premier code (contrairement à K-Line/KWP2000
+     * où les paires s'enchaînent directement). L'ignorer décale tout le décodage d'un octet :
+     * "43 01 00 87" (1 défaut) se lisait "01 00" -> P0100 en jetant le "87", alors que c'est
+     * "01"(compteur=1) puis "00 87" -> P0087. Se borner exactement à ce compteur élimine
+     * aussi le padding de fin de trame (0x00 ou 0xAA selon calculateur) sans avoir besoin
+     * de le deviner. Toute réponse qui ne correspond pas au préfixe attendu, ou trop
+     * courte pour contenir ne serait-ce que le compteur, est une erreur de lecture et doit
+     * être signalée comme telle, pas confondue avec "0 défaut confirmé".
      */
-    private suspend fun readDtcs(mode: String, expectedPrefix: String, maxCodes: Int?): List<String> {
+    private suspend fun readDtcs(mode: String, expectedPrefix: String): List<String> {
         val response = sendRaw(mode)
         val hexstr = reassembleHex(response)
-        if (!hexstr.uppercase().startsWith(expectedPrefix)) return emptyList()
+        if (!hexstr.uppercase().startsWith(expectedPrefix)) {
+            throw IOException("Réponse DTC inattendue: ${response.ifBlank { "(vide)" }}")
+        }
         val payload = hexstr.substring(expectedPrefix.length)
+        if (payload.length < 2) {
+            throw IOException("Réponse DTC tronquée (pas de compteur): $hexstr")
+        }
+        val declaredCount = payload.substring(0, 2).toIntOrNull(16)
+            ?: throw IOException("Compteur DTC illisible: $hexstr")
+        val dtcData = payload.substring(2)
 
         val codes = mutableListOf<String>()
         var i = 0
-        while (i + 4 <= payload.length && (maxCodes == null || codes.size < maxCodes)) {
-            val b1 = payload.substring(i, i + 2).toIntOrNull(16)
-            val b2 = payload.substring(i + 2, i + 4).toIntOrNull(16)
+        while (i + 4 <= dtcData.length && codes.size < declaredCount) {
+            val b1 = dtcData.substring(i, i + 2).toIntOrNull(16)
+            val b2 = dtcData.substring(i + 2, i + 4).toIntOrNull(16)
             i += 4
-            if (b1 == null || b2 == null) break
-            if (b1 == 0 && b2 == 0) continue
+            if (b1 == null || b2 == null) throw IOException("Octet DTC illisible: $hexstr")
             codes.add(decodeDtc(b1, b2))
         }
         return codes
