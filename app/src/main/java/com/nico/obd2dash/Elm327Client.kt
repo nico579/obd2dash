@@ -3,6 +3,7 @@ package com.nico.obd2dash
 import android.net.Network
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -57,26 +58,36 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         sendRaw("ATS0")  // espaces off
         sendRaw("ATH0")  // headers off
         sendRaw("ATSP0") // protocole auto
-        detectProtocol()
+        // ATDPN n'est PAS appelé ici : l'ELM327 ne recherche/verrouille effectivement le
+        // protocole qu'à la première requête OBD réelle (pas à ATSP0 lui-même). L'appeler
+        // maintenant renverrait "A0" (recherche non encore faite), classé non-CAN par
+        // erreur. Voir detectProtocol(), appelée par discoverSupportedPids() après son
+        // premier échange OBD.
     }
 
     /**
      * Demande à l'ELM327 le protocole qu'il a effectivement choisi (ATDPN : numéro, préfixé
      * de "A" si sélectionné automatiquement par ATSP0). Protocoles 6-9/A-C = ISO 15765-4
-     * CAN ; 1-5 = SAE J1850/ISO 9141-2/ISO 14230 KWP, non-CAN. Une réponse inattendue (ex:
-     * ATDPN non supporté par un clone bon marché) retombe sur l'hypothèse CAN plutôt que
-     * de faire échouer toute la connexion pour une commande secondaire.
+     * CAN ; 1-5 = SAE J1850/ISO 9141-2/ISO 14230 KWP, non-CAN. Doit être appelée après au
+     * moins un échange OBD réel (cf. commentaire dans connect()), jamais juste après l'init.
+     * Une réponse ni CAN ni non-CAN reconnue (transport en échec, "?", vide) retombe sur
+     * l'hypothèse CAN plutôt que de classer arbitrairement en non-CAN.
      */
-    private suspend fun detectProtocol() {
+    internal suspend fun detectProtocol() {
         try {
             val raw = sendRaw("ATDPN").trim().uppercase()
             detectedProtocol = raw.ifBlank { null }
             val code = raw.removePrefix("A").firstOrNull()
-            isCanProtocol = code == null || code in "6789ABC"
+            isCanProtocol = when (code) {
+                '1', '2', '3', '4', '5' -> false
+                '6', '7', '8', '9', 'A', 'B', 'C' -> true
+                else -> true
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             isCanProtocol = true
+            detectedProtocol = null
         }
     }
 
@@ -141,26 +152,31 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
      * cf. [probeHeaderFormat]) :
      * - Repli une ligne : on préfère, parmi plusieurs lignes candidates, celle qui
      *   correspond au préfixe attendu plutôt que la première venue.
-     * - Multi-trame : deux calculateurs qui répondraient tous deux en multi-trame
-     *   produiraient des numéros de séquence qui se chevauchent avec un contenu
-     *   différent. Plutôt que d'écraser silencieusement l'un par l'autre (résultat
-     *   arbitraire et faux), on détecte le conflit et on renvoie une chaîne vide :
-     *   l'appelant la traite comme une lecture ratée, pas comme une donnée corrompue
-     *   présentée comme valide.
+     * - Multi-trame : le numéro de séquence ISO-TP tient sur 4 bits (0-F) et boucle,
+     *   y compris pour un seul calculateur qui répondrait avec assez de trames (au-delà
+     *   d'environ 112 octets). On ne peut donc pas se contenter de détecter "même numéro,
+     *   contenu différent" (un retour légitime à 0 après F déclencherait un faux positif).
+     *   On exige à la place un flux strictement séquentiel démarrant à 0 (0,1,2,...,F,0,...) :
+     *   c'est le seul ordre qu'un flux ISO-TP à flux contrôlé, transporté sur TCP (donc déjà
+     *   dans l'ordre), peut produire pour un seul répondant. Tout écart (index inattendu,
+     *   trame répétée hors cycle) signale soit une collision entre calculateurs, soit une
+     *   trame perdue : dans les deux cas on renvoie une chaîne vide plutôt que d'assembler
+     *   des données dont l'origine ou l'ordre n'est plus garanti.
      */
     internal fun reassembleHex(response: String, expectedPrefix: String): String {
         val lines = response.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }
         val frameRegex = Regex("^([0-9A-Fa-f]):(.+)$")
-        val frames = sortedMapOf<Int, String>()
+        val frames = mutableListOf<String>()
+        var expectedIndex = 0
         for (line in lines) {
             val m = frameRegex.find(line) ?: continue
             val index = m.groupValues[1].toInt(16)
             val data = m.groupValues[2].trim()
-            val existing = frames[index]
-            if (existing != null && existing != data) return ""
-            frames[index] = data
+            if (index != expectedIndex) return ""
+            frames.add(data)
+            expectedIndex = (expectedIndex + 1) % 16
         }
-        if (frames.isNotEmpty()) return frames.values.joinToString("")
+        if (frames.isNotEmpty()) return frames.joinToString("")
         val hexLines = lines.filter { line -> line.all { c -> c in '0'..'9' || c in 'A'..'F' || c in 'a'..'f' } }
         return hexLines.firstOrNull { it.uppercase().startsWith(expectedPrefix.uppercase()) }
             ?: hexLines.firstOrNull()
@@ -182,7 +198,13 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
             val withHeaders = sendRaw("0100")
             return "Sans headers (ATH0): $withoutHeaders\nAvec headers (ATH1): $withHeaders"
         } finally {
-            sendRaw("ATH0")
+            // withContext(NonCancellable) est nécessaire ici : sendRaw() suspend via son
+            // propre withContext(Dispatchers.IO), qui est un point d'annulation. Sans ça,
+            // si cette coroutine est déjà annulée (ex: un autre onglet relance un refresh
+            // DTC pendant la capture), ce sendRaw("ATH0") ne s'exécuterait jamais et la
+            // sonde resterait avec les headers activés, cassant tout décodage normal
+            // jusqu'à la reconnexion.
+            withContext(NonCancellable) { sendRaw("ATH0") }
         }
     }
 
@@ -243,6 +265,10 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
             if (!bankContinues) break
             base += 0x20
         }
+        // Appelée ici, après le(s) échange(s) "01xx" ci-dessus qui déclenchent la recherche
+        // de protocole de l'ELM327 : avant ça, ATDPN renverrait une recherche non aboutie.
+        // Envoyée même si aucun PID n'a été trouvé (base=0x00 déjà tenté = un échange réel).
+        detectProtocol()
         return supported
     }
 
@@ -309,18 +335,25 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
 
         val codes = mutableListOf<String>()
         var i = 0
-        while (i + 4 <= dtcData.length && (declaredCount == null || codes.size < declaredCount)) {
+        var pairsRead = 0
+        while (i + 4 <= dtcData.length && (declaredCount == null || pairsRead < declaredCount)) {
             val b1 = dtcData.substring(i, i + 2).toIntOrNull(16)
             val b2 = dtcData.substring(i + 2, i + 4).toIntOrNull(16)
             i += 4
             if (b1 == null || b2 == null) throw IOException("Octet DTC illisible: $hexstr")
+            pairsRead++
+            // 0000 est le remplissage de fin de trame (CAN comme non-CAN, l'exemple
+            // fabricant "43013300000000" en contient), jamais un vrai code : P0000 n'est
+            // assigné à aucun défaut. On compte quand même la paire (elle occupe un slot
+            // du compteur CAN) mais on ne l'ajoute pas aux DTC retournés.
+            if (b1 == 0 && b2 == 0) continue
             codes.add(decodeDtc(b1, b2))
         }
         if (declaredCount != null) {
             // En CAN, le compteur promettait plus de codes que la trame n'en contenait
             // réellement : trame tronquée, pas "moins de défauts que prévu".
-            if (codes.size != declaredCount) {
-                throw IOException("Nombre de DTC incohérent (annoncé $declaredCount, lu ${codes.size}): $hexstr")
+            if (pairsRead != declaredCount) {
+                throw IOException("Nombre de DTC incohérent (annoncé $declaredCount, lu $pairsRead): $hexstr")
             }
         } else if (i < dtcData.length) {
             // Non-CAN : pas de compteur pour se caler dessus, donc un reste plus court

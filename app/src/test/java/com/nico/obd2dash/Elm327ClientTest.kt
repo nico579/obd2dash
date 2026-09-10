@@ -79,6 +79,20 @@ class Elm327ClientTest {
         assertThrows(IOException::class.java) { client.parseDtcResponse("4300870", "43", isCan = false) }
     }
 
+    // --- parseDtcResponse : remplissage 0000, exemples du fabricant (audit du 10 sept.) ---
+
+    @Test
+    fun `parseDtcResponse non-CAN remplissage seul ne produit aucun DTC`() {
+        assertEquals(emptyList<String>(), client.parseDtcResponse("43000000000000", "43", isCan = false))
+    }
+
+    @Test
+    fun `parseDtcResponse non-CAN un DTC suivi de remplissage`() {
+        // Exemple ELM327 (doc. fabricant p.35) : P0133 puis deux paires 0000 de remplissage,
+        // pas trois defauts distincts.
+        assertEquals(listOf("P0133"), client.parseDtcResponse("43013300000000", "43", isCan = false))
+    }
+
     // --- reassembleHex ---
 
     @Test
@@ -111,9 +125,27 @@ class Elm327ClientTest {
     }
 
     @Test
-    fun `reassembleHex ne signale pas de collision sur une trame dupliquee identique`() {
-        val response = "0:490201313233\r0:490201313233"
-        assertEquals("490201313233", client.reassembleHex(response, "4902"))
+    fun `reassembleHex un seul emetteur peut boucler l'index de sequence apres F`() {
+        // Le numero de sequence ISO-TP tient sur 4 bits : au-dela de 16 trames, un seul
+        // repondant boucle legitimement de F a 0. Ne doit pas etre confondu avec une
+        // collision entre deux calculateurs (cf. R4, regression introduite par le fix
+        // precedent de la collision multi-ECU).
+        val frameCount = 17
+        val lines = (0 until frameCount).joinToString("\r") { k ->
+            val seqIndex = (k % 16).toString(16).uppercase()
+            val label = "%02X".format(k)
+            "$seqIndex:$label"
+        }
+        val expected = (0 until frameCount).joinToString("") { "%02X".format(it) }
+        assertEquals(expected, client.reassembleHex(lines, "XX"))
+    }
+
+    @Test
+    fun `reassembleHex un index hors ordre est rejete comme une collision`() {
+        // Un vrai flux a flux controle sur un seul repondant ne peut pas sauter d'index :
+        // 0 suivi directement de 2 (sans 1) est incompatible avec un seul emetteur.
+        val response = "0:490201313233\r2:34353637"
+        assertEquals("", client.reassembleHex(response, "4902"))
     }
 
     // --- parseHexPayload ---

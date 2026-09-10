@@ -66,6 +66,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<ObdUiState> = _state
 
     private var client: Elm327Client? = null
+    private var connectJob: Job? = null
     private var pollJob: Job? = null
     private var dtcJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -95,9 +96,14 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         prefs.edit().putString(KEY_HOST, host).putString(KEY_PORT, portText).apply()
-        _state.update { it.copy(connectionState = ConnectionState.CONNECTING, errorMessage = null) }
+        // Repart d'un état neuf (hôte/port gardés) : sans ça, les valeurs, DTC, historique
+        // etc. d'une session précédente (potentiellement un AUTRE véhicule) restaient
+        // affichés sous l'identité de la nouvelle connexion jusqu'à ce qu'un nouveau scan
+        // les remplace, ou pour toujours s'il échoue.
+        _state.update { ObdUiState(host = it.host, port = it.port, connectionState = ConnectionState.CONNECTING) }
 
-        viewModelScope.launch {
+        connectJob?.cancel()
+        connectJob = viewModelScope.launch {
             // Referme une éventuelle connexion précédente (ex: reconnexion après une
             // erreur) avant d'en ouvrir une nouvelle, pour ne pas laisser un socket
             // orphelin tourner en tâche de fond.
@@ -128,10 +134,18 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 client = c
 
                 val supported = c.discoverSupportedPids()
-                // Best-effort : sert à isoler l'historique DTC par véhicule, mais son
-                // absence ne doit pas empêcher le reste de l'app de fonctionner.
-                val vin = runCatching { c.readVin() }.getOrNull()
+                // Ne PAS envelopper dans runCatching : readVin() ne lève que si sendRaw a
+                // échoué au niveau transport (timeout, coupure), auquel cas Elm327Client a
+                // déjà fermé le socket en interne. Avaler cette exception ici publierait
+                // "connecté" sur un client mort (le polling ne démarrerait même pas, puisque
+                // c.isConnected serait déjà faux, sans qu'aucune erreur ne soit montrée).
+                // Un ECU qui ne supporte simplement pas le mode 09 répond par un préfixe
+                // inattendu et readVin() renvoie null normalement, sans lever.
+                val vin = c.readVin()
                 vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
+                if (!c.isConnected) {
+                    error("Connexion perdue pendant l'établissement de la session")
+                }
                 _state.update {
                     it.copy(
                         connectionState = ConnectionState.CONNECTED,
@@ -211,6 +225,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         val now = System.currentTimeMillis()
                         val newValues = mutableMapOf<Int, GaugeValue>()
                         for (def in toPoll) {
+                            // Revérifié à chaque PID, pas seulement au début du cycle : un
+                            // cycle déjà engagé (plusieurs PID à lire d'affilée) pourrait
+                            // sinon continuer d'interroger la sonde avec les hypothèses
+                            // normales pendant qu'une opération de diagnostic vient de
+                            // changer la configuration de la sonde (ex: ATH1 en cours).
+                            if (dtcOperationInProgress) break
                             val bytes = c.readPidBytes(def.pid)
                             if (bytes != null && bytes.size >= def.expectedBytes) {
                                 runCatching { def.decode(bytes) }.getOrNull()?.let {
@@ -305,9 +325,19 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         dtcJob?.cancel()
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
-            _state.update { it.copy(headerProbeResult = "Lecture...") }
+            // dtcLoading=false : ce job vient d'annuler un éventuel refreshDtcs() en cours
+            // (dtcJob partagé). Son "finally" ne s'exécute jamais (coroutine annulée avant),
+            // donc dtcLoading resterait bloqué à true (bouton Rafraîchir désactivé pour de
+            // bon) si on ne le remettait pas ici.
+            _state.update { it.copy(headerProbeResult = "Lecture...", dtcLoading = false) }
             try {
-                _state.update { it.copy(headerProbeResult = c.probeHeaderFormat()) }
+                // Calculé AVANT l'appel à update() : c.probeHeaderFormat() a des effets de
+                // bord réels sur la sonde (ATH1/ATH0). Le placer à l'intérieur du bloc
+                // update{} l'exposerait à être réexécuté plusieurs fois si sa comparaison
+                // atomique échoue à cause d'une publication concurrente (le polling live
+                // notamment), envoyant la séquence de commandes une deuxième fois.
+                val result = c.probeHeaderFormat()
+                _state.update { it.copy(headerProbeResult = result) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -327,12 +357,19 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         networkCallback = null
     }
 
-    fun disconnect() {
+    /** Annule les tâches et libère la requête réseau ; retourne le client à fermer, s'il y en a un. */
+    private fun cancelJobsAndReleaseNetwork(): Elm327Client? {
+        connectJob?.cancel()
         pollJob?.cancel()
         dtcJob?.cancel()
         unregisterNetworkCallback()
         val c = client
         client = null
+        return c
+    }
+
+    fun disconnect() {
+        val c = cancelJobsAndReleaseNetwork()
         // Repart d'un état par défaut, mais en gardant l'hôte/port actuellement affichés
         // (sinon une déconnexion effacerait ce que l'utilisateur vient de configurer).
         _state.update { ObdUiState(host = it.host, port = it.port) }
@@ -344,7 +381,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
-        disconnect()
+        // Ne PAS passer par disconnect() : viewModelScope est déjà annulé quand onCleared()
+        // est appelé (AndroidX ferme le CloseableCoroutineScope avant d'invoquer onCleared),
+        // donc un viewModelScope.launch{} ici ne s'exécuterait jamais et le socket ne serait
+        // jamais fermé. Fermeture directe et synchrone à la place (rapide depuis le fix de
+        // l'ordre socket/reader dans Elm327Client.disconnect()).
+        cancelJobsAndReleaseNetwork()?.disconnect()
     }
 
     companion object {

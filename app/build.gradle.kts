@@ -17,6 +17,21 @@ android {
         versionName = "0.1"
     }
 
+    signingConfigs {
+        // Clé debug committée (app/debug.keystore) au lieu du keystore auto-généré par
+        // machine (~/.android/debug.keystore) : sans ça, chaque machine (dont chaque
+        // exécution GitHub Actions, éphémère) signe avec une clé différente, et Android
+        // refuse d'installer une mise à jour signée par une clé différente de celle déjà
+        // installée (finding R10). Mot de passe/alias = les valeurs par défaut standard
+        // d'un keystore debug Android (pas un secret : c'est tout le principe du debug).
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
