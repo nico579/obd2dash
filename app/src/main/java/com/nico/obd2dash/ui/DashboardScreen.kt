@@ -1,14 +1,12 @@
 package com.nico.obd2dash.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -103,14 +101,24 @@ fun DashboardScreen(
 
             if (secondaryDefs.isNotEmpty()) {
                 HorizontalDivider()
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(secondaryDefs) { def ->
-                        SmallGauge(def.label, state.values[def.pid], nowMs)
+                // Grille simple (pas LazyVerticalGrid) : le nombre de PID varie avec ce que
+                // le véhicule annonce supporter, potentiellement plusieurs dizaines. Une
+                // grille paresseuse à hauteur bornée aurait demandé un défilement interne
+                // en plus de celui de la page (deux zones de scroll imbriquées, mauvaise
+                // expérience). Ici toute la page défile d'un seul tenant.
+                for (row in secondaryDefs.chunked(2)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        for (def in row) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                SmallGauge(def.label, state.values[def.pid], nowMs)
+                            }
+                        }
+                        if (row.size == 1) {
+                            Box(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
             }
