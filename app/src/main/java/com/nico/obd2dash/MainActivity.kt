@@ -1,5 +1,6 @@
 package com.nico.obd2dash
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,8 +22,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.FileProvider
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.DtcScreen
+import java.io.File
 
 private enum class Screen { DASHBOARD, DTC }
 
@@ -63,6 +66,24 @@ class MainActivity : ComponentActivity() {
                                 onDisconnect = { viewModel.disconnect() },
                                 onHostChange = { viewModel.updateHost(it) },
                                 onPortChange = { viewModel.updatePort(it) },
+                                onToggleRecording = {
+                                    if (state.isRecording) viewModel.stopRecording() else viewModel.startRecording()
+                                },
+                                onShareRecording = {
+                                    state.recordingFile?.let { path ->
+                                        val uri = FileProvider.getUriForFile(
+                                            this@MainActivity,
+                                            "$packageName.fileprovider",
+                                            File(path)
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/csv"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        startActivity(Intent.createChooser(shareIntent, "Partager l'enregistrement"))
+                                    }
+                                },
                                 modifier = Modifier.padding(padding)
                             )
                             Screen.DTC -> DtcScreen(

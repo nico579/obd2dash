@@ -23,5 +23,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Depuis Android 7, un chemin de fichier brut ne peut plus être partagé
+             directement à une autre app (StrictMode) : il faut un fournisseur de contenu
+             dédié qui distribue des accès temporaires et limités (ici : uniquement le
+             sous-dossier des enregistrements CSV, cf. res/xml/file_paths.xml). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

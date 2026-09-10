@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.BufferedWriter
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -53,7 +55,13 @@ data class ObdUiState(
     val dtcError: String? = null,
     // Diagnostic ponctuel pour préparer le fix multi-ECU (finding 3), pas une donnée
     // du véhicule. À retirer une fois ce format confirmé. Voir Elm327Client.probeHeaderFormat.
-    val headerProbeResult: String? = null
+    val headerProbeResult: String? = null,
+    // Enregistrement CSV à intervalle régulier (départ/arrêt manuel), pour analyse externe
+    // dans la durée. N'interroge pas la sonde : échantillonne les valeurs déjà lues par le
+    // polling, aucune commande supplémentaire sur le fil.
+    val isRecording: Boolean = false,
+    val recordingSamples: Int = 0,
+    val recordingFile: String? = null
 )
 
 /**
@@ -128,6 +136,16 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
     return sb.toString()
 }
 
+// Séparateur point-virgule plutôt que virgule : convention Excel en locale française
+// (déjà celle du téléphone, cf. les valeurs affichées "94,20 V") où la virgule est le
+// séparateur décimal des nombres eux-mêmes. Évite d'avoir à gérer la collision entre
+// virgule-séparateur-de-colonnes et virgule-décimale dans les valeurs déjà formatées.
+private const val CSV_DELIMITER = ";"
+
+internal fun csvEscape(value: String): String = "\"" + value.replace("\"", "\"\"") + "\""
+
+internal fun csvRow(fields: List<String>): String = fields.joinToString(CSV_DELIMITER) { csvEscape(it) }
+
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("obd2dash", Context.MODE_PRIVATE)
@@ -147,6 +165,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var vehicleId: String = DtcHistoryStore.UNKNOWN_VEHICLE
     private val historyStore = DtcHistoryStore(application)
+
+    private var recordingJob: Job? = null
+    private var recordingWriter: BufferedWriter? = null
+    private var recordingColumns: List<PidCatalog.Def> = emptyList()
 
     fun updateHost(value: String) {
         _state.update { it.copy(host = value) }
@@ -184,6 +206,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // orphelin tourner en tâche de fond.
             pollJob?.cancel()
             dtcJob?.cancel()
+            stopRecording()
             unregisterNetworkCallback()
             client?.disconnect()
             client = null
@@ -423,6 +446,58 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Enregistrement CSV à intervalle régulier, démarré/arrêté manuellement (pas
+     * automatique à la connexion : un test de 30s ne doit pas laisser un fichier).
+     * N'envoie AUCUNE commande à la sonde : échantillonne périodiquement les valeurs déjà
+     * mises à jour par [startPolling], donc aucun risque de contention avec le polling ou
+     * un refresh DTC en cours. Colonnes figées au démarrage (PID supportés à cet instant).
+     */
+    fun startRecording() {
+        if (_state.value.isRecording) return
+        if (client == null) return
+        val columns = PidCatalog.defs.filter { it.pid in _state.value.supportedPids }
+        if (columns.isEmpty()) return
+
+        val dir = File(getApplication<Application>().filesDir, "recordings").apply { mkdirs() }
+        val fileName = "obd_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date()) + ".csv"
+        val file = File(dir, fileName)
+        val writer = file.bufferedWriter()
+        writer.write(csvRow(listOf("Horodatage") + columns.map { it.label }))
+        writer.newLine()
+        writer.flush()
+
+        recordingColumns = columns
+        recordingWriter = writer
+        _state.update { it.copy(isRecording = true, recordingSamples = 0, recordingFile = file.absolutePath) }
+
+        recordingJob = viewModelScope.launch {
+            val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
+            while (true) {
+                delay(RECORDING_INTERVAL_MS)
+                val snapshot = _state.value
+                val row = listOf(timestampFormat.format(Date())) +
+                    recordingColumns.map { def -> snapshot.values[def.pid]?.text ?: "" }
+                runCatching {
+                    recordingWriter?.write(csvRow(row))
+                    recordingWriter?.newLine()
+                    recordingWriter?.flush()
+                }
+                _state.update { it.copy(recordingSamples = it.recordingSamples + 1) }
+            }
+        }
+    }
+
+    fun stopRecording() {
+        recordingJob?.cancel()
+        recordingJob = null
+        runCatching { recordingWriter?.close() }
+        recordingWriter = null
+        if (_state.value.isRecording) {
+            _state.update { it.copy(isRecording = false) }
+        }
+    }
+
     private fun unregisterNetworkCallback() {
         networkCallback?.let { cb ->
             val cm = getApplication<Application>()
@@ -437,6 +512,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         connectJob?.cancel()
         pollJob?.cancel()
         dtcJob?.cancel()
+        stopRecording()
         unregisterNetworkCallback()
         val c = client
         client = null
@@ -446,8 +522,17 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() {
         val c = cancelJobsAndReleaseNetwork()
         // Repart d'un état par défaut, mais en gardant l'hôte/port actuellement affichés
-        // (sinon une déconnexion effacerait ce que l'utilisateur vient de configurer).
-        _state.update { ObdUiState(host = it.host, port = it.port) }
+        // (sinon une déconnexion effacerait ce que l'utilisateur vient de configurer), et
+        // le dernier enregistrement CSV (fichier + nombre d'échantillons) pour pouvoir
+        // encore le partager après coup.
+        _state.update {
+            ObdUiState(
+                host = it.host,
+                port = it.port,
+                recordingFile = it.recordingFile,
+                recordingSamples = it.recordingSamples
+            )
+        }
         // Fermeture hors du thread principal : socket.close() est désormais rapide
         // (voir Elm327Client.disconnect()), mais autant ne pas en dépendre.
         if (c != null) {
@@ -467,5 +552,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val KEY_HOST = "conn_host"
         private const val KEY_PORT = "conn_port"
+        // ~600 o/échantillon (~40 colonnes max) : à 5s, une session de 2h fait autour de
+        // 850 Ko. Assez fin pour une analyse de tendance, sans accumuler des Mo inutiles.
+        private const val RECORDING_INTERVAL_MS = 5_000L
     }
 }

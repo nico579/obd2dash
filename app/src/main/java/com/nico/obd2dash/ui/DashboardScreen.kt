@@ -44,6 +44,8 @@ fun DashboardScreen(
     onDisconnect: () -> Unit,
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
+    onToggleRecording: () -> Unit,
+    onShareRecording: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -120,6 +122,22 @@ fun DashboardScreen(
                             Box(modifier = Modifier.weight(1f))
                         }
                     }
+                }
+            }
+
+            HorizontalDivider()
+            Button(onClick = onToggleRecording, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    if (state.isRecording) {
+                        "Arrêter l'enregistrement (${state.recordingSamples} échantillons)"
+                    } else {
+                        "Démarrer l'enregistrement"
+                    }
+                )
+            }
+            if (!state.isRecording && state.recordingFile != null) {
+                Button(onClick = onShareRecording, modifier = Modifier.fillMaxWidth()) {
+                    Text("Partager l'enregistrement (${state.recordingSamples} échantillons)")
                 }
             }
 
