@@ -47,6 +47,9 @@ trames) avec JUnit4, indépendamment de la couche réseau.
 
 ## Documentation
 
+- [`architecture_multimarque_2026-09-10_20-17.md`](architecture_multimarque_2026-09-10_20-17.md) :
+  proposition de moteur commun et de profils de données multimarques, sources réutilisables
+  et ordre de mise en œuvre. Architecture proposée, pas encore implémentée.
 - [`audit_code_2026-09-09_20-18-33.md`](audit_code_2026-09-09_20-18-33.md) : audit du
   code, bugs trouvés et corrections appliquées. Tenu à jour au fil des sessions, c'est
   la référence pour comprendre pourquoi le code est écrit comme il l'est.
