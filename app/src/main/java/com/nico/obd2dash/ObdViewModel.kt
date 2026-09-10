@@ -19,6 +19,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
@@ -52,6 +55,78 @@ data class ObdUiState(
     // du véhicule. À retirer une fois ce format confirmé. Voir Elm327Client.probeHeaderFormat.
     val headerProbeResult: String? = null
 )
+
+/**
+ * Texte récapitulatif exportable (partage Android standard, pas de format maison) :
+ * de quoi analyser une session ailleurs que sur le téléphone. Fonction pure de l'état,
+ * testable sans ViewModel ni contexte Android.
+ */
+internal fun buildDiagnosticReport(state: ObdUiState): String {
+    val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.FRANCE).format(Date())
+    val sb = StringBuilder()
+    sb.appendLine("=== OBD2 Dash — export diagnostic ===")
+    sb.appendLine("Date export : $date")
+    sb.appendLine("VIN : ${state.vin ?: "inconnu"}")
+    sb.appendLine("Protocole : ${state.protocol ?: "inconnu"}")
+    sb.appendLine(
+        "MIL : " + when (state.milOn) {
+            true -> "allumé"
+            false -> "éteint"
+            null -> "non lu"
+        }
+    )
+
+    sb.appendLine()
+    sb.appendLine("--- DTC stockés (${state.storedDtcs?.size ?: "non lu"}) ---")
+    when {
+        state.storedDtcs == null -> sb.appendLine("Non lu")
+        state.storedDtcs.isEmpty() -> sb.appendLine("Aucun")
+        else -> state.storedDtcs.forEach { sb.appendLine("$it : ${DtcDictionary.describe(it)}") }
+    }
+
+    sb.appendLine()
+    sb.appendLine("--- DTC en attente (${state.pendingDtcs?.size ?: "non lu"}) ---")
+    when {
+        state.pendingDtcs == null -> sb.appendLine("Non lu")
+        state.pendingDtcs.isEmpty() -> sb.appendLine("Aucun")
+        else -> state.pendingDtcs.forEach { sb.appendLine("$it : ${DtcDictionary.describe(it)}") }
+    }
+
+    if (state.freezeFrame.isNotEmpty()) {
+        sb.appendLine()
+        sb.appendLine("--- Freeze frame (au moment du défaut) ---")
+        for (def in PidCatalog.defs) {
+            state.freezeFrame[def.pid]?.let { sb.appendLine("${def.label} : $it") }
+        }
+    }
+
+    if (state.readiness.isNotEmpty()) {
+        sb.appendLine()
+        sb.appendLine("--- Moniteurs de préparation ---")
+        for (monitor in state.readiness) {
+            sb.appendLine("${monitor.name} : ${if (monitor.ready) "Complet" else "Incomplet"}")
+        }
+    }
+
+    if (state.dtcHistory.isNotEmpty()) {
+        sb.appendLine()
+        sb.appendLine("--- Historique sur ce véhicule ---")
+        for (entry in state.dtcHistory) {
+            val status = if (entry.active) "actif" else "résolu"
+            sb.appendLine("${entry.code} : vu du ${entry.firstSeen} au ${entry.lastSeen}, $status")
+        }
+    }
+
+    if (state.values.isNotEmpty()) {
+        sb.appendLine()
+        sb.appendLine("--- Valeurs live (dernière lecture) ---")
+        for (def in PidCatalog.defs) {
+            state.values[def.pid]?.let { sb.appendLine("${def.label} : ${it.text}") }
+        }
+    }
+
+    return sb.toString()
+}
 
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
 

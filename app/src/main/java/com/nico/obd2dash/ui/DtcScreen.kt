@@ -1,5 +1,6 @@
 package com.nico.obd2dash.ui
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,12 +19,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.DtcDictionary
 import com.nico.obd2dash.DtcHistoryEntry
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.ReadinessMonitor
+import com.nico.obd2dash.buildDiagnosticReport
 
 @Composable
 fun DtcScreen(
@@ -81,6 +84,23 @@ fun DtcScreen(
 
         Button(onClick = onRefresh, enabled = !state.dtcLoading, modifier = Modifier.fillMaxWidth()) {
             Text(if (state.dtcLoading) "Lecture..." else "Rafraîchir")
+        }
+
+        val context = LocalContext.current
+        Button(
+            onClick = {
+                // Sharesheet Android standard : l'utilisateur choisit où envoyer le texte
+                // (mail, fichiers, messagerie...), rien de spécifique à gérer côté app.
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "OBD2 Dash - export diagnostic")
+                    putExtra(Intent.EXTRA_TEXT, buildDiagnosticReport(state))
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Partager le diagnostic"))
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Partager (pour analyse sur PC)")
         }
 
         state.dtcError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
