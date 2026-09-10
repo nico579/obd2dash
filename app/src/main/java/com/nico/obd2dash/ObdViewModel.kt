@@ -27,6 +27,9 @@ import java.util.Locale
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
+/** Un enregistrement CSV terminé, tel que retrouvé sur le disque (pas forcément celui de la session en cours). */
+data class RecordingFile(val path: String, val name: String, val sizeBytes: Long, val date: String)
+
 /** Valeur d'une jauge avec l'instant de sa dernière lecture réussie, pour en afficher la fraîcheur. */
 data class GaugeValue(val text: String, val updatedAtMs: Long)
 
@@ -61,7 +64,10 @@ data class ObdUiState(
     // polling, aucune commande supplémentaire sur le fil.
     val isRecording: Boolean = false,
     val recordingSamples: Int = 0,
-    val recordingFile: String? = null
+    // Tous les enregistrements terminés (le disque garde tout, même après une nouvelle
+    // session) : sans cette liste, seul le tout dernier fichier resterait accessible pour
+    // le partage, les précédents existeraient sur le téléphone sans moyen de les retrouver.
+    val recordings: List<RecordingFile> = emptyList()
 )
 
 /**
@@ -170,6 +176,26 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var recordingWriter: BufferedWriter? = null
     private var recordingColumns: List<PidCatalog.Def> = emptyList()
 
+    init {
+        // Les enregistrements des sessions précédentes existent déjà sur le disque au
+        // lancement de l'app : visibles sans attendre un nouvel enregistrement.
+        _state.update { it.copy(recordings = listRecordings()) }
+    }
+
+    private fun listRecordings(): List<RecordingFile> {
+        val dir = File(getApplication<Application>().filesDir, "recordings")
+        val files = dir.listFiles { f -> f.isFile && f.extension == "csv" } ?: emptyArray()
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.FRANCE)
+        return files.sortedByDescending { it.lastModified() }.map {
+            RecordingFile(
+                path = it.absolutePath,
+                name = it.name,
+                sizeBytes = it.length(),
+                date = dateFormat.format(Date(it.lastModified()))
+            )
+        }
+    }
+
     fun updateHost(value: String) {
         _state.update { it.copy(host = value) }
     }
@@ -193,11 +219,20 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         prefs.edit().putString(KEY_HOST, host).putString(KEY_PORT, portText).apply()
-        // Repart d'un état neuf (hôte/port gardés) : sans ça, les valeurs, DTC, historique
-        // etc. d'une session précédente (potentiellement un AUTRE véhicule) restaient
-        // affichés sous l'identité de la nouvelle connexion jusqu'à ce qu'un nouveau scan
-        // les remplace, ou pour toujours s'il échoue.
-        _state.update { ObdUiState(host = it.host, port = it.port, connectionState = ConnectionState.CONNECTING) }
+        // Repart d'un état neuf (hôte/port et enregistrements passés gardés) : sans ça, les
+        // valeurs, DTC, historique etc. d'une session précédente (potentiellement un AUTRE
+        // véhicule) restaient affichés sous l'identité de la nouvelle connexion jusqu'à ce
+        // qu'un nouveau scan les remplace, ou pour toujours s'il échoue. Les enregistrements
+        // CSV ne sont pas liés à une session : ce sont des fichiers sur le disque, pas de
+        // raison de les faire disparaître de la liste au moment de se reconnecter.
+        _state.update {
+            ObdUiState(
+                host = it.host,
+                port = it.port,
+                recordings = it.recordings,
+                connectionState = ConnectionState.CONNECTING
+            )
+        }
 
         connectJob?.cancel()
         connectJob = viewModelScope.launch {
@@ -469,7 +504,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
         recordingColumns = columns
         recordingWriter = writer
-        _state.update { it.copy(isRecording = true, recordingSamples = 0, recordingFile = file.absolutePath) }
+        _state.update { it.copy(isRecording = true, recordingSamples = 0) }
 
         recordingJob = viewModelScope.launch {
             val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
@@ -491,10 +526,13 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     fun stopRecording() {
         recordingJob?.cancel()
         recordingJob = null
+        val wasRecording = recordingWriter != null
         runCatching { recordingWriter?.close() }
         recordingWriter = null
-        if (_state.value.isRecording) {
-            _state.update { it.copy(isRecording = false) }
+        if (wasRecording) {
+            // Le fichier qui vient de se fermer doit apparaître dans la liste tout de
+            // suite, sans attendre un redémarrage de l'app.
+            _state.update { it.copy(isRecording = false, recordings = listRecordings()) }
         }
     }
 
@@ -526,12 +564,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // le dernier enregistrement CSV (fichier + nombre d'échantillons) pour pouvoir
         // encore le partager après coup.
         _state.update {
-            ObdUiState(
-                host = it.host,
-                port = it.port,
-                recordingFile = it.recordingFile,
-                recordingSamples = it.recordingSamples
-            )
+            // recordings porté tel quel : cancelJobsAndReleaseNetwork() ci-dessus vient de
+            // le rafraîchir via stopRecording() si un enregistrement était en cours.
+            ObdUiState(host = it.host, port = it.port, recordings = it.recordings)
         }
         // Fermeture hors du thread principal : socket.close() est désormais rapide
         // (voir Elm327Client.disconnect()), mais autant ne pas en dépendre.

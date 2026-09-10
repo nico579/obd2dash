@@ -28,6 +28,7 @@ import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.GaugeValue
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
+import com.nico.obd2dash.RecordingFile
 import kotlinx.coroutines.delay
 
 // Au-delà de ce délai sans nouvelle lecture, une valeur est affichée atténuée (une pause
@@ -45,7 +46,7 @@ fun DashboardScreen(
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
     onToggleRecording: () -> Unit,
-    onShareRecording: () -> Unit,
+    onShareRecording: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -135,15 +136,41 @@ fun DashboardScreen(
                     }
                 )
             }
-            if (!state.isRecording && state.recordingFile != null) {
-                Button(onClick = onShareRecording, modifier = Modifier.fillMaxWidth()) {
-                    Text("Partager l'enregistrement (${state.recordingSamples} échantillons)")
-                }
-            }
 
             Button(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
                 Text("Déconnecter")
             }
+        }
+
+        // En dehors du bloc connecté : ce sont des fichiers déjà sur le disque, consultables
+        // et partageables même sans être branché à une sonde.
+        if (state.recordings.isNotEmpty()) {
+            HorizontalDivider()
+            Text("Enregistrements (${state.recordings.size})", style = MaterialTheme.typography.titleMedium)
+            for (recording in state.recordings) {
+                RecordingRow(recording, onShare = { onShareRecording(recording.path) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordingRow(recording: RecordingFile, onShare: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(recording.date, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "%.1f Ko".format(recording.sizeBytes / 1024.0),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Button(onClick = onShare) {
+            Text("Partager")
         }
     }
 }

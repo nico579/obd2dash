@@ -69,20 +69,18 @@ class MainActivity : ComponentActivity() {
                                 onToggleRecording = {
                                     if (state.isRecording) viewModel.stopRecording() else viewModel.startRecording()
                                 },
-                                onShareRecording = {
-                                    state.recordingFile?.let { path ->
-                                        val uri = FileProvider.getUriForFile(
-                                            this@MainActivity,
-                                            "$packageName.fileprovider",
-                                            File(path)
-                                        )
-                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/csv"
-                                            putExtra(Intent.EXTRA_STREAM, uri)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        startActivity(Intent.createChooser(shareIntent, "Partager l'enregistrement"))
+                                onShareRecording = { path ->
+                                    val uri = FileProvider.getUriForFile(
+                                        this@MainActivity,
+                                        "$packageName.fileprovider",
+                                        File(path)
+                                    )
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/csv"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
+                                    startActivity(Intent.createChooser(shareIntent, "Partager l'enregistrement"))
                                 },
                                 modifier = Modifier.padding(padding)
                             )
