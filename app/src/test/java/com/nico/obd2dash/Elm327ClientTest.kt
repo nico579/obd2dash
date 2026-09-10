@@ -165,4 +165,54 @@ class Elm327ClientTest {
     fun `parseHexPayload prefixe absent renvoie null`() {
         assertNull(client.parseHexPayload("7F0311", "410C"))
     }
+
+    // --- parseUdsResponse ---
+
+    @Test
+    fun `parseUdsResponse reponse positive renvoie les octets de donnees`() {
+        val result = client.parseUdsResponse("62114E01A3", 0x114E)
+        assertEquals(UdsDidResult.Positive(listOf(0x01, 0xA3)), result)
+    }
+
+    @Test
+    fun `parseUdsResponse reponse positive sans donnees mais DID reconnu`() {
+        // Echo exact du DID, aucune donnee derriere : distinct d'une non-reponse.
+        val result = client.parseUdsResponse("62114E", 0x114E)
+        assertEquals(UdsDidResult.Positive(emptyList()), result)
+    }
+
+    @Test
+    fun `parseUdsResponse reponse negative extrait le NRC`() {
+        // Exemple reel de capture : 22114E rejete avec NRC 0x31 (hors plage).
+        val result = client.parseUdsResponse("7F2231", 0x114E)
+        assertEquals(UdsDidResult.Negative(0x31), result)
+    }
+
+    @Test
+    fun `parseUdsResponse DID different de celui demande n'est pas confondu avec une reponse positive`() {
+        // Echo d'un autre DID (ex: mauvaise ligne retenue par reassembleHex) : pas positif.
+        assertEquals(UdsDidResult.NoResponse, client.parseUdsResponse("62114F01A3", 0x114E))
+    }
+
+    @Test
+    fun `parseUdsResponse chaine vide (timeout ou reponse non hexadecimale) est une non-reponse`() {
+        assertEquals(UdsDidResult.NoResponse, client.parseUdsResponse("", 0x114E))
+    }
+
+    @Test
+    fun `parseUdsResponse longueur de donnees impaire est une non-reponse`() {
+        assertEquals(UdsDidResult.NoResponse, client.parseUdsResponse("62114EA", 0x114E))
+    }
+
+    // --- nrcDescription ---
+
+    @Test
+    fun `nrcDescription code connu`() {
+        assertEquals("hors plage (identifiant probablement inexistant sur cet ECU)", nrcDescription(0x31))
+    }
+
+    @Test
+    fun `nrcDescription code inconnu retombe sur l'hexadecimal brut`() {
+        assertEquals("code 0x99", nrcDescription(0x99))
+    }
 }

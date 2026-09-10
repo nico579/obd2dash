@@ -154,8 +154,9 @@ fun DashboardScreen(
     }
 }
 
+/** Réutilisée par ProbeScreen : un fichier CSV terminé (enregistrement ou sondage) est présenté pareil. */
 @Composable
-private fun RecordingRow(recording: RecordingFile, onShare: () -> Unit) {
+internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,

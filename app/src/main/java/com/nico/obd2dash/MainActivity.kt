@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -25,9 +26,10 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.FileProvider
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.DtcScreen
+import com.nico.obd2dash.ui.ProbeScreen
 import java.io.File
 
-private enum class Screen { DASHBOARD, DTC }
+private enum class Screen { DASHBOARD, DTC, PROBE }
 
 class MainActivity : ComponentActivity() {
 
@@ -56,6 +58,12 @@ class MainActivity : ComponentActivity() {
                                     icon = { Icon(Icons.Filled.Warning, contentDescription = null) },
                                     label = { Text("DTC") }
                                 )
+                                NavigationBarItem(
+                                    selected = screen == Screen.PROBE,
+                                    onClick = { screen = Screen.PROBE },
+                                    icon = { Icon(Icons.Filled.Build, contentDescription = null) },
+                                    label = { Text("Sondage") }
+                                )
                             }
                         }
                     ) { padding ->
@@ -69,19 +77,7 @@ class MainActivity : ComponentActivity() {
                                 onToggleRecording = {
                                     if (state.isRecording) viewModel.stopRecording() else viewModel.startRecording()
                                 },
-                                onShareRecording = { path ->
-                                    val uri = FileProvider.getUriForFile(
-                                        this@MainActivity,
-                                        "$packageName.fileprovider",
-                                        File(path)
-                                    )
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/csv"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    startActivity(Intent.createChooser(shareIntent, "Partager l'enregistrement"))
-                                },
+                                onShareRecording = { path -> shareCsvFile(path, "Partager l'enregistrement") },
                                 modifier = Modifier.padding(padding)
                             )
                             Screen.DTC -> DtcScreen(
@@ -90,10 +86,28 @@ class MainActivity : ComponentActivity() {
                                 onProbeHeaders = { viewModel.probeHeaderFormat() },
                                 modifier = Modifier.padding(padding)
                             )
+                            Screen.PROBE -> ProbeScreen(
+                                state = state,
+                                onStartScan = { startDid, endDid -> viewModel.startFapScan(startDid, endDid) },
+                                onStopScan = { viewModel.stopFapScan() },
+                                onShareProbe = { path -> shareCsvFile(path, "Partager le sondage") },
+                                modifier = Modifier.padding(padding)
+                            )
                         }
                     }
                 }
             }
         }
+    }
+
+    /** Partage Android standard (sharesheet) : identique pour un enregistrement ou un sondage. */
+    private fun shareCsvFile(path: String, chooserTitle: String) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", File(path))
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(shareIntent, chooserTitle))
     }
 }

@@ -453,6 +453,77 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val vin = vinBytes.filter { it in 0x20..0x7E }.map { it.toChar() }.joinToString("")
         return vin.ifBlank { null }
     }
+
+    /**
+     * Lit un identifiant UDS (service 0x22 ReadDataByIdentifier, ISO 14229) par curiosité
+     * diagnostique : contrairement aux PID mode 01, un DID donné n'a de définition connue
+     * que si le constructeur l'a documentée (ou qu'une capture l'a établie empiriquement).
+     * Service standard, universel à tout calculateur UDS, quelle que soit la marque : rien
+     * ici n'est spécifique à un véhicule particulier, seul le DID interrogé l'est.
+     *
+     * PUREMENT EN LECTURE : 0x22 ne fait que demander une valeur, il ne peut ni l'écrire
+     * ni déclencher d'action (voir WriteDataByIdentifier 0x2E ou RoutineControl 0x31, tous
+     * deux hors de portée de cette fonction et absents du reste du code).
+     */
+    suspend fun readUdsDid(did: Int): UdsDidResult {
+        val didHex = "%04X".format(did)
+        val response = sendRaw("22$didHex")
+        val hexstr = reassembleHex(response, "62$didHex")
+        return parseUdsResponse(hexstr, did)
+    }
+
+    /**
+     * Décode l'enveloppe UDS standard : réponse positive (écho du service +0x40, ici 0x62,
+     * suivi de l'écho du DID puis des données) ou réponse négative (0x7F, écho du service
+     * demandé, code d'erreur NRC). Fonction pure, testée indépendamment.
+     */
+    internal fun parseUdsResponse(hexstr: String, did: Int): UdsDidResult {
+        val didHex = "%04X".format(did)
+        val upper = hexstr.uppercase()
+        val positivePrefix = "62$didHex"
+        if (upper.startsWith(positivePrefix)) {
+            val dataHex = upper.substring(positivePrefix.length)
+            // Longueur impaire = trame tronquée (rejetée) ; vide est valide (DID reconnu,
+            // enregistrement de longueur nulle) et distinct d'une non-réponse.
+            if (dataHex.length % 2 != 0) return UdsDidResult.NoResponse
+            val bytes = dataHex.chunked(2).map { it.toIntOrNull(16) ?: return UdsDidResult.NoResponse }
+            return UdsDidResult.Positive(bytes)
+        }
+        if (upper.startsWith("7F22") && upper.length >= 6) {
+            val nrc = upper.substring(4, 6).toIntOrNull(16) ?: return UdsDidResult.NoResponse
+            return UdsDidResult.Negative(nrc)
+        }
+        return UdsDidResult.NoResponse
+    }
 }
 
 data class ReadinessMonitor(val name: String, val ready: Boolean)
+
+/** Résultat d'une lecture UDS ReadDataByIdentifier (voir [Elm327Client.readUdsDid]). */
+sealed class UdsDidResult {
+    /** Réponse positive : le DID existe et l'ECU a renvoyé ces octets (formule inconnue). */
+    data class Positive(val data: List<Int>) : UdsDidResult()
+
+    /** Réponse négative UDS (0x7F) : [nrc] est le code d'erreur (voir [nrcDescription]). */
+    data class Negative(val nrc: Int) : UdsDidResult()
+
+    /** Ni l'un ni l'autre : réponse absente, tronquée, ou non reconnue comme enveloppe UDS. */
+    object NoResponse : UdsDidResult()
+}
+
+/**
+ * Libellé des codes NRC (Negative Response Code) les plus courants en sondage passif,
+ * pour qu'une capture s'interprète sans avoir la norme ISO 14229 sous la main. Liste non
+ * exhaustive : un code absent d'ici reste affiché en hexadécimal brut, jamais deviné.
+ */
+fun nrcDescription(nrc: Int): String = when (nrc) {
+    0x10 -> "refus général"
+    0x11 -> "service non supporté"
+    0x12 -> "sous-fonction non supportée"
+    0x13 -> "longueur de message incorrecte"
+    0x22 -> "conditions actuelles incorrectes (existe, pas lisible maintenant)"
+    0x31 -> "hors plage (identifiant probablement inexistant sur cet ECU)"
+    0x33 -> "accès sécurisé requis (existe, verrouillé)"
+    0x78 -> "réponse en attente (l'ECU prépare une réponse plus lente)"
+    else -> "code 0x%02X".format(nrc)
+}

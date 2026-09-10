@@ -67,7 +67,18 @@ data class ObdUiState(
     // Tous les enregistrements terminés (le disque garde tout, même après une nouvelle
     // session) : sans cette liste, seul le tout dernier fichier resterait accessible pour
     // le partage, les précédents existeraient sur le téléphone sans moyen de les retrouver.
-    val recordings: List<RecordingFile> = emptyList()
+    val recordings: List<RecordingFile> = emptyList(),
+    // Sondage UDS (service 0x22 ReadDataByIdentifier) en lecture seule sur une plage
+    // d'identifiants : aucun DID n'ayant de définition publique connue pour ce calculateur,
+    // il faut interroger le véhicule empiriquement et consigner chaque réponse pour analyse
+    // ultérieure. Générique à tout ECU compatible UDS (rien de spécifique à une marque).
+    val isFapScanning: Boolean = false,
+    val fapScanDone: Int = 0,
+    val fapScanTotal: Int = 0,
+    val fapScanCurrentDid: Int? = null,
+    val fapScanPositives: List<String> = emptyList(),
+    val fapScanError: String? = null,
+    val probes: List<RecordingFile> = emptyList()
 )
 
 /**
@@ -176,14 +187,20 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var recordingWriter: BufferedWriter? = null
     private var recordingColumns: List<PidCatalog.Def> = emptyList()
 
+    private var probeWriter: BufferedWriter? = null
+
     init {
-        // Les enregistrements des sessions précédentes existent déjà sur le disque au
-        // lancement de l'app : visibles sans attendre un nouvel enregistrement.
-        _state.update { it.copy(recordings = listRecordings()) }
+        // Les enregistrements/sondages des sessions précédentes existent déjà sur le disque
+        // au lancement de l'app : visibles sans attendre une nouvelle session.
+        _state.update { it.copy(recordings = listRecordings(), probes = listProbes()) }
     }
 
-    private fun listRecordings(): List<RecordingFile> {
-        val dir = File(getApplication<Application>().filesDir, "recordings")
+    private fun listRecordings(): List<RecordingFile> = listCsvFiles("recordings")
+
+    private fun listProbes(): List<RecordingFile> = listCsvFiles("probes")
+
+    private fun listCsvFiles(subdir: String): List<RecordingFile> {
+        val dir = File(getApplication<Application>().filesDir, subdir)
         val files = dir.listFiles { f -> f.isFile && f.extension == "csv" } ?: emptyArray()
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.FRANCE)
         return files.sortedByDescending { it.lastModified() }.map {
@@ -230,6 +247,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 host = it.host,
                 port = it.port,
                 recordings = it.recordings,
+                probes = it.probes,
                 connectionState = ConnectionState.CONNECTING
             )
         }
@@ -240,8 +258,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // erreur) avant d'en ouvrir une nouvelle, pour ne pas laisser un socket
             // orphelin tourner en tâche de fond.
             pollJob?.cancel()
-            dtcJob?.cancel()
             stopRecording()
+            stopFapScan()
             unregisterNetworkCallback()
             client?.disconnect()
             client = null
@@ -394,9 +412,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        _state.update {
-                            it.copy(connectionState = ConnectionState.ERROR, errorMessage = e.message ?: "Lecture échouée")
-                        }
+                        handleConnectionLost(e.message ?: "Lecture échouée")
                         break
                     }
                 }
@@ -406,14 +422,44 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Connexion perdue pendant le polling (coupure WiFi de la sonde, contact coupé, etc.),
+     * traitée comme une vraie déconnexion plutôt qu'un simple passage en erreur. soTimeout
+     * (3s, voir Elm327Client.connect) borne le délai avant qu'une lecture bloquée ne lève
+     * ici. Un enregistrement CSV en cours DOIT s'arrêter à cet instant : sinon il continue
+     * à échantillonner _state.value.values (jamais remis à jour, le polling vient de
+     * s'arrêter) toutes les 5s pour le reste de la session, sans qu'aucun bouton "Arrêter"
+     * ne reste accessible puisque l'écran retombe sur le formulaire de connexion. Cas réel
+     * constaté sur capture : 82 min de valeurs identiques après une coupure de contact.
+     */
+    private fun handleConnectionLost(message: String) {
+        stopRecording()
+        stopFapScan()
+        unregisterNetworkCallback()
+        client?.let { c -> viewModelScope.launch(Dispatchers.IO) { c.disconnect() } }
+        client = null
+        _state.update {
+            ObdUiState(
+                host = it.host,
+                port = it.port,
+                recordings = it.recordings,
+                probes = it.probes,
+                connectionState = ConnectionState.ERROR,
+                errorMessage = message
+            )
+        }
+    }
+
+    /**
      * Lecture à la demande (pas de polling continu, ce sont des données de diagnostic) :
      * DTC stockés/en attente, moniteurs de préparation, et freeze frame si un DTC est présent.
      */
     fun refreshDtcs() {
         val c = client ?: return
-        // Une deuxième entrée sur l'écran DTC pendant qu'un refresh tourne encore
-        // annule le précédent plutôt que de les laisser cogner en parallèle sur le fil.
-        dtcJob?.cancel()
+        // Une deuxième entrée sur l'écran DTC pendant qu'un refresh tourne encore, ou un
+        // sondage FAP en cours, annule le précédent plutôt que de les laisser cogner en
+        // parallèle sur le fil (stopFapScan ferme aussi proprement un sondage éventuel :
+        // un simple dtcJob?.cancel() laisserait son fichier ouvert indéfiniment).
+        stopFapScan()
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
             _state.update { it.copy(dtcLoading = true, dtcError = null) }
@@ -470,7 +516,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun probeHeaderFormat() {
         val c = client ?: return
-        dtcJob?.cancel()
+        stopFapScan()
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
             // dtcLoading=false : ce job vient d'annuler un éventuel refreshDtcs() en cours
@@ -493,6 +539,118 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 dtcOperationCount--
             }
+        }
+    }
+
+    /**
+     * Sondage en lecture seule d'une plage d'identifiants UDS (service 0x22
+     * ReadDataByIdentifier, ISO 14229, générique à tout ECU compatible) : aucune définition
+     * publique n'existe pour les DID de CE calculateur, donc la seule façon de savoir
+     * lesquels répondent est de les interroger un par un sur le véhicule réel et de
+     * consigner chaque réponse pour analyse ultérieure (le sens exact d'un DID positif
+     * reste à établir après coup, cette fonction ne décode rien).
+     *
+     * N'envoie que des lectures (0x22) : jamais WriteDataByIdentifier (0x2E), RoutineControl
+     * (0x31, actionneurs/régénération forcée) ni effacement. Reste en session diagnostique
+     * par défaut (pas de passage en session étendue 0x1003) : si tout revient en NRC
+     * "hors plage" ou "service non supporté", certains DID peuvent nécessiter une session
+     * que cet outil ne demande volontairement pas encore.
+     */
+    fun startFapScan(startDidText: String, endDidText: String) {
+        if (_state.value.isFapScanning) return
+        val c = client ?: return
+
+        val startDid = startDidText.trim().removePrefix("0x").removePrefix("0X").toIntOrNull(16)
+        val endDid = endDidText.trim().removePrefix("0x").removePrefix("0X").toIntOrNull(16)
+        if (startDid == null || endDid == null || startDid !in 0..0xFFFF || endDid !in 0..0xFFFF || startDid > endDid) {
+            _state.update { it.copy(fapScanError = "Plage invalide (hexadécimal, 0000-FFFF, début ≤ fin).") }
+            return
+        }
+
+        // Ferme aussi proprement un refresh DTC ou une capture de headers en cours
+        // (dtcJob partagé) : voir le commentaire de refreshDtcs.
+        stopFapScan()
+
+        val dir = File(getApplication<Application>().filesDir, "probes").apply { mkdirs() }
+        val fileName = "fap_scan_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date()) + ".csv"
+        val writer = File(dir, fileName).bufferedWriter()
+        writer.write(csvRow(listOf("DID", "Résultat", "Détail")))
+        writer.newLine()
+        writer.flush()
+        probeWriter = writer
+
+        _state.update {
+            it.copy(
+                fapScanError = null,
+                isFapScanning = true,
+                fapScanDone = 0,
+                fapScanTotal = endDid - startDid + 1,
+                fapScanPositives = emptyList(),
+                fapScanCurrentDid = null
+            )
+        }
+
+        dtcJob = viewModelScope.launch {
+            dtcOperationCount++
+            try {
+                for (did in startDid..endDid) {
+                    _state.update { it.copy(fapScanCurrentDid = did) }
+                    val result = c.readUdsDid(did)
+                    val didHex = "%04X".format(did)
+                    val (label, detail) = when (result) {
+                        is UdsDidResult.Positive ->
+                            "positif" to result.data.joinToString(" ") { "%02X".format(it) }.ifBlank { "(vide)" }
+                        is UdsDidResult.Negative -> "négatif" to nrcDescription(result.nrc)
+                        UdsDidResult.NoResponse -> "aucune réponse" to ""
+                    }
+                    runCatching {
+                        probeWriter?.write(csvRow(listOf(didHex, label, detail)))
+                        probeWriter?.newLine()
+                        probeWriter?.flush()
+                    }
+                    _state.update {
+                        it.copy(
+                            fapScanDone = it.fapScanDone + 1,
+                            fapScanPositives = if (result is UdsDidResult.Positive) {
+                                it.fapScanPositives + "$didHex : $detail"
+                            } else {
+                                it.fapScanPositives
+                            }
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleConnectionLost(e.message ?: "Lecture échouée")
+                return@launch
+            } finally {
+                dtcOperationCount--
+            }
+            stopFapScan()
+        }
+    }
+
+    /**
+     * Arrête un sondage en cours (bouton, nouvelle connexion, perte de connexion, ou prise
+     * de main par un refresh DTC / une capture de headers) : ferme le fichier pour qu'il
+     * soit exploitable même incomplet, et remet dtcLoading à disposition (même logique que
+     * le commentaire de probeHeaderFormat : un job annulé ne termine jamais son "try" en
+     * cours, seul le "finally" s'exécute). Sans effet si rien n'était en cours.
+     */
+    fun stopFapScan() {
+        dtcJob?.cancel()
+        dtcJob = null
+        val wasScanning = probeWriter != null
+        runCatching { probeWriter?.close() }
+        probeWriter = null
+        _state.update {
+            it.copy(
+                dtcLoading = false,
+                isFapScanning = false,
+                fapScanCurrentDid = null,
+                probes = if (wasScanning) listProbes() else it.probes
+            )
         }
     }
 
@@ -564,8 +722,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private fun cancelJobsAndReleaseNetwork(): Elm327Client? {
         connectJob?.cancel()
         pollJob?.cancel()
-        dtcJob?.cancel()
         stopRecording()
+        stopFapScan()
         unregisterNetworkCallback()
         val c = client
         client = null
@@ -576,12 +734,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val c = cancelJobsAndReleaseNetwork()
         // Repart d'un état par défaut, mais en gardant l'hôte/port actuellement affichés
         // (sinon une déconnexion effacerait ce que l'utilisateur vient de configurer), et
-        // le dernier enregistrement CSV (fichier + nombre d'échantillons) pour pouvoir
-        // encore le partager après coup.
+        // les fichiers déjà produits (enregistrements, sondages) pour pouvoir encore les
+        // partager après coup.
         _state.update {
-            // recordings porté tel quel : cancelJobsAndReleaseNetwork() ci-dessus vient de
-            // le rafraîchir via stopRecording() si un enregistrement était en cours.
-            ObdUiState(host = it.host, port = it.port, recordings = it.recordings)
+            // recordings/probes portés tels quels : cancelJobsAndReleaseNetwork() ci-dessus
+            // vient de les rafraîchir via stopRecording()/stopFapScan() si actifs.
+            ObdUiState(host = it.host, port = it.port, recordings = it.recordings, probes = it.probes)
         }
         // Fermeture hors du thread principal : socket.close() est désormais rapide
         // (voir Elm327Client.disconnect()), mais autant ne pas en dépendre.
