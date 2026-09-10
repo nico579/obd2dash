@@ -16,6 +16,17 @@ object PidCatalog {
     /** RPM, vitesse, température moteur : affichés en priorité, en plus grand. */
     val PRIMARY_PIDS = setOf(0x0C, 0x0D, 0x05)
 
+    // Échelles réelles du PID24 (ratio/tension max), annoncées par PID4F pour LE VÉHICULE
+    // CONNECTÉ. Ce ne sont pas des constantes universelles : SAE J1979-DA (table B60) exige
+    // d'utiliser les maxima non nuls annoncés par PID4F quand il est supporté, faute de quoi
+    // 2/8 est l'hypothèse de repli historique (pré-PID4F). Sur le véhicule de test, PID4F
+    // annonce 10/10 : utiliser 2/8 sans vérifier produit une tension plausible mais fausse
+    // (confirmé sur capture réelle : 7,20 V affiché contre 9,01 V correct). Mis à jour une
+    // fois par connexion par ObdViewModel (ce n'est pas une mesure dynamique), remis à
+    // l'hypothèse de repli si PID4F n'est pas supporté par LE PROCHAIN véhicule connecté.
+    var o2MaxRatio: Double = 2.0
+    var o2MaxVoltage: Double = 8.0
+
     val defs: List<Def> = listOf(
         Def(0x0C, "Régime moteur", 2) { b -> "%.0f rpm".format(((b[0] * 256) + b[1]) / 4.0) },
         Def(0x0D, "Vitesse", 1) { b -> "${b[0]} km/h" },
@@ -51,10 +62,11 @@ object PidCatalog {
         Def(0x16, "Sonde O2 (banc 2, sonde 1)", 2) { b -> formatO2(b) },
         Def(0x17, "Sonde O2 (banc 2, sonde 2)", 2) { b -> formatO2(b) },
         Def(0x24, "Sonde O2 large bande (ratio/V)", 4) { b ->
-            val ratio = ((b[0] * 256) + b[1]) * 0.0000305
-            val voltage = ((b[2] * 256) + b[3]) * 0.000122
+            val ratio = ((b[0] * 256) + b[1]) * o2MaxRatio / 65535.0
+            val voltage = ((b[2] * 256) + b[3]) * o2MaxVoltage / 65535.0
             "%.3f · %.3f V".format(ratio, voltage)
         },
+        Def(0x4F, "Ratio/tension O2 max annoncés", 4) { b -> "${b[0]} / ${b[1]}" },
 
         // Allumage / injection
         Def(0x0E, "Avance à l'allumage", 1) { b -> "%.1f °".format((b[0] - 128) / 2.0) },

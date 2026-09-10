@@ -276,6 +276,21 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // inattendu et readVin() renvoie null normalement, sans lever.
                 val vin = c.readVin()
                 vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
+
+                // Échelles réelles du PID24 (voir PidCatalog.o2MaxRatio/o2MaxVoltage) :
+                // caractéristique fixe de ce véhicule, lue une fois ici plutôt qu'à chaque
+                // cycle de polling. PidCatalog est un singleton partagé entre connexions :
+                // remis à l'hypothèse de repli si CE véhicule ne supporte pas PID4F, pour
+                // qu'une valeur laissée par un véhicule précédent ne s'applique pas ici.
+                val scaleBytes = if (0x4F in supported) c.readPidBytes(0x4F) else null
+                if (scaleBytes != null && scaleBytes.size >= 2) {
+                    PidCatalog.o2MaxRatio = scaleBytes[0].toDouble()
+                    PidCatalog.o2MaxVoltage = scaleBytes[1].toDouble()
+                } else {
+                    PidCatalog.o2MaxRatio = 2.0
+                    PidCatalog.o2MaxVoltage = 8.0
+                }
+
                 if (!c.isConnected) {
                     error("Connexion perdue pendant l'établissement de la session")
                 }

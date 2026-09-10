@@ -19,8 +19,13 @@ package com.nico.obd2dash
  */
 internal object CanHeaderReassembly {
 
-    /** Une trame décodée : calculateur d'origine et position dans sa séquence (voir [parseCanFrame]). */
-    data class Frame(val ecuId: Int, val data: String, val sequenceIndex: Int?)
+    /**
+     * Une trame décodée : calculateur d'origine et position dans sa séquence (voir
+     * [parseCanFrame]). `totalLength` n'est renseigné que sur la première trame d'une
+     * séquence multi-trame (longueur ISO-TP annoncée, en octets) ; `null` pour une trame
+     * unique ou une trame de suite, où cette information n'existe pas.
+     */
+    data class Frame(val ecuId: Int, val data: String, val sequenceIndex: Int?, val totalLength: Int? = null)
 
     /**
      * Découpe une ligne "IDPCIdonnées" (headers-on, sans espaces) en trame décodée.
@@ -28,9 +33,11 @@ internal object CanHeaderReassembly {
      * PCI ISO-TP (premier(s) caractère(s) après l'ID CAN de 3 caractères) :
      * - `0N` : trame unique, N = longueur en octets (0-7). `sequenceIndex = null`.
      * - `1XYZ` : première trame d'une séquence multi-trame (XYZ = longueur totale du
-     *   message sur 12 bits, non utilisée ici : la fin réelle vient de la dernière trame
-     *   de suite, pas d'un comptage d'octets). `sequenceIndex = 0` (convention de ce
+     *   message sur 12 bits). `sequenceIndex = FIRST_FRAME_MARKER` (convention de ce
      *   fichier, pas la trame ISO-TP : sert à la retrouver dans [reassembleByEcu]).
+     *   La longueur EST utilisée (voir [reassembleSequence]) : sans elle, le remplissage
+     *   de la dernière trame de suite (padding `AA` ou similaire) serait pris pour des
+     *   données réelles (trouvé sur capture réelle, cf. audit finding S2).
      * - `2N` : trame de suite, N = numéro de séquence ISO-TP réel, cycle 1..F puis 0..F
      *   après la première trame (jamais 0 pour la toute première trame de suite).
      */
@@ -53,7 +60,10 @@ internal object CanHeaderReassembly {
                 // du numéro de séquence réel des trames de suite (celui-ci boucle 1..F puis
                 // 0..F). Les confondre faisait échouer le réassemblage sur toute séquence
                 // d'au moins 16 trames de suite (la 16e a justement pour numéro réel 0).
-                Frame(ecuId, rest.substring(4), sequenceIndex = FIRST_FRAME_MARKER)
+                // Longueur sur les 12 bits bas des 4 caractères PCI (le nibble haut du
+                // premier caractère, '1', est le code de trame, pas la longueur).
+                val totalLength = rest.substring(0, 4).toIntOrNull(16)?.and(0x0FFF) ?: return null
+                Frame(ecuId, rest.substring(4), sequenceIndex = FIRST_FRAME_MARKER, totalLength = totalLength)
             }
             '2' -> {
                 if (rest.length < 2) return null
@@ -94,6 +104,7 @@ internal object CanHeaderReassembly {
 
     private fun reassembleSequence(frames: List<Frame>): String? {
         val firstFrame = frames.firstOrNull { it.sequenceIndex == FIRST_FRAME_MARKER } ?: return null
+        val totalLength = firstFrame.totalLength ?: return null
         val sb = StringBuilder(firstFrame.data)
         var expected = 1
         for (frame in frames) {
@@ -102,7 +113,13 @@ internal object CanHeaderReassembly {
             sb.append(frame.data)
             expected = (expected + 1) % 16
         }
-        return sb.toString()
+        // La dernière trame de suite est remplie jusqu'à 7 octets (padding AA ou 00 selon
+        // le calculateur) : sans cette troncature à la longueur annoncée, ce remplissage
+        // serait retourné comme si c'était des données (audit finding S2, confirmé sur
+        // capture réelle : 20 octets rendus pour 19 annoncés, jusqu'à 6 de trop).
+        val expectedHexLength = totalLength * 2
+        if (sb.length < expectedHexLength) return null // réponse incomplète, pas juste du padding en moins
+        return sb.substring(0, expectedHexLength)
     }
 
     private const val FIRST_FRAME_MARKER = -1

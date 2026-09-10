@@ -22,10 +22,10 @@ class CanHeaderReassemblyTest {
 
     @Test
     fun `parseCanFrame premiere trame multi-trame`() {
-        // PCI "1008" = premiere trame, longueur totale annoncee 0x008 (non utilisee).
+        // PCI "1008" = premiere trame, longueur totale annoncee 0x008 = 8 octets.
         // sequenceIndex = -1 : sentinel distinct des numeros de sequence reels (0-15).
         val frame = CanHeaderReassembly.parseCanFrame("7E81008112233445566")
-        assertEquals(CanHeaderReassembly.Frame(0x7E8, "112233445566", -1), frame)
+        assertEquals(CanHeaderReassembly.Frame(0x7E8, "112233445566", -1, totalLength = 8), frame)
     }
 
     @Test
@@ -64,9 +64,28 @@ class CanHeaderReassemblyTest {
 
     @Test
     fun `reassembleByEcu multi-trame un seul calculateur`() {
-        val response = "7E81014AABBCCDDEEFF\r7E82100112233445566\r7E8227788"
+        // Longueur annoncee 0x00F = 15 octets, exactement FF(6) + CF1(7) + CF2(2).
+        val response = "7E8100FAABBCCDDEEFF\r7E82100112233445566\r7E8227788"
         val result = CanHeaderReassembly.reassembleByEcu(response)
         assertEquals(mapOf(0x7E8 to "AABBCCDDEEFF001122334455667788"), result)
+    }
+
+    @Test
+    fun `reassembleByEcu tronque le remplissage au-dela de la longueur annoncee`() {
+        // Longueur annoncee 8 (FF=6 + 2 attendus), mais la CF apporte 3 octets (un de trop,
+        // remplissage AA typique d'une derniere trame CAN). Doit etre coupe a 8 exactement.
+        val response = "7E81008112233445566\r7E8217788AA"
+        val result = CanHeaderReassembly.reassembleByEcu(response)
+        assertEquals(mapOf(0x7E8 to "1122334455667788"), result)
+    }
+
+    @Test
+    fun `reassembleByEcu reponse incomplete par rapport a la longueur annoncee est rejetee`() {
+        // Longueur annoncee 20, mais seulement 8 octets reellement recus : trame tronquee,
+        // pas juste "moins de remplissage que prevu".
+        val response = "7E81014AABBCCDDEEFF\r7E8217788"
+        val result = CanHeaderReassembly.reassembleByEcu(response)
+        assertEquals(emptyMap<Int, String>(), result)
     }
 
     @Test
@@ -93,9 +112,10 @@ class CanHeaderReassemblyTest {
     @Test
     fun `reassembleByEcu boucle la sequence apres F pour un seul emetteur`() {
         // 17 trames de suite : la 16e boucle de F a 0, comme pour reassembleHex (R4).
-        val header = "7E81032" // premiere trame, longueur annoncee arbitraire
-        val firstData = "AABBCCDDEEFF"
-        val cfCount = 17
+        val firstData = "AABBCCDDEEFF" // 6 octets
+        val cfCount = 17 // 1 octet chacune : 6 + 17 = 23 octets au total
+        val totalBytes = firstData.length / 2 + cfCount
+        val header = "7E81" + "%03X".format(totalBytes) // longueur exacte, pas une constante approximative
         val lines = mutableListOf("$header$firstData")
         val expected = StringBuilder(firstData)
         for (k in 1..cfCount) {
