@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,12 +30,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.nico.obd2dash.ui.AutoTestScreen
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.DtcScreen
 import com.nico.obd2dash.ui.ProbeScreen
 import java.io.File
 
-private enum class Screen { DASHBOARD, DTC, PROBE }
+private enum class Screen { DASHBOARD, DTC, PROBE, AUTO_TEST }
 
 class MainActivity : ComponentActivity() {
 
@@ -85,6 +87,12 @@ class MainActivity : ComponentActivity() {
                                     icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                                     label = { Text("Sondage") }
                                 )
+                                NavigationBarItem(
+                                    selected = screen == Screen.AUTO_TEST,
+                                    onClick = { screen = Screen.AUTO_TEST },
+                                    icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                                    label = { Text("Smoke test") }
+                                )
                             }
                         }
                     ) { padding ->
@@ -119,6 +127,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onStopScan = { viewModel.stopFapScan() },
                                 onShareProbe = { path -> shareCsvFile(path, "Partager le sondage") },
+                                modifier = Modifier.padding(padding)
+                            )
+                            Screen.AUTO_TEST -> AutoTestScreen(
+                                state = state,
+                                onRun = { viewModel.runAutoTest() },
+                                onStop = { viewModel.stopAutoTest() },
                                 modifier = Modifier.padding(padding)
                             )
                         }

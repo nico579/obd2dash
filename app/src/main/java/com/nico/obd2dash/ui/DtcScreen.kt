@@ -220,7 +220,10 @@ private fun HistoryRow(entry: DtcHistoryEntry) {
             )
         }
         Text(
-            if (entry.active) "Actif" else "Résolu",
+            // "Résolu" affirmait une panne réparée ; la seule preuve disponible est son
+            // absence de la dernière liste de DTC stockés lue avec succès (même correction
+            // que buildDiagnosticReport, voir audit, terminologie historique).
+            if (entry.active) "Actif" else "Non retrouvé",
             style = MaterialTheme.typography.bodySmall,
             color = if (entry.active) {
                 MaterialTheme.colorScheme.error

@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -33,6 +34,11 @@ enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
 /** Comment un sondage FAP s'est terminé, pour l'afficher clairement (voir audit, "Ergonomie du sondage") : null = jamais lancé cette session, ou encore en cours. */
 enum class FapScanOutcome { TERMINE, INTERROMPU, ERREUR }
+
+enum class AutoTestStatus { EN_ATTENTE, EN_COURS, OK, ATTENTION, ECHEC }
+
+/** Une étape du smoke test automatique (voir ObdViewModel.runAutoTest) : [detail] explique le verdict, jamais vide sur OK/ATTENTION/ECHEC. */
+data class AutoTestCheck(val name: String, val status: AutoTestStatus, val detail: String? = null)
 
 /** Un enregistrement CSV terminé, tel que retrouvé sur le disque (pas forcément celui de la session en cours). */
 data class RecordingFile(val path: String, val name: String, val sizeBytes: Long, val date: String)
@@ -97,7 +103,14 @@ data class ObdUiState(
     val fapScanPositives: List<String> = emptyList(),
     val fapScanError: String? = null,
     val fapScanOutcome: FapScanOutcome? = null,
-    val probes: List<RecordingFile> = emptyList()
+    val probes: List<RecordingFile> = emptyList(),
+    // Smoke test automatique : exécute une petite séquence de vraies lectures/écritures
+    // contre le véhicule réellement connecté et rapporte OK/ATTENTION/ECHEC par étape, pour
+    // couvrir mécaniquement ce qu'un humain vérifierait autrement à la main (voir la
+    // checklist "en voiture"). Ne remplace pas les tests qui demandent une action physique
+    // (couper le contact, éteindre l'écran) : ceux-là restent sur la checklist.
+    val isAutoTesting: Boolean = false,
+    val autoTestChecks: List<AutoTestCheck> = emptyList()
 )
 
 /**
@@ -237,6 +250,13 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var recordingWriter: BufferedWriter? = null
     private var recordingColumns: List<PidCatalog.Def> = emptyList()
 
+    // Job dédié, pas dtcJob : runAutoTest() déclenche lui-même startRecording()/
+    // startFapScan() en cours de séquence, qui gèrent déjà dtcJob pour leur propre
+    // compte. Le partager aurait fait de l'auto-test la victime de son propre appel à
+    // startFapScan() (stopFapScanAndGetPrevious annule le job actuellement dans dtcJob,
+    // soit l'auto-test lui-même si on le lui avait assigné).
+    private var autoTestJob: Job? = null
+
     private var probeWriter: BufferedWriter? = null
 
     init {
@@ -353,6 +373,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // erreur) avant d'en ouvrir une nouvelle, pour ne pas laisser un socket
             // orphelin tourner en tâche de fond.
             pollJob?.cancel()
+            stopAutoTest()
             stopRecording()
             stopFapScan()
             unregisterNetworkCallback()
@@ -591,6 +612,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun handleConnectionLost(source: Elm327Client, message: String) {
         if (client !== source) return
+        stopAutoTest()
         stopRecording()
         stopFapScan()
         unregisterNetworkCallback()
@@ -618,6 +640,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // sondage FAP en cours, annule le précédent plutôt que de les laisser cogner en
         // parallèle sur le fil (stopFapScanAndGetPrevious ferme aussi proprement un sondage
         // éventuel : un simple dtcJob?.cancel() laisserait son fichier ouvert indéfiniment).
+        // stopAutoTest() en plus : le smoke test automatique n'utilise pas dtcJob (voir son
+        // champ dédié autoTestJob), donc stopFapScanAndGetPrevious seul ne le verrait pas.
+        stopAutoTest()
         val previousJob = stopFapScanAndGetPrevious()
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
@@ -689,6 +714,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun probeHeaderFormat() {
         val c = client ?: return
+        stopAutoTest()
         val previousJob = stopFapScanAndGetPrevious()
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
@@ -757,7 +783,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Ferme aussi proprement un refresh DTC ou une capture de headers en cours
-        // (dtcJob partagé) : voir le commentaire de refreshDtcs.
+        // (dtcJob partagé) : voir le commentaire de refreshDtcs. Pas de stopAutoTest() ici
+        // contrairement à refreshDtcs/probeHeaderFormat : runAutoTest() appelle lui-même
+        // startFapScan() comme dernière étape, ce qui s'annulerait sa propre coroutine
+        // (autoTestJob) juste avant d'attendre le résultat de ce même appel.
         val previousJob = stopFapScanAndGetPrevious()
 
         val dir = File(getApplication<Application>().filesDir, "probes").apply { mkdirs() }
@@ -1020,6 +1049,188 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Smoke test automatique : exécute contre le véhicule RÉELLEMENT connecté une petite
+     * séquence de lectures, puis un enregistrement et un sondage courts, et rapporte
+     * OK/ATTENTION/ECHEC par étape. Complète la checklist manuelle "en voiture", ne la
+     * remplace pas : rien ici ne peut couper le contact ni éteindre l'écran à la place
+     * d'un humain, ces cas-là restent sur la checklist.
+     *
+     * Lecture seule côté ECU (readMilStatus/readStoredDtcs/readPendingDtcs/readReadiness/
+     * readUdsDid). Les deux dernières étapes appellent startRecording()/startFapScan()
+     * tels quels, pas une copie de leur logique : un bug qu'elles auraient serait donc
+     * visible ici aussi, pas masqué par un chemin de test séparé. Elles laissent un petit
+     * fichier réel dans les listes d'enregistrements/sondages, comme n'importe quelle
+     * utilisation manuelle.
+     */
+    fun runAutoTest() {
+        if (_state.value.isAutoTesting) return
+        val c = client ?: return
+
+        // Attend la fin réelle d'un refresh DTC / capture headers / sondage manuel déjà en
+        // cours (voir A8) avant d'envoyer ses propres commandes, même motif que les autres
+        // entrées sur dtcJob : sans ça, les deux séquences se mélangeraient sur le fil.
+        val previousJob = stopFapScanAndGetPrevious()
+
+        val names = listOf(
+            "Statut MIL (PID01)",
+            "Une valeur dynamique",
+            "VIN",
+            "Codes défaut",
+            "Moniteurs de préparation",
+            "Enregistrement court (10s)",
+            "Sondage UDS court (3 DID)"
+        )
+        _state.update {
+            it.copy(
+                isAutoTesting = true,
+                autoTestChecks = names.map { name -> AutoTestCheck(name, AutoTestStatus.EN_ATTENTE) }
+            )
+        }
+
+        fun setCheck(index: Int, status: AutoTestStatus, detail: String? = null) {
+            _state.update { s ->
+                val updated = s.autoTestChecks.toMutableList()
+                updated[index] = AutoTestCheck(names[index], status, detail)
+                s.copy(autoTestChecks = updated)
+            }
+        }
+
+        autoTestJob = viewModelScope.launch {
+            try {
+                // dtcOperationCount géré directement ici, pas via dtcJob (voir son champ) :
+                // relâché avant l'étape d'enregistrement pour que le polling normal
+                // reprenne, sinon elle ne capturerait que des valeurs figées.
+                dtcOperationCount++
+                previousJob?.join()
+                try {
+                    setCheck(0, AutoTestStatus.EN_COURS)
+                    try {
+                        val (mil, count) = c.readMilStatus()
+                        setCheck(0, AutoTestStatus.OK, "MIL ${if (mil) "allumé" else "éteint"}, $count code(s) annoncé(s)")
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        setCheck(0, AutoTestStatus.ECHEC, e.message ?: "échec")
+                    }
+
+                    setCheck(1, AutoTestStatus.EN_COURS)
+                    val dynamicDef = PidCatalog.defs.firstOrNull {
+                        it.pid in _state.value.supportedPids && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS
+                    }
+                    if (dynamicDef == null) {
+                        setCheck(1, AutoTestStatus.ATTENTION, "Aucun PID dynamique annoncé supporté")
+                    } else {
+                        try {
+                            val bytes = c.readPidBytes(dynamicDef.pid)
+                            if (bytes != null && bytes.size >= dynamicDef.expectedBytes) {
+                                setCheck(1, AutoTestStatus.OK, "${dynamicDef.label} = ${dynamicDef.decode(bytes)}")
+                            } else {
+                                setCheck(1, AutoTestStatus.ECHEC, "${dynamicDef.label} : pas de réponse exploitable")
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            setCheck(1, AutoTestStatus.ECHEC, e.message ?: "échec")
+                        }
+                    }
+
+                    setCheck(2, AutoTestStatus.EN_COURS)
+                    try {
+                        val vin = c.readVin()
+                        if (vin != null) {
+                            setCheck(2, AutoTestStatus.OK, vin)
+                        } else {
+                            setCheck(2, AutoTestStatus.ATTENTION, "Non lu (normal en non-CAN, ou VIN non supporté)")
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        setCheck(2, AutoTestStatus.ECHEC, e.message ?: "échec")
+                    }
+
+                    setCheck(3, AutoTestStatus.EN_COURS)
+                    try {
+                        val stored = c.readStoredDtcs()
+                        val pending = c.readPendingDtcs()
+                        setCheck(3, AutoTestStatus.OK, "${stored.size} stocké(s), ${pending.size} en attente")
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        setCheck(3, AutoTestStatus.ECHEC, e.message ?: "échec")
+                    }
+
+                    setCheck(4, AutoTestStatus.EN_COURS)
+                    try {
+                        val readiness = c.readReadiness()
+                        if (readiness != null) {
+                            setCheck(4, AutoTestStatus.OK, "${readiness.size} moniteur(s) annoncé(s)")
+                        } else {
+                            setCheck(4, AutoTestStatus.ATTENTION, "PID01 illisible pour les moniteurs")
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        setCheck(4, AutoTestStatus.ECHEC, e.message ?: "échec")
+                    }
+                } finally {
+                    dtcOperationCount--
+                }
+
+                setCheck(5, AutoTestStatus.EN_COURS)
+                if (client !== c) {
+                    setCheck(5, AutoTestStatus.ECHEC, "Connexion changée en cours de test")
+                } else {
+                    startRecording()
+                    if (!_state.value.isRecording) {
+                        setCheck(5, AutoTestStatus.ECHEC, _state.value.errorMessage ?: "L'enregistrement n'a pas démarré")
+                    } else {
+                        delay(10_000)
+                        val samples = _state.value.recordingSamples
+                        stopRecording()
+                        if (samples >= 1) {
+                            setCheck(5, AutoTestStatus.OK, "$samples échantillon(s) écrit(s)")
+                        } else {
+                            setCheck(5, AutoTestStatus.ECHEC, "Démarré, mais aucun échantillon écrit (voir errorMessage)")
+                        }
+                    }
+                }
+
+                setCheck(6, AutoTestStatus.EN_COURS)
+                if (client !== c) {
+                    setCheck(6, AutoTestStatus.ECHEC, "Connexion changée en cours de test")
+                } else {
+                    startFapScan("1140", "1142")
+                    if (!_state.value.isFapScanning) {
+                        setCheck(6, AutoTestStatus.ECHEC, _state.value.fapScanError ?: "Le sondage n'a pas démarré")
+                    } else {
+                        _state.first { !it.isFapScanning }
+                        when (_state.value.fapScanOutcome) {
+                            FapScanOutcome.TERMINE -> setCheck(6, AutoTestStatus.OK, "Mécanisme de sondage fonctionnel (3 DID lus)")
+                            FapScanOutcome.ERREUR -> setCheck(6, AutoTestStatus.ECHEC, _state.value.fapScanError ?: "échec")
+                            FapScanOutcome.INTERROMPU, null -> setCheck(6, AutoTestStatus.ATTENTION, "Interrompu avant la fin")
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleConnectionLost(c, e.message ?: "Échec du smoke test automatique")
+            } finally {
+                _state.update { it.copy(isAutoTesting = false) }
+            }
+        }
+    }
+
+    /** Arrête le smoke test automatique en cours (bouton, déconnexion, ou perte de connexion). */
+    fun stopAutoTest() {
+        autoTestJob?.cancel()
+        autoTestJob = null
+        if (_state.value.isRecording) stopRecording()
+        stopFapScan()
+        _state.update { it.copy(isAutoTesting = false) }
+    }
+
     private fun unregisterNetworkCallback() {
         networkCallback?.let { cb ->
             val cm = getApplication<Application>()
@@ -1033,6 +1244,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private fun cancelJobsAndReleaseNetwork(): Elm327Client? {
         connectJob?.cancel()
         pollJob?.cancel()
+        stopAutoTest()
         stopRecording()
         stopFapScan()
         unregisterNetworkCallback()
