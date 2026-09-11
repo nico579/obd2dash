@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionState
+import com.nico.obd2dash.FapScanOutcome
 import com.nico.obd2dash.ObdUiState
 
 /**
@@ -33,13 +34,14 @@ import com.nico.obd2dash.ObdUiState
 @Composable
 fun ProbeScreen(
     state: ObdUiState,
-    onStartScan: (startDid: String, endDid: String) -> Unit,
+    onStartScan: (startDid: String, endDid: String, targetHeader: String) -> Unit,
     onStopScan: () -> Unit,
     onShareProbe: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var startDid by remember { mutableStateOf("1140") }
     var endDid by remember { mutableStateOf("11FF") }
+    var targetHeader by remember { mutableStateOf("") }
 
     Column(
         modifier = modifier
@@ -48,15 +50,17 @@ fun ProbeScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Sondage FAP (lecture seule)", style = MaterialTheme.typography.headlineSmall)
+        Text("Sondage FAP (expérimental, lecture seule)", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Interroge un par un les identifiants UDS (ReadDataByIdentifier, 0x22) d'une " +
-                "plage donnée et note ce que répond chaque calculateur : aucune écriture, " +
-                "aucun effacement, aucune commande d'actionneur ou de régénération forcée. " +
-                "Reste en session diagnostique par défaut : certains identifiants existants " +
-                "peuvent malgré tout revenir en erreur s'ils nécessitent une session étendue " +
-                "que cet outil ne demande volontairement pas. Le sens d'une réponse positive " +
-                "reste à établir après coup, rien n'est décodé automatiquement ici.",
+                "plage donnée et note ce que RÉPOND CE SONDAGE : aucune écriture, aucun " +
+                "effacement, aucune commande d'actionneur ou de régénération forcée. Headers " +
+                "CAN désactivés (ATH0) : sans adresse cible ci-dessous, impossible de savoir " +
+                "quel calculateur a répondu si plusieurs répondent à la diffusion. Reste en " +
+                "session diagnostique par défaut : certains identifiants existants peuvent " +
+                "malgré tout revenir en erreur s'ils nécessitent une session étendue que cet " +
+                "outil ne demande volontairement pas. Le sens d'une réponse positive reste à " +
+                "établir après coup, rien n'est décodé automatiquement ici.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -86,6 +90,19 @@ fun ProbeScreen(
                     modifier = Modifier.weight(1f)
                 )
             }
+            OutlinedTextField(
+                value = targetHeader,
+                onValueChange = { targetHeader = it },
+                label = { Text("Adresse cible (hex, optionnel — ex: 7E0)") },
+                enabled = !state.isFapScanning,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "Vide = diffusion (comportement par défaut, peut mélanger plusieurs " +
+                    "calculateurs). Une adresse cible n'a de sens qu'en CAN.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             state.fapScanError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
@@ -105,7 +122,21 @@ fun ProbeScreen(
                     Text("Arrêter le sondage")
                 }
             } else {
-                Button(onClick = { onStartScan(startDid, endDid) }, modifier = Modifier.fillMaxWidth()) {
+                state.fapScanOutcome?.let {
+                    Text(
+                        when (it) {
+                            FapScanOutcome.TERMINE -> "Dernier sondage : terminé (${state.fapScanDone}/${state.fapScanTotal})."
+                            FapScanOutcome.INTERROMPU -> "Dernier sondage : interrompu (${state.fapScanDone}/${state.fapScanTotal})."
+                            FapScanOutcome.ERREUR -> "Dernier sondage : arrêté en erreur (${state.fapScanDone}/${state.fapScanTotal})."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Button(
+                    onClick = { onStartScan(startDid, endDid, targetHeader) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text("Démarrer le sondage")
                 }
             }

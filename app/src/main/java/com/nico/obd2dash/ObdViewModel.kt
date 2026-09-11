@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -27,6 +28,9 @@ import java.util.Date
 import java.util.Locale
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+
+/** Comment un sondage FAP s'est terminé, pour l'afficher clairement (voir audit, "Ergonomie du sondage") : null = jamais lancé cette session, ou encore en cours. */
+enum class FapScanOutcome { TERMINE, INTERROMPU, ERREUR }
 
 /** Un enregistrement CSV terminé, tel que retrouvé sur le disque (pas forcément celui de la session en cours). */
 data class RecordingFile(val path: String, val name: String, val sizeBytes: Long, val date: String)
@@ -90,6 +94,7 @@ data class ObdUiState(
     val fapScanCurrentDid: Int? = null,
     val fapScanPositives: List<String> = emptyList(),
     val fapScanError: String? = null,
+    val fapScanOutcome: FapScanOutcome? = null,
     val probes: List<RecordingFile> = emptyList()
 )
 
@@ -285,15 +290,16 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * fichiers") ne se distinguent que par leur nom de fichier. Le fuseau explicite (XXX)
      * comble aussi le manque relevé en A1 sur les horodatages CSV.
      */
-    private fun writeSessionMetadata(writer: BufferedWriter) {
+    private fun writeSessionMetadata(writer: BufferedWriter, extra: List<Pair<String, String>> = emptyList()) {
         val state = _state.value
         val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.FRANCE)
-        for ((key, value) in listOf(
+        val entries = listOf(
             "VIN" to (state.vin ?: "inconnu"),
             "Protocole" to (state.protocol ?: "inconnu"),
             "Version app" to appVersionName(),
             "Début session" to timestampFormat.format(Date())
-        )) {
+        ) + extra
+        for ((key, value) in entries) {
             writer.write(csvRow(listOf(key, value)))
             writer.newLine()
         }
@@ -399,6 +405,27 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 val mafScaleBytes = if (0x50 in supported) c.readPidBytes(0x50) else null
                 PidCatalog.mafMaxGramsPerSec = mafScaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.let { it * 10.0 }
 
+                // PID4F/PID50 sont exclus du polling répété (voir startPolling) puisqu'ils
+                // ne varient pas ; affichés une fois ici à partir des octets déjà reçus
+                // ci-dessus, pour ne pas rester vides sur le Dashboard faute d'y être jamais
+                // "mesurés" par le polling normal.
+                val now = System.currentTimeMillis()
+                val contextValues = mutableMapOf<Int, GaugeValue>()
+                PidCatalog.defs.firstOrNull { it.pid == 0x4F }?.let { def ->
+                    if (scaleBytes != null && scaleBytes.size >= def.expectedBytes) {
+                        runCatching { def.decode(scaleBytes) }.getOrNull()?.let {
+                            contextValues[def.pid] = GaugeValue(it, now)
+                        }
+                    }
+                }
+                PidCatalog.defs.firstOrNull { it.pid == 0x50 }?.let { def ->
+                    if (mafScaleBytes != null && mafScaleBytes.size >= def.expectedBytes) {
+                        runCatching { def.decode(mafScaleBytes) }.getOrNull()?.let {
+                            contextValues[def.pid] = GaugeValue(it, now)
+                        }
+                    }
+                }
+
                 if (!c.isConnected) {
                     error("Connexion perdue pendant l'établissement de la session")
                 }
@@ -408,7 +435,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         supportedPids = supported,
                         vin = vin,
                         protocol = c.detectedProtocol,
-                        dtcHistory = historyStore.load(vehicleId)
+                        dtcHistory = historyStore.load(vehicleId),
+                        values = it.values + contextValues
                     )
                 }
                 startPolling(c, supported)
@@ -476,7 +504,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private val dtcOperationInProgress: Boolean get() = dtcOperationCount > 0
 
     private fun startPolling(c: Elm327Client, supported: Set<Int>) {
-        val toPoll = PidCatalog.defs.filter { it.pid in supported }
+        // CONTEXT_ONLY_PIDS (PID4F/PID50) sont déjà lus une fois dans connect() et
+        // n'évoluent pas pendant la session : les réinterroger ici ne changerait jamais
+        // leur valeur, au prix d'une commande de moins pour celles qui varient vraiment
+        // (voir audit, "Contexte standard et fréquence").
+        val toPoll = PidCatalog.defs.filter { it.pid in supported && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
             while (c.isConnected) {
@@ -686,7 +718,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * "hors plage" ou "service non supporté", certains DID peuvent nécessiter une session
      * que cet outil ne demande volontairement pas encore.
      */
-    fun startFapScan(startDidText: String, endDidText: String) {
+    fun startFapScan(startDidText: String, endDidText: String, targetHeaderText: String = "") {
         if (_state.value.isFapScanning) return
         val c = client ?: return
 
@@ -694,6 +726,15 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val endDid = endDidText.trim().removePrefix("0x").removePrefix("0X").toIntOrNull(16)
         if (startDid == null || endDid == null || startDid !in 0..0xFFFF || endDid !in 0..0xFFFF || startDid > endDid) {
             _state.update { it.copy(fapScanError = "Plage invalide (hexadécimal, 0000-FFFF, début ≤ fin).") }
+            return
+        }
+        // Adresse destinataire optionnelle (ATSH, voir Elm327Client.setTargetHeader) : les
+        // essais PC de référence ciblaient explicitement 7E0, alors que ce sondage envoie
+        // par défaut en diffusion (voir audit, "Sondage UDS expérimental") — sans cette
+        // option il n'y a aucun moyen de reproduire le même essai depuis l'app.
+        val targetHeader = targetHeaderText.trim().removePrefix("0x").removePrefix("0X").uppercase()
+        if (targetHeader.isNotEmpty() && targetHeader.toIntOrNull(16) == null) {
+            _state.update { it.copy(fapScanError = "Adresse cible invalide (hexadécimal, ex: 7E0), ou la laisser vide.") }
             return
         }
 
@@ -705,8 +746,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val baseName = "fap_scan_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
         val writer = try {
             uniqueFile(dir, baseName).bufferedWriter().apply {
-                writeSessionMetadata(this)
-                write(csvRow(listOf("DID", "Résultat", "Détail")))
+                writeSessionMetadata(this, listOf("Adresse cible" to targetHeader.ifEmpty { "diffusion (défaut)" }))
+                write(csvRow(listOf("Horodatage", "DID", "Résultat", "NRC", "Détail", "Réponse brute")))
                 newLine()
                 flush()
             }
@@ -727,48 +768,78 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 fapScanDone = 0,
                 fapScanTotal = endDid - startDid + 1,
                 fapScanPositives = emptyList(),
-                fapScanCurrentDid = null
+                fapScanCurrentDid = null,
+                fapScanOutcome = null
             )
         }
+
+        val rowTimestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.FRANCE)
 
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
             try {
                 previousJob?.join()
-                for (did in startDid..endDid) {
-                    _state.update { it.copy(fapScanCurrentDid = did) }
-                    val result = c.readUdsDid(did)
-                    val didHex = "%04X".format(did)
-                    val (label, detail) = when (result) {
-                        is UdsDidResult.Positive ->
-                            "positif" to result.data.joinToString(" ") { "%02X".format(it) }.ifBlank { "(vide)" }
-                        is UdsDidResult.Negative -> "négatif" to nrcDescription(result.nrc)
-                        UdsDidResult.NoResponse -> "aucune réponse" to ""
-                    }
-                    val written = withContext(Dispatchers.IO) {
-                        runCatching {
-                            probeWriter?.write(csvRow(listOf(didHex, label, detail)))
-                            probeWriter?.newLine()
-                            probeWriter?.flush()
-                        }.isSuccess
-                    }
-                    if (!written) {
-                        // Ne pas continuer à compter des DID "faits" qui ne sont plus écrits
-                        // nulle part (voir A5) : arrêter et le dire, en gardant le fichier
-                        // partiel déjà sur le disque.
-                        _state.update { it.copy(fapScanError = "Écriture du sondage échouée, arrêté.") }
-                        break
-                    }
-                    _state.update {
-                        it.copy(
-                            fapScanDone = it.fapScanDone + 1,
-                            fapScanPositives = if (result is UdsDidResult.Positive) {
-                                it.fapScanPositives + "$didHex : $detail"
-                            } else {
-                                it.fapScanPositives
+                try {
+                    // ATSH n'a de sens qu'en CAN : sur un véhicule non-CAN, la commande
+                    // échouera probablement sans effet plutôt que de casser quoi que ce
+                    // soit, mais elle n'est envoyée que si l'utilisateur l'a explicitement
+                    // demandée (targetHeader vide = comportement inchangé, diffusion).
+                    if (targetHeader.isNotEmpty()) c.setTargetHeader(targetHeader)
+                    for (did in startDid..endDid) {
+                        _state.update { it.copy(fapScanCurrentDid = did) }
+                        val probe = c.readUdsDid(did)
+                        val result = probe.result
+                        val didHex = "%04X".format(did)
+                        val nrcHex = (result as? UdsDidResult.Negative)?.let { "%02X".format(it.nrc) } ?: ""
+                        val (label, detail) = when (result) {
+                            is UdsDidResult.Positive ->
+                                "positif" to result.data.joinToString(" ") { "%02X".format(it) }.ifBlank { "(vide)" }
+                            is UdsDidResult.Negative -> "négatif" to nrcDescription(result.nrc)
+                            UdsDidResult.NoResponse -> "aucune réponse" to ""
+                        }
+                        // \r/\n remplacés par des espaces : une réponse brute multi-trame
+                        // reste sur une seule ligne de CSV, plus lisible dans un tableur
+                        // simple qu'un champ entre guillemets sur plusieurs lignes.
+                        val rawForCsv = probe.rawResponse.replace('\r', ' ').replace('\n', ' ').trim()
+                        val row = listOf(rowTimestampFormat.format(Date()), didHex, label, nrcHex, detail, rawForCsv)
+                        val written = withContext(Dispatchers.IO) {
+                            runCatching {
+                                probeWriter?.write(csvRow(row))
+                                probeWriter?.newLine()
+                                probeWriter?.flush()
+                            }.isSuccess
+                        }
+                        if (!written) {
+                            // Ne pas continuer à compter des DID "faits" qui ne sont plus
+                            // écrits nulle part (voir A5) : arrêter et le dire, en gardant
+                            // le fichier partiel déjà sur le disque.
+                            _state.update {
+                                it.copy(
+                                    fapScanError = "Écriture du sondage échouée, arrêté.",
+                                    fapScanOutcome = FapScanOutcome.ERREUR
+                                )
                             }
-                        )
+                            break
+                        }
+                        _state.update {
+                            it.copy(
+                                fapScanDone = it.fapScanDone + 1,
+                                fapScanPositives = if (result is UdsDidResult.Positive) {
+                                    it.fapScanPositives + "$didHex : $detail"
+                                } else {
+                                    it.fapScanPositives
+                                }
+                            )
+                        }
                     }
+                } finally {
+                    if (targetHeader.isNotEmpty()) withContext(NonCancellable) { c.resetTargetHeader() }
+                }
+                // Verdict "terminé" seulement si rien n'a déjà tranché autrement ci-dessus
+                // (échec d'écriture) : une annulation externe ne redescend jamais jusqu'ici
+                // (voir stopFapScanAndGetPrevious pour son propre verdict "interrompu").
+                if (_state.value.fapScanOutcome == null) {
+                    _state.update { it.copy(fapScanOutcome = FapScanOutcome.TERMINE) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -816,6 +887,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 dtcLoading = false,
                 isFapScanning = false,
                 fapScanCurrentDid = null,
+                // Un scan qui vient de se terminer normalement ou en erreur a déjà écrit
+                // son verdict avant d'appeler stopFapScan lui-même (voir startFapScan) :
+                // ne pas l'écraser par INTERROMPU. null ici veut dire qu'aucun verdict
+                // n'a encore été rendu, donc que l'arrêt vient bien de l'extérieur.
+                fapScanOutcome = if (wasScanning && it.fapScanOutcome == null) FapScanOutcome.INTERROMPU else it.fapScanOutcome,
                 probes = if (wasScanning) listProbes() else it.probes
             )
         }

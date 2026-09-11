@@ -489,11 +489,27 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
      * ni déclencher d'action (voir WriteDataByIdentifier 0x2E ou RoutineControl 0x31, tous
      * deux hors de portée de cette fonction et absents du reste du code).
      */
-    suspend fun readUdsDid(did: Int): UdsDidResult {
+    suspend fun readUdsDid(did: Int): UdsProbeResult {
         val didHex = "%04X".format(did)
         val response = sendRaw("22$didHex")
         val hexstr = reassembleHex(response, "62$didHex")
-        return parseUdsResponse(hexstr, did)
+        return UdsProbeResult(response, parseUdsResponse(hexstr, did))
+    }
+
+    /**
+     * Fixe l'adresse destinataire des prochaines requêtes (ATSH, CAN uniquement) : par
+     * défaut l'ELM327 diffuse en broadcast fonctionnel et n'importe quel ECU qui répond
+     * peut se mélanger avec un autre puisque les headers restent désactivés (ATH0, voir
+     * reassembleHex). Toujours suivi de [resetTargetHeader] par l'appelant, même en cas
+     * d'erreur ou d'annulation (voir ObdViewModel.startFapScan).
+     */
+    suspend fun setTargetHeader(header: String) {
+        sendRaw("ATSH$header")
+    }
+
+    /** Revient à la diffusion fonctionnelle standard 11 bits (7DF) après [setTargetHeader]. */
+    suspend fun resetTargetHeader() {
+        sendRaw("ATSH7DF")
     }
 
     /**
@@ -534,6 +550,13 @@ sealed class UdsDidResult {
     /** Ni l'un ni l'autre : réponse absente, tronquée, ou non reconnue comme enveloppe UDS. */
     object NoResponse : UdsDidResult()
 }
+
+/**
+ * [readUdsDid] avec la réponse brute conservée : le sens d'un DID positif reste à établir
+ * après coup (voir ObdViewModel.startFapScan), la réponse brute ne doit donc jamais être
+ * jetée au moment du sondage au prétexte qu'elle est déjà "interprétée" par [result].
+ */
+data class UdsProbeResult(val rawResponse: String, val result: UdsDidResult)
 
 /**
  * Libellé des codes NRC (Negative Response Code) les plus courants en sondage passif,

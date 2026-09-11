@@ -16,6 +16,14 @@ object PidCatalog {
     /** RPM, vitesse, température moteur : affichés en priorité, en plus grand. */
     val PRIMARY_PIDS = setOf(0x0C, 0x0D, 0x05)
 
+    // PID4F/PID50 sont des maxima annoncés par le véhicule, constants pour toute la session
+    // (voir o2MaxRatio et alentours) : ObdViewModel.connect() les lit une fois et en tire
+    // aussi bien les échelles ci-dessous que leur propre valeur affichée. Les reinterroger
+    // à chaque cycle de polling comme une mesure dynamique ne changerait jamais leur valeur,
+    // au prix d'une commande de moins par cycle pour les PID qui, eux, varient vraiment
+    // (voir audit, "Contexte standard et fréquence").
+    val CONTEXT_ONLY_PIDS = setOf(0x4F, 0x50)
+
     // Échelles réelles du PID24 (ratio/tension max), annoncées par PID4F pour LE VÉHICULE
     // CONNECTÉ. Ce ne sont pas des constantes universelles : SAE J1979-DA (table B60) exige
     // d'utiliser les maxima non nuls annoncés par PID4F quand il est supporté, faute de quoi
@@ -76,10 +84,14 @@ object PidCatalog {
 
         // Sondes O2 classiques (jusqu'à 4 : 2 bancs x 2 sondes). Octet trim = 0xFF si non
         // utilisé par ce capteur (sonde à large bande, ou position sans mesure de trim).
+        // Positions 1/2 désignent sans ambiguïté banc 1 sondes 1/2 dans les deux conventions
+        // SAE (PID13 ou PID1D), mais 3/4 désignent banc 1 sondes 3/4 avec PID13, banc 2
+        // sondes 1/2 avec PID1D (tables B20-B22) : sans lire lequel des deux le véhicule
+        // annonce, un libellé de banc fixe serait faux pour l'une des deux conventions.
         Def(0x14, "Sonde O2 (banc 1, sonde 1)", 2) { b -> formatO2(b) },
         Def(0x15, "Sonde O2 (banc 1, sonde 2)", 2) { b -> formatO2(b) },
-        Def(0x16, "Sonde O2 (banc 2, sonde 1)", 2) { b -> formatO2(b) },
-        Def(0x17, "Sonde O2 (banc 2, sonde 2)", 2) { b -> formatO2(b) },
+        Def(0x16, "Sonde O2 (position 3)", 2) { b -> formatO2(b) },
+        Def(0x17, "Sonde O2 (position 4)", 2) { b -> formatO2(b) },
         Def(0x24, "Sonde O2 large bande (ratio/V)", 4) { b ->
             val ratio = ((b[0] * 256) + b[1]) * o2MaxRatio / 65535.0
             val voltage = ((b[2] * 256) + b[3]) * o2MaxVoltage / 65535.0

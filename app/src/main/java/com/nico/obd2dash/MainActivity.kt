@@ -88,7 +88,9 @@ class MainActivity : ComponentActivity() {
                             )
                             Screen.PROBE -> ProbeScreen(
                                 state = state,
-                                onStartScan = { startDid, endDid -> viewModel.startFapScan(startDid, endDid) },
+                                onStartScan = { startDid, endDid, targetHeader ->
+                                    viewModel.startFapScan(startDid, endDid, targetHeader)
+                                },
                                 onStopScan = { viewModel.stopFapScan() },
                                 onShareProbe = { path -> shareCsvFile(path, "Partager le sondage") },
                                 modifier = Modifier.padding(padding)
