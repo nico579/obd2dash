@@ -100,7 +100,7 @@ fun DashboardScreen(
             val secondaryDefs = PidCatalog.defs.filter { it.pid !in PidCatalog.PRIMARY_PIDS && it.pid in state.supportedPids }
 
             for (def in primaryDefs) {
-                GaugeRow(def.label, state.values[def.pid], nowMs)
+                GaugeRow(def.label, state.values[def.pid], nowMs, def.pid in PidCatalog.CONTEXT_ONLY_PIDS)
             }
 
             if (secondaryDefs.isNotEmpty()) {
@@ -117,7 +117,7 @@ fun DashboardScreen(
                     ) {
                         for (def in row) {
                             Box(modifier = Modifier.weight(1f)) {
-                                SmallGauge(def.label, state.values[def.pid], nowMs)
+                                SmallGauge(def.label, state.values[def.pid], nowMs, def.pid in PidCatalog.CONTEXT_ONLY_PIDS)
                             }
                         }
                         if (row.size == 1) {
@@ -177,9 +177,19 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit) {
     }
 }
 
-/** Texte à afficher, et s'il faut le présenter atténué (probablement périmé). */
-private fun staleness(value: GaugeValue?, nowMs: Long): Pair<String, Boolean> {
+/**
+ * Texte à afficher, et s'il faut le présenter atténué (probablement périmé).
+ *
+ * [neverStale] : PidCatalog.CONTEXT_ONLY_PIDS (PID4F/PID50) sont lus une seule fois à la
+ * connexion, jamais réinterrogés (voir ObdViewModel.startPolling) : leur âge dépasse
+ * mécaniquement VALUE_UNAVAILABLE_AFTER_MS après les 10 premières secondes de CHAQUE
+ * session, sans que la valeur soit fausse pour autant. Leur appliquer la même règle
+ * d'âge que les PID vraiment repollés les aurait fait disparaître ("--") en permanence
+ * après ce délai (constaté sur capture réelle du 11 septembre).
+ */
+private fun staleness(value: GaugeValue?, nowMs: Long, neverStale: Boolean = false): Pair<String, Boolean> {
     if (value == null) return "--" to false
+    if (neverStale) return value.text to false
     val age = nowMs - value.updatedAtMs
     return when {
         age > VALUE_UNAVAILABLE_AFTER_MS -> "--" to false
@@ -189,8 +199,8 @@ private fun staleness(value: GaugeValue?, nowMs: Long): Pair<String, Boolean> {
 }
 
 @Composable
-private fun GaugeRow(label: String, value: GaugeValue?, nowMs: Long) {
-    val (text, stale) = staleness(value, nowMs)
+private fun GaugeRow(label: String, value: GaugeValue?, nowMs: Long, neverStale: Boolean = false) {
+    val (text, stale) = staleness(value, nowMs, neverStale)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelLarge)
         Text(
@@ -202,8 +212,8 @@ private fun GaugeRow(label: String, value: GaugeValue?, nowMs: Long) {
 }
 
 @Composable
-private fun SmallGauge(label: String, value: GaugeValue?, nowMs: Long) {
-    val (text, stale) = staleness(value, nowMs)
+private fun SmallGauge(label: String, value: GaugeValue?, nowMs: Long, neverStale: Boolean = false) {
+    val (text, stale) = staleness(value, nowMs, neverStale)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 2)
         Text(

@@ -207,7 +207,16 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
                 // Marqueur de péremption (voir A6) : sans lui, une valeur figée depuis la
                 // dernière lecture réussie du polling (connexion perdue, ou pause pendant
                 // un sondage/diagnostic) se lit comme la mesure actuelle du véhicule.
-                val suffix = if (nowMs - it.updatedAtMs > VALUE_UNAVAILABLE_AFTER_MS) " (périmé)" else ""
+                // CONTEXT_ONLY_PIDS exclus : lus une seule fois à la connexion par design
+                // (voir startPolling), leur âge dépasse ce seuil dès les 10 premières
+                // secondes de CHAQUE session sans que la valeur soit fausse (constaté sur
+                // capture réelle : "Ratio/tension O2 max annoncés" marqué périmé alors que
+                // PID4F n'a jamais changé depuis la connexion).
+                val suffix = if (def.pid !in PidCatalog.CONTEXT_ONLY_PIDS && nowMs - it.updatedAtMs > VALUE_UNAVAILABLE_AFTER_MS) {
+                    " (périmé)"
+                } else {
+                    ""
+                }
                 sb.appendLine("${def.label} : ${it.text}$suffix")
             }
         }
@@ -1007,7 +1016,14 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 val row = listOf(timestampFormat.format(Date()), etat) +
                     recordingColumns.map { def ->
                         val value = snapshot.values[def.pid]
-                        if (value != null && now - value.updatedAtMs <= VALUE_UNAVAILABLE_AFTER_MS) {
+                        // CONTEXT_ONLY_PIDS exclus de la limite d'âge : lus une seule fois à
+                        // la connexion par design (voir startPolling), ils dépasseraient ce
+                        // seuil dès les 10 premières secondes de CHAQUE enregistrement sans
+                        // que la valeur soit fausse (constaté sur capture réelle : colonne
+                        // "Ratio/tension O2 max annoncés" vide dans tout l'enregistrement).
+                        if (value != null &&
+                            (def.pid in PidCatalog.CONTEXT_ONLY_PIDS || now - value.updatedAtMs <= VALUE_UNAVAILABLE_AFTER_MS)
+                        ) {
                             value.text
                         } else {
                             ""

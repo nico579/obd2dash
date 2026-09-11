@@ -1,6 +1,7 @@
 package com.nico.obd2dash
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -59,6 +60,19 @@ class ObdViewModelTest {
         val old = GaugeValue("830 rpm", updatedAtMs = 0L) // horodatage tres ancien par construction
         val state = ObdUiState(values = mapOf(0x0C to old))
         assertTrue(buildDiagnosticReport(state).contains("830 rpm (périmé)"))
+    }
+
+    @Test
+    fun `buildDiagnosticReport n'affiche jamais perime pour un CONTEXT_ONLY_PID`() {
+        // Bug reel constate sur capture le 11 septembre : PID4F est lu une seule fois a la
+        // connexion (voir PidCatalog.CONTEXT_ONLY_PIDS et ObdViewModel.startPolling), donc
+        // son age depasse VALUE_UNAVAILABLE_AFTER_MS des les 10 premieres secondes de CHAQUE
+        // session sans que la valeur soit fausse. "10 / 10" etait marque perime a tort.
+        val old = GaugeValue("10 / 10", updatedAtMs = 0L)
+        val state = ObdUiState(values = mapOf(0x4F to old))
+        val report = buildDiagnosticReport(state)
+        assertTrue(report.contains("10 / 10"))
+        assertFalse(report.contains("10 / 10 (périmé)"))
     }
 
     // --- csvRow / csvEscape : le delimiteur point-virgule et les valeurs deja formatees
