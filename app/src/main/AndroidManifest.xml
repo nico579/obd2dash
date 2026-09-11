@@ -6,6 +6,15 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
+    <!-- RecordingService : garder le processus vivant pendant un enregistrement de trajet
+         quand l'écran s'éteint (voir audit, "Écran éteint et arrière-plan"). connectedDevice
+         est le type prévu par Android pour un service lié à un appareil connecté en Wi-Fi ;
+         POST_NOTIFICATIONS est requis depuis Android 13 pour que sa notification (obligatoire
+         pour tout service de premier plan) s'affiche réellement. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:allowBackup="true"
         android:icon="@android:drawable/sym_def_app_icon"
@@ -23,6 +32,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".RecordingService"
+            android:foregroundServiceType="connectedDevice"
+            android:exported="false" />
 
         <!-- Depuis Android 7, un chemin de fichier brut ne peut plus être partagé
              directement à une autre app (StrictMode) : il faut un fournisseur de contenu

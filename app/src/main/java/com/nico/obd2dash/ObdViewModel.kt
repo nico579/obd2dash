@@ -2,10 +2,12 @@ package com.nico.obd2dash
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -932,6 +934,17 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         recordingColumns = columns
         recordingWriter = writer
         _state.update { it.copy(isRecording = true, recordingSamples = 0) }
+        // Effort raisonnable, pas une condition bloquante : démarré depuis un bouton
+        // visible à l'écran, c'est un cas autorisé à lancer un service de premier plan
+        // (voir RecordingService). Un échec ici (rare) laisse l'enregistrement fonctionner
+        // tant que l'app reste au premier plan ; seule sa résistance à l'écran éteint en
+        // pâtirait (voir audit, "Écran éteint et arrière-plan").
+        runCatching {
+            ContextCompat.startForegroundService(
+                getApplication(),
+                Intent(getApplication(), RecordingService::class.java)
+            )
+        }
 
         recordingJob = viewModelScope.launch {
             val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
@@ -982,6 +995,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { recordingWriter?.close() }
         recordingWriter = null
         if (wasRecording) {
+            runCatching {
+                getApplication<Application>().stopService(Intent(getApplication(), RecordingService::class.java))
+            }
             // Le fichier qui vient de se fermer doit apparaître dans la liste tout de
             // suite, sans attendre un redémarrage de l'app.
             _state.update { it.copy(isRecording = false, recordings = listRecordings()) }

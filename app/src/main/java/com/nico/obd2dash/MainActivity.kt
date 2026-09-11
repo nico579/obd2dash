@@ -1,9 +1,13 @@
 package com.nico.obd2dash
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -23,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.DtcScreen
@@ -34,6 +39,22 @@ private enum class Screen { DASHBOARD, DTC, PROBE }
 class MainActivity : ComponentActivity() {
 
     private val viewModel: ObdViewModel by viewModels()
+
+    // Sur Android 13+, RecordingService a besoin de cette permission pour que sa
+    // notification (obligatoire pour tout service de premier plan) s'affiche réellement ;
+    // son refus ne bloque ni l'enregistrement ni le service, juste sa visibilité (voir
+    // RecordingService). Doit être enregistré ici, avant que l'Activity soit démarrée.
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* ignoré, voir ci-dessus */ }
+
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,7 +96,12 @@ class MainActivity : ComponentActivity() {
                                 onHostChange = { viewModel.updateHost(it) },
                                 onPortChange = { viewModel.updatePort(it) },
                                 onToggleRecording = {
-                                    if (state.isRecording) viewModel.stopRecording() else viewModel.startRecording()
+                                    if (state.isRecording) {
+                                        viewModel.stopRecording()
+                                    } else {
+                                        ensureNotificationPermission()
+                                        viewModel.startRecording()
+                                    }
                                 },
                                 onShareRecording = { path -> shareCsvFile(path, "Partager l'enregistrement") },
                                 modifier = Modifier.padding(padding)
