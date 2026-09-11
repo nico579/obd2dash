@@ -78,23 +78,50 @@ fun DashboardScreen(
             // toute seule tant qu'elle échoue (sonde injoignable avant que le contact soit
             // mis, par exemple). Changer d'adresse, de transport ou d'appareil Bluetooth se
             // fait depuis Réglages (icône engrenage), pas depuis cet écran.
-            if (state.connectionState == ConnectionState.CONNECTING) {
-                CircularProgressIndicator(modifier = Modifier.size(32.dp))
-                Text("Connexion...", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                Text(
-                    "En attente de la sonde" +
-                        (if (state.connectionMode == ConnectionMode.WIFI) " Wi-Fi" else " Bluetooth") + "...",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    "Nouvel essai automatique toutes les 5 secondes.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            state.errorMessage?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            when (state.connectionState) {
+                ConnectionState.CONNECTING -> {
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                    Text("Connexion...", style = MaterialTheme.typography.bodyMedium)
+                }
+                ConnectionState.RECONNECTING -> {
+                    // Coupure transitoire (voir ObdViewModel.handleConnectionLost) : la
+                    // boucle reprend seule, rien d'alarmant à montrer ("ne pas afficher
+                    // d'erreur si rien n'est disponible, il faut juste boucler et attendre").
+                    // Un enregistrement/graphique en cours n'est PAS arrêté ici : il reprendra
+                    // automatiquement (voir finishConnecting/resumeRecordingLoop), donc le
+                    // signaler plutôt que de faire croire à un arrêt.
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                    Text("Reconnexion en cours...", style = MaterialTheme.typography.bodyMedium)
+                    if (state.isRecording) {
+                        Text(
+                            "Enregistrement en pause, reprendra automatiquement " +
+                                "(${state.recordingSamples} échantillons déjà enregistrés).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                else -> {
+                    Text(
+                        "En attente de la sonde" +
+                            (if (state.connectionMode == ConnectionMode.WIFI) " Wi-Fi" else " Bluetooth") + "...",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        "Nouvel essai automatique toutes les 5 secondes.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // Erreur affichée seulement ici (état ERROR, provoqué uniquement par une
+                    // action explicite dans Réglages) : une tentative automatique qui échoue
+                    // passe par RECONNECTING ci-dessus, jamais par ERROR, précisément pour ne
+                    // rien afficher de ce genre pendant une simple attente.
+                    if (state.connectionState == ConnectionState.ERROR) {
+                        state.errorMessage?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
         } else {
             val primaryDefs = PidCatalog.defs.filter { it.pid in PidCatalog.PRIMARY_PIDS && it.pid in state.supportedPids }
@@ -129,6 +156,19 @@ fun DashboardScreen(
             }
 
             HorizontalDivider()
+            Button(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
+                Text("Déconnecter")
+            }
+        }
+
+        // En dehors du bloc connecté, à dessein : un enregistrement en cours doit rester
+        // arrêtable manuellement même pendant une reconnexion automatique (RECONNECTING),
+        // pas seulement quand CONNECTED ("le stop doit être manuel", jamais automatique, voir
+        // ObdViewModel.pauseRecordingForReconnect). "Démarrer" n'a de sens que CONNECTED
+        // (startRecording() exige un client actif), d'où la condition en union plutôt qu'un
+        // simple state.isRecording.
+        if (state.connectionState == ConnectionState.CONNECTED || state.isRecording) {
+            HorizontalDivider()
             Button(onClick = onToggleRecording, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     if (state.isRecording) {
@@ -137,10 +177,6 @@ fun DashboardScreen(
                         "Démarrer l'enregistrement"
                     }
                 )
-            }
-
-            Button(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
-                Text("Déconnecter")
             }
         }
 

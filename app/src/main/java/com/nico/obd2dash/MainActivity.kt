@@ -171,6 +171,8 @@ class MainActivity : ComponentActivity() {
                                 onPortChange = { viewModel.updatePort(it) },
                                 onModeChange = { viewModel.setConnectionMode(it) },
                                 onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
+                                onShareLog = { path -> shareCsvFile(path, "Partager le journal", mimeType = "text/plain") },
+                                onDeleteLog = { path -> viewModel.deleteLog(path) },
                                 modifier = Modifier.padding(padding)
                             )
                             return@Scaffold
@@ -225,11 +227,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Partage Android standard (sharesheet) : identique pour un enregistrement ou un sondage. */
-    private fun shareCsvFile(path: String, chooserTitle: String) {
+    /** Partage Android standard (sharesheet) : identique pour un enregistrement, un sondage ou un journal (mimeType "text/plain" pour ce dernier, ce n'est pas un tableau). */
+    private fun shareCsvFile(path: String, chooserTitle: String, mimeType: String = "text/csv") {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", File(path))
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/csv"
+            type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -249,6 +251,7 @@ private fun ConnectionIndicator(state: ConnectionState) {
     val (color, label) = when (state) {
         ConnectionState.CONNECTED -> Color(0xFF2E7D32) to "Connecté"
         ConnectionState.CONNECTING -> Color(0xFFF9A825) to "Connexion..."
+        ConnectionState.RECONNECTING -> Color(0xFFF9A825) to "Reconnexion..."
         ConnectionState.ERROR -> Color(0xFFC62828) to "Erreur"
         ConnectionState.DISCONNECTED -> Color(0xFF9E9E9E) to "Déconnecté"
     }

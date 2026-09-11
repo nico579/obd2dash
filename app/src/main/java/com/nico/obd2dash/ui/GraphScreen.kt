@@ -58,7 +58,12 @@ fun GraphScreen(
     ) {
         Text("Graphique", style = MaterialTheme.typography.headlineSmall)
 
-        if (state.connectionState != ConnectionState.CONNECTED) {
+        // RECONNECTING inclus, pas seulement CONNECTED : une coupure transitoire ne doit
+        // pas effacer la courbe déjà tracée ni forcer à recommencer (voir
+        // ObdViewModel.handleConnectionLost, "le stop doit être manuel"). graphPid/
+        // graphHistory/supportedPids survivent à une coupure par design (.copy()), la
+        // courbe continue donc de s'afficher, en pause, jusqu'à la reprise du polling.
+        if (state.connectionState != ConnectionState.CONNECTED && state.connectionState != ConnectionState.RECONNECTING) {
             Text(
                 "Connecte-toi à la sonde depuis le Dashboard pour tracer une courbe.",
                 style = MaterialTheme.typography.bodyMedium
@@ -72,6 +77,14 @@ fun GraphScreen(
                 selectedLabel = selectedDef?.label,
                 onSelect = { onSelectPid(it) }
             )
+
+            if (state.connectionState == ConnectionState.RECONNECTING) {
+                Text(
+                    "Reconnexion en cours, la courbe reprendra automatiquement.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             when {
                 selectedDef == null -> Text(

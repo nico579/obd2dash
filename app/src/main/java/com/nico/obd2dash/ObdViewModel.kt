@@ -33,7 +33,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+// RECONNECTING distingue une nouvelle tentative automatique (silencieuse, voir
+// DashboardScreen) d'une ERREUR provoquée par une action explicite (Réglages, message
+// affiché) : une tentative automatique qui échoue retombe en RECONNECTING, pas en ERROR,
+// même si la cause est identique (voir ObdViewModel.attemptAutoConnect/isAutoRetry).
+enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING, ERROR }
 
 /** Transport vers la sonde ELM327 : Wi-Fi (IP/port) ou Bluetooth (appareil appairé). Persisté pour la reconnexion automatique au lancement (voir ObdViewModel.init). */
 enum class ConnectionMode { WIFI, BLUETOOTH }
@@ -131,6 +135,10 @@ data class ObdUiState(
     val fapScanError: String? = null,
     val fapScanOutcome: FapScanOutcome? = null,
     val probes: List<RecordingFile> = emptyList(),
+    // Journal texte des événements du processus en cours (voir EventLog) : un fichier par
+    // lancement, listé comme les enregistrements/sondages pour être partageable/supprimable
+    // pareil (voir SettingsScreen).
+    val logs: List<RecordingFile> = emptyList(),
     // Smoke test automatique : exécute une petite séquence de vraies lectures/écritures
     // contre le véhicule réellement connecté et rapporte OK/ATTENTION/ECHEC par étape, pour
     // couvrir mécaniquement ce qu'un humain vérifierait autrement à la main (voir la
@@ -155,6 +163,7 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
         "Connexion : " + when (state.connectionState) {
             ConnectionState.CONNECTED -> "connectée"
             ConnectionState.CONNECTING -> "connexion en cours"
+            ConnectionState.RECONNECTING -> "reconnexion en cours (coupure transitoire)"
             ConnectionState.DISCONNECTED -> "déconnectée"
             ConnectionState.ERROR -> "en erreur" + (state.errorMessage?.let { " : $it" } ?: "")
         }
@@ -305,9 +314,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var autoReconnectJob: Job? = null
 
     init {
-        // Les enregistrements/sondages des sessions précédentes existent déjà sur le disque
-        // au lancement de l'app : visibles sans attendre une nouvelle session.
-        _state.update { it.copy(recordings = listRecordings(), probes = listProbes()) }
+        // Les enregistrements/sondages/journaux des sessions précédentes existent déjà sur
+        // le disque au lancement de l'app : visibles sans attendre une nouvelle session.
+        _state.update { it.copy(recordings = listRecordings(), probes = listProbes(), logs = listLogs()) }
         // Connexion automatique au lancement (comme Torque), puis retentée en boucle tant
         // qu'elle échoue : sans contact mis (pas de Wi-Fi de la sonde), un seul essai
         // échouait et laissait l'utilisateur devoir rouvrir l'app ou appuyer sur un bouton
@@ -324,11 +333,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun attemptAutoConnect() {
         when (savedConnectionMode()) {
-            ConnectionMode.WIFI -> connect(_state.value.host, _state.value.port)
+            ConnectionMode.WIFI -> connect(_state.value.host, _state.value.port, isAutoRetry = true)
             ConnectionMode.BLUETOOTH -> {
                 val address = prefs.getString(KEY_BLUETOOTH_ADDRESS, null) ?: return
                 val device = runCatching { bluetoothAdapter()?.getRemoteDevice(address) }.getOrNull() ?: return
-                connectBluetooth(device)
+                connectBluetooth(device, isAutoRetry = true)
             }
         }
     }
@@ -347,7 +356,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 delay(AUTO_RECONNECT_INTERVAL_MS)
                 val current = _state.value.connectionState
                 if (!userRequestedDisconnect &&
-                    (current == ConnectionState.DISCONNECTED || current == ConnectionState.ERROR)
+                    (current == ConnectionState.DISCONNECTED ||
+                        current == ConnectionState.ERROR ||
+                        current == ConnectionState.RECONNECTING)
                 ) {
                     attemptAutoConnect()
                 }
@@ -393,6 +404,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun listProbes(): List<RecordingFile> = listCsvFiles("probes")
 
+    /** Voir EventLog : un fichier texte par lancement, ".log" plutôt que ".csv" (ce ne sont pas des mesures tabulaires). */
+    private fun listLogs(): List<RecordingFile> = listFiles("logs", "log")
+
     /** Suppression définitive, pas de corbeille : les fichiers vivent en stockage privé de l'app, inaccessibles à un gestionnaire de fichiers classique. */
     fun deleteRecording(path: String) {
         File(path).delete()
@@ -404,9 +418,22 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(probes = listProbes()) }
     }
 
-    private fun listCsvFiles(subdir: String): List<RecordingFile> {
+    fun deleteLog(path: String) {
+        // Le fichier actuellement en écriture (session en cours) apparaît aussi dans cette
+        // liste : le supprimer sous les pieds d'EventLog laisserait son BufferedWriter
+        // écrire dans le vide (silencieusement absorbé par runCatching côté EventLog.log,
+        // pas de crash), simplement plus aucune ligne ultérieure de CETTE session ne serait
+        // récupérable. Cas volontairement non bloqué : l'utilisateur reste libre de vider
+        // le journal en cours, comme pour un enregistrement (pas de fichier protégé).
+        File(path).delete()
+        _state.update { it.copy(logs = listLogs()) }
+    }
+
+    private fun listCsvFiles(subdir: String): List<RecordingFile> = listFiles(subdir, "csv")
+
+    private fun listFiles(subdir: String, extension: String): List<RecordingFile> {
         val dir = File(getApplication<Application>().filesDir, subdir)
-        val files = dir.listFiles { f -> f.isFile && f.extension == "csv" } ?: emptyArray()
+        val files = dir.listFiles { f -> f.isFile && f.extension == extension } ?: emptyArray()
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.FRANCE)
         return files.sortedByDescending { it.lastModified() }.map {
             RecordingFile(
@@ -478,10 +505,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Change le PID suivi par l'écran Graphique ; repart d'un historique vide (voir GraphPoint). */
     fun selectGraphPid(pid: Int?) {
+        if (pid != null) EventLog.log("Graphique : suivi du PID $pid")
         _state.update { it.copy(graphPid = pid, graphHistory = emptyList()) }
     }
 
-    fun connect(host: String, portText: String) {
+    fun connect(host: String, portText: String, isAutoRetry: Boolean = false) {
         if (_state.value.connectionState == ConnectionState.CONNECTING) return
         userRequestedDisconnect = false
 
@@ -489,12 +517,18 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         if (host.isBlank() || port == null || port !in 1..65535) {
             _state.update {
                 it.copy(
-                    connectionState = ConnectionState.ERROR,
+                    connectionState = if (isAutoRetry) ConnectionState.RECONNECTING else ConnectionState.ERROR,
                     errorMessage = "Adresse IP ou port invalide (port entre 1 et 65535)."
                 )
             }
             return
         }
+
+        // Auto-retry non journalisé individuellement (voir startAutoReconnectLoop, toutes
+        // les 5s tant que le contact n'est pas mis, ce serait juste du bruit) : seul le
+        // résultat final (succès ou coupure détectée) laisse une trace, voir
+        // finishConnecting/handleConnectionLost.
+        if (!isAutoRetry) EventLog.log("Connexion Wi-Fi demandée ($host:$portText)")
 
         prefs.edit()
             .putString(KEY_HOST, host)
@@ -507,7 +541,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         connectJob = viewModelScope.launch {
             prepareForNewConnection()
             val c = Elm327Client(host, port)
-            finishConnecting(c) {
+            finishConnecting(c, isAutoRetry) {
                 // Le téléphone a souvent WiFi (sonde, sans Internet) + 4G actifs en même
                 // temps. Android route par défaut vers le réseau qui a Internet (donc la 4G),
                 // ce qui rend la sonde injoignable. On force explicitement le socket à sortir
@@ -516,7 +550,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 if (wifiNetwork == null) {
                     _state.update {
                         it.copy(
-                            connectionState = ConnectionState.ERROR,
+                            connectionState = if (isAutoRetry) ConnectionState.RECONNECTING else ConnectionState.ERROR,
                             errorMessage = "Aucun réseau WiFi détecté après 4s (timeout). " +
                                 "Vérifie que le téléphone est bien connecté au WiFi de la sonde."
                         )
@@ -535,9 +569,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * fait aucune découverte, seulement la connexion socket. Non vérifié sur un vrai
      * adaptateur Bluetooth, voir le commentaire de classe d'Elm327Client.
      */
-    fun connectBluetooth(device: BluetoothDevice) {
+    fun connectBluetooth(device: BluetoothDevice, isAutoRetry: Boolean = false) {
         if (_state.value.connectionState == ConnectionState.CONNECTING) return
         userRequestedDisconnect = false
+
+        if (!isAutoRetry) EventLog.log("Connexion Bluetooth demandée (${bluetoothDeviceName(device)})")
 
         prefs.edit()
             .putString(KEY_CONNECTION_MODE, ConnectionMode.BLUETOOTH.name)
@@ -550,19 +586,24 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         connectJob = viewModelScope.launch {
             prepareForNewConnection()
             val c = Elm327Client(ConnectionTarget.Bluetooth(device))
-            finishConnecting(c) {
+            finishConnecting(c, isAutoRetry) {
                 c.connect()
                 true
             }
         }
     }
 
-    /** Repart d'un état neuf (hôte/port et enregistrements passés gardés) : sans ça, les
-     * valeurs, DTC, historique etc. d'une session précédente (potentiellement un AUTRE
-     * véhicule) restaient affichés sous l'identité de la nouvelle connexion jusqu'à ce
-     * qu'un nouveau scan les remplace, ou pour toujours s'il échoue. Les enregistrements
-     * CSV ne sont pas liés à une session : ce sont des fichiers sur le disque, pas de
-     * raison de les faire disparaître de la liste au moment de se reconnecter. */
+    /**
+     * Repart d'un état neuf pour tout ce qui est propre à UN véhicule (VIN, DTC, valeurs
+     * live...) : sans ça, ces données d'une session précédente (potentiellement un AUTRE
+     * véhicule) restaient affichées sous l'identité de la nouvelle connexion jusqu'à ce
+     * qu'un nouveau scan les remplace, ou pour toujours si la connexion échoue. En
+     * revanche, hôte/port/transport, fichiers déjà produits, et surtout un enregistrement
+     * ou un graphique EN COURS survivent : une coupure transitoire doit reprendre ce qui
+     * avait été commencé, pas l'effacer (voir handleConnectionLost, "le stop doit être
+     * manuel"). Le seul vrai arrêt reste stopRecording()/disconnect(), jamais une tentative
+     * de connexion qui démarre.
+     */
     private fun beginConnecting(mode: ConnectionMode, bluetoothName: String? = null) {
         _state.update {
             ObdUiState(
@@ -572,6 +613,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 bluetoothDeviceName = bluetoothName ?: it.bluetoothDeviceName,
                 recordings = it.recordings,
                 probes = it.probes,
+                logs = it.logs,
+                isRecording = it.isRecording,
+                recordingSamples = it.recordingSamples,
+                graphPid = it.graphPid,
+                graphHistory = it.graphHistory,
                 connectionState = ConnectionState.CONNECTING
             )
         }
@@ -579,11 +625,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Referme une éventuelle connexion précédente (ex: reconnexion après une erreur)
      * avant d'en ouvrir une nouvelle, pour ne pas laisser un client orphelin tourner en
-     * tâche de fond. */
+     * tâche de fond. N'arrête PAS l'enregistrement (voir beginConnecting) : seuls le
+     * sondage FAP et l'auto-test, non conçus pour survivre à une reconnexion, le sont. */
     private fun prepareForNewConnection() {
         pollJob?.cancel()
         stopAutoTest()
-        stopRecording()
         stopFapScan()
         unregisterNetworkCallback()
         client?.disconnect()
@@ -596,7 +642,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * false depuis [doConnect] annule l'établissement sans le traiter comme une erreur
      * (ex: pas de réseau Wi-Fi détecté, déjà signalé par l'appelant).
      */
-    private suspend fun finishConnecting(c: Elm327Client, doConnect: suspend () -> Boolean) {
+    private suspend fun finishConnecting(c: Elm327Client, isAutoRetry: Boolean, doConnect: suspend () -> Boolean) {
         try {
             if (!doConnect()) return
             client = c
@@ -661,6 +707,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     connectionState = ConnectionState.CONNECTED,
+                    errorMessage = null,
                     supportedPids = supported,
                     vin = vin,
                     protocol = c.detectedProtocol,
@@ -668,7 +715,20 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     values = it.values + contextValues
                 )
             }
+            EventLog.log(
+                (if (isAutoRetry) "Reconnecté" else "Connecté") +
+                    " : VIN=${vin ?: "inconnu"}, protocole=${c.detectedProtocol ?: "inconnu"}"
+            )
             startPolling(c, supported)
+            // Un enregistrement mis en pause par une coupure (voir handleConnectionLost/
+            // pauseRecordingForReconnect) reprend sur le MÊME fichier dès que la session
+            // revit : recordingWriter non nul mais recordingJob nul signale ce cas précis
+            // (un enregistrement démarré normalement a déjà les deux non nuls, voir
+            // startRecording). Le stop reste manuel : ce n'est jamais ici qu'on en démarre
+            // un nouveau, seulement qu'on reprend celui déjà en cours.
+            if (recordingWriter != null && recordingJob == null) {
+                resumeRecordingLoop()
+            }
         } catch (e: CancellationException) {
             // c n'est affecté à `client` qu'après doConnect() plus haut : si l'annulation
             // arrive avant, personne d'autre ne connaît ce client pour le refermer (voir
@@ -678,8 +738,15 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             c.disconnect()
             client = null
+            // Comme pour la demande de connexion elle-même : un échec d'auto-retry n'est
+            // pas journalisé individuellement (bruit toutes les 5s tant que le contact n'est
+            // pas mis), seul un échec suite à une action explicite l'est.
+            if (!isAutoRetry) EventLog.log("Échec de connexion : ${e.message ?: "raison inconnue"}")
             _state.update {
-                it.copy(connectionState = ConnectionState.ERROR, errorMessage = e.message ?: "Connexion échouée")
+                it.copy(
+                    connectionState = if (isAutoRetry) ConnectionState.RECONNECTING else ConnectionState.ERROR,
+                    errorMessage = e.message ?: "Connexion échouée"
+                )
             }
         }
     }
@@ -743,8 +810,19 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
             var cycle = 0
+            // Filet de sécurité contre une sonde "zombie" : constaté sur capture réelle
+            // (obd_20260911_201421.csv) qu'un clone ELM327 peut cesser de répondre à TOUT
+            // PID sans jamais lever d'exception ni fermer le socket (readPidBytes renvoie
+            // simplement null en boucle) : c.isConnected reste vrai, newValues reste vide
+            // à chaque cycle, et sans ce filet handleConnectionLost n'était donc jamais
+            // déclenché malgré 30s+ de valeurs figées. Remis à zéro à chaque lecture réussie
+            // ET pendant une pause diagnostique légitime (refresh DTC, sondage FAP : ça peut
+            // durer plusieurs secondes sans qu'aucun PID ne soit lu, ce n'est pas une panne).
+            var lastSuccessAtMs = System.currentTimeMillis()
             while (c.isConnected) {
-                if (!dtcOperationInProgress) {
+                if (dtcOperationInProgress) {
+                    lastSuccessAtMs = System.currentTimeMillis()
+                } else {
                     try {
                         // Les températures (SLOW_PIDS) ne sont ajoutées qu'une fraction des
                         // cycles : assez souvent pour ne jamais paraître périmées à l'affichage
@@ -774,6 +852,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         // Fusionne plutôt que remplace : une lecture ratée ponctuelle garde
                         // la dernière valeur connue au lieu d'afficher "--" en régression.
                         if (newValues.isNotEmpty()) {
+                            lastSuccessAtMs = System.currentTimeMillis()
                             _state.update { s ->
                                 // Lu depuis s (pas une variable capturée plus haut) : le PID
                                 // suivi a pu changer entre deux cycles de polling.
@@ -787,6 +866,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                                 s.copy(values = s.values + newValues, graphHistory = history)
                             }
+                        } else if (System.currentTimeMillis() - lastSuccessAtMs > ZOMBIE_CONNECTION_TIMEOUT_MS) {
+                            handleConnectionLost(c, "Plus aucune réponse de la sonde depuis ${ZOMBIE_CONNECTION_TIMEOUT_MS / 1000}s")
+                            return@launch
                         }
                     } catch (e: CancellationException) {
                         throw e
@@ -808,14 +890,24 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Connexion perdue pendant le polling (coupure WiFi de la sonde, contact coupé, etc.),
-     * traitée comme une vraie déconnexion plutôt qu'un simple passage en erreur. soTimeout
-     * (3s, voir Elm327Client.connect) borne le délai avant qu'une lecture bloquée ne lève
-     * ici. Un enregistrement CSV en cours DOIT s'arrêter à cet instant : sinon il continue
-     * à échantillonner _state.value.values (jamais remis à jour, le polling vient de
-     * s'arrêter) toutes les 5s pour le reste de la session, sans qu'aucun bouton "Arrêter"
-     * ne reste accessible puisque l'écran retombe sur le formulaire de connexion. Cas réel
-     * constaté sur capture : 82 min de valeurs identiques après une coupure de contact.
+     * Connexion perdue pendant le polling (coupure WiFi de la sonde, contact coupé, micro
+     * coupure réseau, etc.). soTimeout (3s, voir Elm327Client.connect) borne le délai avant
+     * qu'une lecture bloquée ne lève ici ; le watchdog de startPolling couvre en plus le cas
+     * d'une sonde qui ne lève rien mais ne répond plus jamais (voir capture réelle
+     * obd_20260911_201421.csv : 30s+ de valeurs vides sans la moindre exception).
+     *
+     * Passe en RECONNECTING, pas ERROR : la boucle de reconnexion automatique
+     * (startAutoReconnectLoop) reprend seule, SANS action de l'utilisateur, et un
+     * enregistrement ou un graphique en cours doivent reprendre avec elle dès que la
+     * session revit (voir pauseRecordingForReconnect/resumeRecordingLoop dans
+     * finishConnecting) plutôt que de s'arrêter ici. Le seul vrai arrêt reste manuel
+     * (bouton "Arrêter", ou disconnect() qui repasse par une reconstruction complète de
+     * l'état). D'où un .copy() qui préserve tout par défaut (recording en cours, historique
+     * du graphique, VIN/DTC déjà affichés) plutôt qu'une liste blanche à entretenir à la
+     * main : une session précédente reconstruisait l'état en clair et avait déjà oublié
+     * deux fois d'y ajouter un nouveau champ (connectionMode, bluetoothDeviceName), les
+     * réinitialisant silencieusement (voir beginConnecting, qui reste lui volontairement
+     * un allowlist explicite car il DOIT repartir propre sur l'identité véhicule).
      *
      * [source] est le client qui a détecté la perte, pas forcément celui actuellement en
      * champ `client` : un job de diagnostic annulé peut encore livrer son exception après
@@ -824,24 +916,33 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun handleConnectionLost(source: Elm327Client, message: String) {
         if (client !== source) return
+        EventLog.log("Coupure : $message")
         stopAutoTest()
-        stopRecording()
+        pauseRecordingForReconnect()
         stopFapScan()
         unregisterNetworkCallback()
         viewModelScope.launch(Dispatchers.IO) { source.disconnect() }
         client = null
         _state.update {
-            ObdUiState(
-                host = it.host,
-                port = it.port,
-                connectionMode = it.connectionMode,
-                bluetoothDeviceName = it.bluetoothDeviceName,
-                recordings = it.recordings,
-                probes = it.probes,
-                connectionState = ConnectionState.ERROR,
-                errorMessage = message
+            it.copy(
+                connectionState = ConnectionState.RECONNECTING,
+                errorMessage = message,
+                dtcLoading = false
             )
         }
+    }
+
+    /**
+     * Met l'échantillonnage en pause sans rien fermer : le fichier (recordingWriter),
+     * ses colonnes et le compteur d'échantillons restent en l'état, isRecording reste
+     * vrai. Seule la coroutine de la boucle (recordingJob) est annulée, pour ne pas
+     * continuer à écrire des lignes vides pendant la coupure. Reprend via
+     * resumeRecordingLoop() dès que finishConnecting() réussit à nouveau, sur le MÊME
+     * fichier : "le stop doit être manuel" (voir stopRecording, le seul vrai arrêt).
+     */
+    private fun pauseRecordingForReconnect() {
+        recordingJob?.cancel()
+        recordingJob = null
     }
 
     /**
@@ -986,6 +1087,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(fapScanError = "Plage invalide (hexadécimal, 0000-FFFF, début ≤ fin).") }
             return
         }
+        EventLog.log("Démarrage du sondage DID %04X-%04X".format(startDid, endDid))
         // Adresse destinataire optionnelle (ATSH, voir Elm327Client.setTargetHeader) : les
         // essais PC de référence ciblaient explicitement 7E0, alors que ce sondage envoie
         // par défaut en diffusion (voir audit, "Sondage UDS expérimental") — sans cette
@@ -1190,6 +1292,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        EventLog.log("Démarrage de l'enregistrement ($baseName.csv)")
         recordingColumns = columns
         recordingWriter = writer
         _state.update { it.copy(isRecording = true, recordingSamples = 0) }
@@ -1205,6 +1308,17 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
+        resumeRecordingLoop()
+    }
+
+    /**
+     * Boucle d'échantillonnage, extraite de [startRecording] pour être réutilisable après
+     * une coupure : [finishConnecting] l'appelle à nouveau dès qu'une reconnexion réussit
+     * sur un enregistrement resté en pause (voir pauseRecordingForReconnect), sur le même
+     * fichier/writer, sans repasser par startRecording (qui refuserait, isRecording étant
+     * resté vrai pendant la coupure).
+     */
+    private fun resumeRecordingLoop() {
         recordingJob = viewModelScope.launch {
             val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
             while (true) {
@@ -1216,7 +1330,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // rejoue silencieusement les dernières valeurs comme si elles étaient
                 // fraîches (voir A1). Une valeur elle-même plus vieille que
                 // VALUE_UNAVAILABLE_AFTER_MS est laissée vide plutôt que répétée : un trou
-                // visible dans le CSV plutôt qu'une donnée fantôme.
+                // visible dans le CSV plutôt qu'une donnée fantôme. Une coupure réseau (voir
+                // RECONNECTING) produit le même trou, pour la même raison : rien à afficher
+                // de fiable tant que le polling n'a pas repris.
                 val etat = if (dtcOperationInProgress) "pause diagnostic" else "ok"
                 val row = listOf(timestampFormat.format(Date()), etat) +
                     recordingColumns.map { def ->
@@ -1246,6 +1362,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     // Ne pas continuer à annoncer des échantillons qui ne sont plus
                     // réellement écrits (voir A5) : arrêter, en gardant le fichier partiel.
+                    // Erreur disque réelle (plein, permission révoquée), pas une coupure
+                    // réseau : celle-ci ne touche jamais recordingWriter (voir
+                    // pauseRecordingForReconnect), donc un vrai arrêt ici reste justifié.
                     _state.update { it.copy(errorMessage = "Écriture de l'enregistrement échouée, arrêté.") }
                     stopRecording()
                     break
@@ -1261,6 +1380,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { recordingWriter?.close() }
         recordingWriter = null
         if (wasRecording) {
+            EventLog.log("Arrêt de l'enregistrement (${_state.value.recordingSamples} échantillons)")
             runCatching {
                 getApplication<Application>().stopService(Intent(getApplication(), RecordingService::class.java))
             }
@@ -1287,6 +1407,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     fun runAutoTest() {
         if (_state.value.isAutoTesting) return
         val c = client ?: return
+        EventLog.log("Démarrage du smoke test automatique")
 
         // Attend la fin réelle d'un refresh DTC / capture headers / sondage manuel déjà en
         // cours (voir A8) avant d'envoyer ses propres commandes, même motif que les autres
@@ -1475,6 +1596,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun disconnect() {
+        EventLog.log("Déconnexion demandée par l'utilisateur")
         // Empêche la boucle de reconnexion automatique de relancer aussitôt une connexion
         // qu'on vient de couper volontairement (voir startAutoReconnectLoop) ; levé par la
         // prochaine tentative explicite (connect()/connectBluetooth()).
@@ -1493,7 +1615,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 connectionMode = it.connectionMode,
                 bluetoothDeviceName = it.bluetoothDeviceName,
                 recordings = it.recordings,
-                probes = it.probes
+                probes = it.probes,
+                logs = it.logs
             )
         }
         // Fermeture hors du thread principal : socket.close() est désormais rapide
@@ -1530,5 +1653,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // s'ajoute entre deux tentatives, pour ne pas marteler en continu tant que le
         // contact n'est pas mis.
         private const val AUTO_RECONNECT_INTERVAL_MS = 5_000L
+        // Cas réel (obd_20260911_201421.csv) : 30s+ sans la moindre valeur, ni la moindre
+        // exception. Assez long pour ne jamais confondre ce filet avec une lenteur normale
+        // de la sonde (un cycle complet dépasse rarement 1-2s), assez court pour reprendre
+        // une connexion dans le même ordre de grandeur que AUTO_RECONNECT_INTERVAL_MS.
+        private const val ZOMBIE_CONNECTION_TIMEOUT_MS = 15_000L
     }
 }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -39,6 +40,8 @@ fun SettingsScreen(
     onPortChange: (String) -> Unit,
     onModeChange: (ConnectionMode) -> Unit,
     onRefreshBluetoothDevices: () -> Unit,
+    onShareLog: (String) -> Unit,
+    onDeleteLog: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val connecting = state.connectionState == ConnectionState.CONNECTING
@@ -136,6 +139,26 @@ fun SettingsScreen(
         }
         state.errorMessage?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+
+        // Ici plutôt que sur le Dashboard : un journal d'événements n'est pas une donnée du
+        // véhicule (contrairement aux enregistrements), c'est un diagnostic de l'app elle-même
+        // (voir EventLog), au même titre que les réglages de connexion sur cet écran.
+        if (state.logs.isNotEmpty()) {
+            HorizontalDivider()
+            Text("Journal (${state.logs.size})", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Démarrage, connexions, coupures, activation d'une fonction, plantage. Un fichier par lancement de l'application.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            for (logFile in state.logs) {
+                RecordingRow(
+                    logFile,
+                    onShare = { onShareLog(logFile.path) },
+                    onDelete = { onDeleteLog(logFile.path) }
+                )
+            }
         }
     }
 }
