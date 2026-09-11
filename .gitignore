@@ -8,3 +8,8 @@
 /captures
 .externalNativeBuild
 .cxx
+
+# Clé de release Play Store (voir app/build.gradle.kts, signingConfigs) : contient les
+# mots de passe du keystore, jamais commitée. debug.keystore reste committé (voir son
+# propre commentaire), ce fichier n'a donc pas besoin d'un motif large type *.properties.
+/keystore.properties

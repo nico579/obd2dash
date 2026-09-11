@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Silhouette du connecteur OBD2 (trapèze à 16 broches) : le point d'entrée matériel
+     unique de toute l'app, plus reconnaissable pour ce domaine qu'un cadran générique.
+     Contenu tenu dans la zone sûre centrale (~66dp/108dp) : les lanceurs adaptatifs
+     rognent jusqu'à un tiers des bords selon le masque (cercle, squircle...). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Corps du connecteur -->
+    <path
+        android:fillColor="@color/ic_launcher_foreground"
+        android:pathData="M28,28 L80,28 L68,80 L40,80 Z" />
+
+    <!-- Câble -->
+    <path
+        android:strokeColor="@color/ic_launcher_foreground"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:pathData="M54,80 L54,94" />
+
+    <!-- Broches (même teinte que le fond : lisent comme des perforations dans le corps) -->
+    <path
+        android:fillColor="@color/ic_launcher_background"
+        android:pathData="
+            M39,40 L45,40 L45,52 L39,52 Z
+            M48,40 L54,40 L54,52 L48,52 Z
+            M57,40 L63,40 L63,52 L57,52 Z
+            M66,40 L72,40 L72,52 L66,52 Z" />
+</vector>

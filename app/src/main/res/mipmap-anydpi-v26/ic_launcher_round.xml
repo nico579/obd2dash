@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Identique à ic_launcher.xml : une icône adaptative se masque elle-même (cercle,
+     squircle...) au moment de l'affichage, pas besoin d'une variante ronde distincte. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

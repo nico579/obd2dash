@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -30,11 +32,31 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+
+        // Clé d'upload Play Store (voir keystore.properties.example à la racine) :
+        // jamais commitée, absente tant que la publication n'a pas commencé. Ce bloc ne
+        // crée "release" que si le fichier existe, pour ne jamais faire échouer la
+        // configuration Gradle en son absence (voir buildTypes.release ci-dessous).
+        val keystoreProps = rootProject.file("keystore.properties")
+        if (keystoreProps.exists()) {
+            val props = Properties().apply { keystoreProps.inputStream().use { load(it) } }
+            create("release") {
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Retombe sur la signature debug si keystore.properties n'existe pas encore :
+            // assembleRelease reste utilisable en local pour tester ce type de build avant
+            // d'avoir une vraie clé. Google Play refuse de toute façon un envoi signé debug,
+            // donc ce repli ne risque pas de finir publié par erreur.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

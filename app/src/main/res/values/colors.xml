@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Icône de lancement : fond gris ardoise (tableau de bord), avant-plan connecteur
+         OBD2 ambre (voir res/drawable/ic_launcher_foreground.xml). -->
+    <color name="ic_launcher_background">#1B2027</color>
+    <color name="ic_launcher_foreground">#F2A13D</color>
+</resources>
