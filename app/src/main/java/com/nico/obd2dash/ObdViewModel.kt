@@ -170,7 +170,10 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
         sb.appendLine()
         sb.appendLine("--- Historique sur ce véhicule ---")
         for (entry in state.dtcHistory) {
-            val status = if (entry.active) "actif" else "résolu"
+            // "Résolu" affirmait une panne réparée ; la seule preuve disponible est son
+            // absence de la dernière liste de DTC stockés lue avec succès (voir audit,
+            // terminologie historique).
+            val status = if (entry.active) "actif" else "non retrouvé à la dernière lecture"
             sb.appendLine("${entry.code} : vu du ${entry.firstSeen} au ${entry.lastSeen}, $status")
         }
     }
@@ -251,6 +254,50 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 date = dateFormat.format(Date(it.lastModified()))
             )
         }
+    }
+
+    /**
+     * Fichier de nom unique dans [dir] : deux enregistrements démarrés dans la même
+     * seconde produiraient sinon le même nom horodaté, et `bufferedWriter()` écrase
+     * silencieusement un fichier existant (voir audit, "Noms de fichiers"). createNewFile()
+     * est atomique (échoue si le fichier existe déjà) contrairement à un simple exists()
+     * suivi d'une écriture, qui laisserait une fenêtre de course.
+     */
+    private fun uniqueFile(dir: File, baseName: String): File {
+        var candidate = File(dir, "$baseName.csv")
+        var suffix = 2
+        while (!candidate.createNewFile()) {
+            candidate = File(dir, "${baseName}_$suffix.csv")
+            suffix++
+        }
+        return candidate
+    }
+
+    /** Nom/version affichés par l'OS pour ce build, "?" si indisponible (ne doit jamais faire échouer un export). */
+    private fun appVersionName(): String = runCatching {
+        val app = getApplication<Application>()
+        app.packageManager.getPackageInfo(app.packageName, 0).versionName
+    }.getOrNull() ?: "?"
+
+    /**
+     * Identité du véhicule/session en tête d'un CSV (enregistrement ou sondage) : sans ça,
+     * plusieurs fichiers ouverts sur PC (deux véhicules, voir audit "Métadonnées des
+     * fichiers") ne se distinguent que par leur nom de fichier. Le fuseau explicite (XXX)
+     * comble aussi le manque relevé en A1 sur les horodatages CSV.
+     */
+    private fun writeSessionMetadata(writer: BufferedWriter) {
+        val state = _state.value
+        val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.FRANCE)
+        for ((key, value) in listOf(
+            "VIN" to (state.vin ?: "inconnu"),
+            "Protocole" to (state.protocol ?: "inconnu"),
+            "Version app" to appVersionName(),
+            "Début session" to timestampFormat.format(Date())
+        )) {
+            writer.write(csvRow(listOf(key, value)))
+            writer.newLine()
+        }
+        writer.newLine()
     }
 
     fun updateHost(value: String) {
@@ -655,9 +702,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val previousJob = stopFapScanAndGetPrevious()
 
         val dir = File(getApplication<Application>().filesDir, "probes").apply { mkdirs() }
-        val fileName = "fap_scan_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date()) + ".csv"
+        val baseName = "fap_scan_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
         val writer = try {
-            File(dir, fileName).bufferedWriter().apply {
+            uniqueFile(dir, baseName).bufferedWriter().apply {
+                writeSessionMetadata(this)
                 write(csvRow(listOf("DID", "Résultat", "Détail")))
                 newLine()
                 flush()
@@ -788,9 +836,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         if (columns.isEmpty()) return
 
         val dir = File(getApplication<Application>().filesDir, "recordings").apply { mkdirs() }
-        val fileName = "obd_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date()) + ".csv"
+        val baseName = "obd_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
         val writer = try {
-            File(dir, fileName).bufferedWriter().apply {
+            uniqueFile(dir, baseName).bufferedWriter().apply {
+                writeSessionMetadata(this)
                 write(csvRow(listOf("Horodatage", "État") + columns.map { it.label }))
                 newLine()
                 flush()
