@@ -2,9 +2,19 @@
 
 Date : **10 septembre 2026, 20:17 — Europe/Paris (UTC+02:00)**.
 
-Statut : **proposition technique pour mise en œuvre**, fondée sur le dépôt `68590ed` et les sources citées. Aucun changement de code applicatif, aucune installation ni communication avec un véhicule dans cette passe.
+Statut : **proposition non retenue, conservée pour mémoire**. Étude fondée sur le dépôt `68590ed` et les sources citées. Aucun changement de code applicatif, aucune installation ni communication avec un véhicule dans cette passe.
 
-## Objectif produit
+## Décision de périmètre — 10 septembre 2026, 20:50
+
+Le projet est personnel et concerne **deux véhicules**. La découverte et la lecture des PID SAE standard existantes restent le socle commun. Le moteur de profils, l'import OBDb/ODX et le langage déclaratif de décodage proposés ci-dessous ne sont pas engagés et ne constituent pas des prérequis aux corrections de l'application ou à l'enregistrement des trajets.
+
+Les travaux utiles restent les corrections de défauts confirmés et la validation de l'acquisition et des exports sur les deux véhicules. Une abstraction supplémentaire ne sera à réexaminer qu'en présence d'un besoin concret et récurrent ; elle n'entre pas dans la feuille de route actuelle.
+
+Pour le FAP du calculateur testé, aucune définition complète et validée (DID, décodage, unités et compatibilité logicielle) n'a été identifiée dans les recherches documentées. Construire un moteur de profils ne fournit pas cette information manquante. Cela ne prouve pas qu'aucune définition publique n'existe ; cela signifie que cette proposition ne résout pas le blocage observé.
+
+**La suite du document conserve l'étude initiale. Ses objectifs, composants et étapes sont des propositions écartées, pas des travaux à lancer.**
+
+## Objectif étudié (non retenu)
 
 Une même application doit découvrir les capacités accessibles, lire les données standard, compléter les mesures avec les profils constructeur compatibles, puis enregistrer un trajet exploitable sur PC. Ajouter un véhicule couvert par un protocole déjà implémenté doit se faire par ajout de définitions, sans nouvelle branche de code propre à sa marque.
 

@@ -3,9 +3,10 @@
 Application Android (Kotlin, Jetpack Compose) pour se connecter à une sonde ELM327 WiFi
 et lire les données OBD2 d'un véhicule en direct.
 
-Projet à usage personnel, non publiée sur le Play Store : installation par sideload
-uniquement (`adb install` / `gradlew installDebug`). Objectif : fonctionner sur n'importe
-quel véhicule OBD2, pas seulement celui utilisé pour la mise au point (voir plus bas).
+Projet à usage personnel pour deux véhicules, non publié sur le Play Store : installation
+par sideload uniquement (`adb install` / `gradlew installDebug`). Le socle commun repose
+sur la découverte et la lecture des PID SAE standard disponibles sur le véhicule connecté.
+Aucun moteur de profils constructeur ni import OBDb n'est prévu dans le périmètre actuel.
 
 ## Fonctionnalités
 
@@ -48,8 +49,8 @@ trames) avec JUnit4, indépendamment de la couche réseau.
 ## Documentation
 
 - [`architecture_multimarque_2026-09-10_20-17.md`](architecture_multimarque_2026-09-10_20-17.md) :
-  proposition de moteur commun et de profils de données multimarques, sources réutilisables
-  et ordre de mise en œuvre. Architecture proposée, pas encore implémentée.
+  étude d'un moteur de profils multimarques, **non retenue et conservée pour mémoire**.
+  La décision de rester sur le socle SAE standard pour les deux véhicules y est consignée.
 - [`audit_code_2026-09-09_20-18-33.md`](audit_code_2026-09-09_20-18-33.md) : audit du
   code, bugs trouvés et corrections appliquées. Tenu à jour au fil des sessions, c'est
   la référence pour comprendre pourquoi le code est écrit comme il l'est.
