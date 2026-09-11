@@ -9,11 +9,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +54,7 @@ fun DashboardScreen(
     onPortChange: (String) -> Unit,
     onToggleRecording: () -> Unit,
     onShareRecording: (String) -> Unit,
+    onDeleteRecording: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -149,7 +156,11 @@ fun DashboardScreen(
             HorizontalDivider()
             Text("Enregistrements (${state.recordings.size})", style = MaterialTheme.typography.titleMedium)
             for (recording in state.recordings) {
-                RecordingRow(recording, onShare = { onShareRecording(recording.path) })
+                RecordingRow(
+                    recording,
+                    onShare = { onShareRecording(recording.path) },
+                    onDelete = { onDeleteRecording(recording.path) }
+                )
             }
         }
     }
@@ -157,7 +168,9 @@ fun DashboardScreen(
 
 /** Réutilisée par ProbeScreen : un fichier CSV terminé (enregistrement ou sondage) est présenté pareil. */
 @Composable
-internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit) {
+internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelete: () -> Unit) {
+    var confirmingDelete by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -171,9 +184,37 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Button(onClick = onShare) {
-            Text("Partager")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = onShare) {
+                Text("Partager")
+            }
+            IconButton(onClick = { confirmingDelete = true }) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "Supprimer ${recording.name}",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
         }
+    }
+
+    if (confirmingDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmingDelete = false },
+            title = { Text("Supprimer ce fichier ?") },
+            text = { Text("${recording.name} sera définitivement supprimé, sans confirmation possible après coup.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmingDelete = false
+                    onDelete()
+                }) {
+                    Text("Supprimer", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingDelete = false }) { Text("Annuler") }
+            }
+        )
     }
 }
 

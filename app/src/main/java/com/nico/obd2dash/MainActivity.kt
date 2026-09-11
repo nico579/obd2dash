@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onShareRecording = { path -> shareCsvFile(path, "Partager l'enregistrement") },
+                                onDeleteRecording = { path -> viewModel.deleteRecording(path) },
                                 modifier = Modifier.padding(padding)
                             )
                             Screen.DTC -> DtcScreen(
@@ -127,6 +128,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onStopScan = { viewModel.stopFapScan() },
                                 onShareProbe = { path -> shareCsvFile(path, "Partager le sondage") },
+                                onDeleteProbe = { path -> viewModel.deleteProbe(path) },
                                 modifier = Modifier.padding(padding)
                             )
                             Screen.AUTO_TEST -> AutoTestScreen(

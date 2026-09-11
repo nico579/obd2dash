@@ -278,6 +278,17 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun listProbes(): List<RecordingFile> = listCsvFiles("probes")
 
+    /** Suppression définitive, pas de corbeille : les fichiers vivent en stockage privé de l'app, inaccessibles à un gestionnaire de fichiers classique. */
+    fun deleteRecording(path: String) {
+        File(path).delete()
+        _state.update { it.copy(recordings = listRecordings()) }
+    }
+
+    fun deleteProbe(path: String) {
+        File(path).delete()
+        _state.update { it.copy(probes = listProbes()) }
+    }
+
     private fun listCsvFiles(subdir: String): List<RecordingFile> {
         val dir = File(getApplication<Application>().filesDir, subdir)
         val files = dir.listFiles { f -> f.isFile && f.extension == "csv" } ?: emptyArray()

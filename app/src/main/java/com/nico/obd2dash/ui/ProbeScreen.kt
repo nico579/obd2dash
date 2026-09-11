@@ -37,6 +37,7 @@ fun ProbeScreen(
     onStartScan: (startDid: String, endDid: String, targetHeader: String) -> Unit,
     onStopScan: () -> Unit,
     onShareProbe: (String) -> Unit,
+    onDeleteProbe: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var startDid by remember { mutableStateOf("1140") }
@@ -160,7 +161,11 @@ fun ProbeScreen(
             HorizontalDivider()
             Text("Sondages enregistrés (${state.probes.size})", style = MaterialTheme.typography.titleMedium)
             for (probe in state.probes) {
-                RecordingRow(probe, onShare = { onShareProbe(probe.path) })
+                RecordingRow(
+                    probe,
+                    onShare = { onShareProbe(probe.path) },
+                    onDelete = { onDeleteProbe(probe.path) }
+                )
             }
         }
     }
