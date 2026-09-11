@@ -63,6 +63,11 @@ data class ObdUiState(
     val dtcHistory: List<DtcHistoryEntry> = emptyList(),
     val dtcLoading: Boolean = false,
     val dtcError: String? = null,
+    // Age de storedDtcs/pendingDtcs/readiness/freezeFrame ci-dessus : sans cette date, un
+    // ancien résultat encore affiché après un refresh en échec (dtcError non-null) se
+    // confond avec une lecture actuelle dans l'export (voir A6). null = jamais lu avec
+    // succès depuis le lancement de l'app.
+    val dtcLastSuccessAtMs: Long? = null,
     // Diagnostic ponctuel pour préparer le fix multi-ECU (finding 3), pas une donnée
     // du véhicule. À retirer une fois ce format confirmé. Voir Elm327Client.probeHeaderFormat.
     val headerProbeResult: String? = null,
@@ -95,9 +100,18 @@ data class ObdUiState(
  */
 internal fun buildDiagnosticReport(state: ObdUiState): String {
     val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.FRANCE).format(Date())
+    val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
     val sb = StringBuilder()
     sb.appendLine("=== OBD2 Dash — export diagnostic ===")
     sb.appendLine("Date export : $date")
+    sb.appendLine(
+        "Connexion : " + when (state.connectionState) {
+            ConnectionState.CONNECTED -> "connectée"
+            ConnectionState.CONNECTING -> "connexion en cours"
+            ConnectionState.DISCONNECTED -> "déconnectée"
+            ConnectionState.ERROR -> "en erreur" + (state.errorMessage?.let { " : $it" } ?: "")
+        }
+    )
     sb.appendLine("VIN : ${state.vin ?: "inconnu"}")
     sb.appendLine("Protocole : ${state.protocol ?: "inconnu"}")
     sb.appendLine(
@@ -107,6 +121,18 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
             null -> "non lu"
         }
     )
+
+    // Les sections DTC/readiness/freeze frame ci-dessous datent de cette dernière lecture
+    // réussie, pas de la date d'export ci-dessus : sans cette ligne, un ancien résultat
+    // encore affiché après un refresh en échec se lisait comme une lecture actuelle
+    // (voir A6). dtcError est celle de la tentative la PLUS RÉCENTE, potentiellement
+    // postérieure à ce succès : les deux peuvent cohabiter (échec après un succès passé).
+    sb.appendLine(
+        "Dernière lecture DTC réussie : " +
+            (state.dtcLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais")
+    )
+    if (state.dtcLoading) sb.appendLine("Lecture DTC en cours au moment de cet export.")
+    state.dtcError?.let { sb.appendLine("Dernière tentative de lecture DTC en échec : $it") }
 
     sb.appendLine()
     sb.appendLine("--- DTC stockés (${state.storedDtcs?.size ?: "non lu"}) ---")
@@ -152,8 +178,15 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
     if (state.values.isNotEmpty()) {
         sb.appendLine()
         sb.appendLine("--- Valeurs live (dernière lecture) ---")
+        val nowMs = System.currentTimeMillis()
         for (def in PidCatalog.defs) {
-            state.values[def.pid]?.let { sb.appendLine("${def.label} : ${it.text}") }
+            state.values[def.pid]?.let {
+                // Marqueur de péremption (voir A6) : sans lui, une valeur figée depuis la
+                // dernière lecture réussie du polling (connexion perdue, ou pause pendant
+                // un sondage/diagnostic) se lit comme la mesure actuelle du véhicule.
+                val suffix = if (nowMs - it.updatedAtMs > VALUE_UNAVAILABLE_AFTER_MS) " (périmé)" else ""
+                sb.appendLine("${def.label} : ${it.text}$suffix")
+            }
         }
     }
 
@@ -302,19 +335,22 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 val vin = c.readVin()
                 vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
 
-                // Échelles réelles du PID24 (voir PidCatalog.o2MaxRatio/o2MaxVoltage) :
-                // caractéristique fixe de ce véhicule, lue une fois ici plutôt qu'à chaque
-                // cycle de polling. PidCatalog est un singleton partagé entre connexions :
-                // remis à l'hypothèse de repli si CE véhicule ne supporte pas PID4F, pour
-                // qu'une valeur laissée par un véhicule précédent ne s'applique pas ici.
+                // Échelles réelles des PID24/0B (voir PidCatalog.o2MaxRatio/o2MaxVoltage/
+                // mapMaxKpa) : caractéristique fixe de ce véhicule, lue une fois ici plutôt
+                // qu'à chaque cycle de polling. PidCatalog est un singleton partagé entre
+                // connexions : chaque octet est remis à son repli si CE véhicule ne
+                // supporte pas PID4F OU annonce zéro sur cet octet précis (voir A4 : un
+                // octet nul ne veut pas dire "plafonner à zéro", mais "garder le repli"),
+                // pour qu'une valeur laissée par un véhicule précédent ne s'applique pas ici.
                 val scaleBytes = if (0x4F in supported) c.readPidBytes(0x4F) else null
-                if (scaleBytes != null && scaleBytes.size >= 2) {
-                    PidCatalog.o2MaxRatio = scaleBytes[0].toDouble()
-                    PidCatalog.o2MaxVoltage = scaleBytes[1].toDouble()
-                } else {
-                    PidCatalog.o2MaxRatio = 2.0
-                    PidCatalog.o2MaxVoltage = 8.0
-                }
+                PidCatalog.o2MaxRatio = scaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.toDouble() ?: 2.0
+                PidCatalog.o2MaxVoltage = scaleBytes?.getOrNull(1)?.takeIf { it != 0 }?.toDouble() ?: 8.0
+                PidCatalog.mapMaxKpa = scaleBytes?.getOrNull(3)?.takeIf { it != 0 }?.let { it * 10.0 }
+
+                // Même principe pour le débit d'air (PID10), annoncé par PID50 (un seul
+                // octet, max en dizaines de g/s).
+                val mafScaleBytes = if (0x50 in supported) c.readPidBytes(0x50) else null
+                PidCatalog.mafMaxGramsPerSec = mafScaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.let { it * 10.0 }
 
                 if (!c.isConnected) {
                     error("Connexion perdue pendant l'établissement de la session")
@@ -524,7 +560,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         readiness = readiness,
                         freezeFrame = freezeFrame,
                         dtcHistory = history,
-                        dtcLoading = false
+                        dtcLoading = false,
+                        dtcLastSuccessAtMs = System.currentTimeMillis()
                     )
                 }
             } catch (e: CancellationException) {

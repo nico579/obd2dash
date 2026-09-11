@@ -35,6 +35,32 @@ class ObdViewModelTest {
         assertTrue(report.contains("Suralimentation"))
     }
 
+    // --- A6 : le rapport exporte ne doit pas masquer un echec ou une valeur perimee ---
+
+    @Test
+    fun `buildDiagnosticReport jamais lu avec succes reste explicite`() {
+        assertTrue(buildDiagnosticReport(ObdUiState()).contains("Dernière lecture DTC réussie : jamais"))
+    }
+
+    @Test
+    fun `buildDiagnosticReport date la derniere lecture DTC reussie et signale un echec ulterieur`() {
+        // Les deux peuvent cohabiter : un succes passe encore affiche, puis un refresh
+        // plus recent qui a echoue (dtcError), sans que l'un efface la trace de l'autre.
+        val ts = 1_700_000_000_000L
+        val format = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.FRANCE)
+        val state = ObdUiState(dtcLastSuccessAtMs = ts, dtcError = "Lecture DTC échouée")
+        val report = buildDiagnosticReport(state)
+        assertTrue(report.contains("Dernière lecture DTC réussie : ${format.format(java.util.Date(ts))}"))
+        assertTrue(report.contains("Dernière tentative de lecture DTC en échec : Lecture DTC échouée"))
+    }
+
+    @Test
+    fun `buildDiagnosticReport marque une valeur live perimee`() {
+        val old = GaugeValue("830 rpm", updatedAtMs = 0L) // horodatage tres ancien par construction
+        val state = ObdUiState(values = mapOf(0x0C to old))
+        assertTrue(buildDiagnosticReport(state).contains("830 rpm (périmé)"))
+    }
+
     // --- csvRow / csvEscape : le delimiteur point-virgule et les valeurs deja formatees
     // (virgule decimale francaise, ex. "94,20 V") ne doivent jamais se confondre.
 

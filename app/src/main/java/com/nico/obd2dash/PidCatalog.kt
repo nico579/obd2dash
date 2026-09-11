@@ -27,15 +27,34 @@ object PidCatalog {
     var o2MaxRatio: Double = 2.0
     var o2MaxVoltage: Double = 8.0
 
+    // Même mécanisme PID4F (octet D) pour la pression admission (PID0B), et PID50 (octet A)
+    // pour le débit d'air (PID10) : SAE J1979-DA prévoit ces octets pour les véhicules dont
+    // la valeur dépasse la plage 1:1 standard (suralimentation notamment). null = aucune
+    // annonce (contexte non supporté OU octet à zéro, voir A4 : un maximum nul ne veut pas
+    // dire "plafonner à zéro", mais "garder la formule standard") : la formule 1:1
+    // habituelle s'applique. Non nul = kPa/(g/s) réels au max de l'échelle brute (0-255 ou
+    // 0-65535), remis à jour à chaque connexion comme o2MaxRatio/o2MaxVoltage ci-dessus.
+    var mapMaxKpa: Double? = null
+    var mafMaxGramsPerSec: Double? = null
+
     val defs: List<Def> = listOf(
         Def(0x0C, "Régime moteur", 2) { b -> "%.0f rpm".format(((b[0] * 256) + b[1]) / 4.0) },
         Def(0x0D, "Vitesse", 1) { b -> "${b[0]} km/h" },
         Def(0x05, "Température moteur", 1) { b -> "${b[0] - 40} °C" },
         Def(0x04, "Charge moteur", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
-        Def(0x10, "Débit d'air (MAF)", 2) { b -> "%.2f g/s".format(((b[0] * 256) + b[1]) / 100.0) },
+        Def(0x10, "Débit d'air (MAF)", 2) { b ->
+            val raw = (b[0] * 256) + b[1]
+            val max = mafMaxGramsPerSec
+            val gramsPerSec = if (max != null) raw * max / 65535.0 else raw / 100.0
+            "%.2f g/s".format(gramsPerSec)
+        },
         Def(0x42, "Tension calculateur", 2) { b -> "%.2f V".format(((b[0] * 256) + b[1]) / 1000.0) },
         Def(0x0F, "Température admission", 1) { b -> "${b[0] - 40} °C" },
-        Def(0x0B, "Pression admission", 1) { b -> "${b[0]} kPa" },
+        Def(0x0B, "Pression admission", 1) { b ->
+            val max = mapMaxKpa
+            val kpa = if (max != null) b[0] * max / 255.0 else b[0].toDouble()
+            "%.1f kPa".format(kpa)
+        },
         Def(0x11, "Position papillon", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
         Def(0x2F, "Niveau carburant", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
         Def(0x46, "Température ambiante", 1) { b -> "${b[0] - 40} °C" },
@@ -67,6 +86,7 @@ object PidCatalog {
             "%.3f · %.3f V".format(ratio, voltage)
         },
         Def(0x4F, "Ratio/tension O2 max annoncés", 4) { b -> "${b[0]} / ${b[1]}" },
+        Def(0x50, "Débit d'air max annoncé (contexte)", 1) { b -> "${b[0] * 10} g/s" },
 
         // Allumage / injection
         Def(0x0E, "Avance à l'allumage", 1) { b -> "%.1f °".format((b[0] - 128) / 2.0) },
