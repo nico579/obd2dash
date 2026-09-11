@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -46,6 +49,7 @@ import com.nico.obd2dash.ui.AutoTestScreen
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.DtcScreen
 import com.nico.obd2dash.ui.ProbeScreen
+import com.nico.obd2dash.ui.SettingsScreen
 import java.io.File
 
 private enum class Screen { DASHBOARD, DTC, PROBE, AUTO_TEST }
@@ -97,10 +101,30 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier) {
                     var screen by remember { mutableStateOf(Screen.DASHBOARD) }
+                    var showSettings by remember { mutableStateOf(false) }
                     val state by viewModel.state.collectAsState()
 
                     Scaffold(
-                        topBar = { TopAppBar(title = { Text("OBD2 Dash") }, actions = { ConnectionIndicator(state.connectionState) }) },
+                        topBar = {
+                            TopAppBar(
+                                title = { Text(if (showSettings) "Réglages" else "OBD2 Dash") },
+                                navigationIcon = {
+                                    if (showSettings) {
+                                        IconButton(onClick = { showSettings = false }) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                                        }
+                                    }
+                                },
+                                actions = {
+                                    ConnectionIndicator(state.connectionState)
+                                    if (!showSettings) {
+                                        IconButton(onClick = { showSettings = true }) {
+                                            Icon(Icons.Filled.Settings, contentDescription = "Réglages de connexion")
+                                        }
+                                    }
+                                }
+                            )
+                        },
                         bottomBar = {
                             NavigationBar {
                                 NavigationBarItem(
@@ -130,16 +154,23 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) { padding ->
-                        when (screen) {
-                            Screen.DASHBOARD -> DashboardScreen(
+                        if (showSettings) {
+                            SettingsScreen(
                                 state = state,
                                 onConnect = { host, port -> viewModel.connect(host, port) },
                                 onConnectBluetooth = { device -> viewModel.connectBluetooth(device) },
-                                onDisconnect = { viewModel.disconnect() },
                                 onHostChange = { viewModel.updateHost(it) },
                                 onPortChange = { viewModel.updatePort(it) },
                                 onModeChange = { viewModel.setConnectionMode(it) },
                                 onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
+                                modifier = Modifier.padding(padding)
+                            )
+                            return@Scaffold
+                        }
+                        when (screen) {
+                            Screen.DASHBOARD -> DashboardScreen(
+                                state = state,
+                                onDisconnect = { viewModel.disconnect() },
                                 onToggleRecording = {
                                     if (state.isRecording) {
                                         viewModel.stopRecording()

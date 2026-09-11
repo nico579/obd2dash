@@ -282,28 +282,60 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     private var probeWriter: BufferedWriter? = null
 
+    // true seulement entre un appui sur "Déconnecter" et la prochaine tentative explicite
+    // (connect()/connectBluetooth() le remettent à false) : sans ce garde-fou, la boucle de
+    // reconnexion automatique ci-dessous relancerait une connexion aussitôt après une
+    // déconnexion volontaire, ce qui la rendrait impossible à obtenir pour de vrai.
+    private var userRequestedDisconnect = false
+    private var autoReconnectJob: Job? = null
+
     init {
         // Les enregistrements/sondages des sessions précédentes existent déjà sur le disque
         // au lancement de l'app : visibles sans attendre une nouvelle session.
         _state.update { it.copy(recordings = listRecordings(), probes = listProbes()) }
-        // Connexion automatique au lancement (comme Torque) : retente la dernière sonde
-        // utilisée sans action de l'utilisateur. Échoue silencieusement vers l'écran de
-        // connexion habituel si elle n'est pas joignable, exactement comme un échec
-        // manuel (voir connect()/connectBluetooth(), aucun chemin d'erreur spécifique ici).
-        autoConnectOnLaunch()
+        // Connexion automatique au lancement (comme Torque), puis retentée en boucle tant
+        // qu'elle échoue : sans contact mis (pas de Wi-Fi de la sonde), un seul essai
+        // échouait et laissait l'utilisateur devoir rouvrir l'app ou appuyer sur un bouton
+        // une fois le contact mis. Aucun panneau IP/port/Bluetooth n'est jamais montré par
+        // défaut (voir DashboardScreen) : les réglages de connexion se changent depuis
+        // l'écran Réglages, pas depuis un formulaire de connexion manuel.
+        attemptAutoConnect()
+        startAutoReconnectLoop()
     }
 
     private fun savedConnectionMode(): ConnectionMode =
         runCatching { ConnectionMode.valueOf(prefs.getString(KEY_CONNECTION_MODE, null) ?: "") }
             .getOrDefault(ConnectionMode.WIFI)
 
-    private fun autoConnectOnLaunch() {
+    private fun attemptAutoConnect() {
         when (savedConnectionMode()) {
             ConnectionMode.WIFI -> connect(_state.value.host, _state.value.port)
             ConnectionMode.BLUETOOTH -> {
                 val address = prefs.getString(KEY_BLUETOOTH_ADDRESS, null) ?: return
                 val device = runCatching { bluetoothAdapter()?.getRemoteDevice(address) }.getOrNull() ?: return
                 connectBluetooth(device)
+            }
+        }
+    }
+
+    /**
+     * Retente attemptAutoConnect() tant que l'app n'est ni connectée ni déjà en train de
+     * se connecter, et que l'utilisateur n'a pas explicitement demandé à se déconnecter.
+     * Boucle pour la durée de vie du ViewModel (pas de condition d'arrêt autre que la
+     * connexion réussie) : ce ViewModel ne vit que pendant qu'une seule Activity l'utilise,
+     * pas de risque de la faire tourner sans app visible.
+     */
+    private fun startAutoReconnectLoop() {
+        autoReconnectJob?.cancel()
+        autoReconnectJob = viewModelScope.launch {
+            while (true) {
+                delay(AUTO_RECONNECT_INTERVAL_MS)
+                val current = _state.value.connectionState
+                if (!userRequestedDisconnect &&
+                    (current == ConnectionState.DISCONNECTED || current == ConnectionState.ERROR)
+                ) {
+                    attemptAutoConnect()
+                }
             }
         }
     }
@@ -431,6 +463,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connect(host: String, portText: String) {
         if (_state.value.connectionState == ConnectionState.CONNECTING) return
+        userRequestedDisconnect = false
 
         val port = portText.toIntOrNull()
         if (host.isBlank() || port == null || port !in 1..65535) {
@@ -484,6 +517,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun connectBluetooth(device: BluetoothDevice) {
         if (_state.value.connectionState == ConnectionState.CONNECTING) return
+        userRequestedDisconnect = false
 
         prefs.edit()
             .putString(KEY_CONNECTION_MODE, ConnectionMode.BLUETOOTH.name)
@@ -1409,6 +1443,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun disconnect() {
+        // Empêche la boucle de reconnexion automatique de relancer aussitôt une connexion
+        // qu'on vient de couper volontairement (voir startAutoReconnectLoop) ; levé par la
+        // prochaine tentative explicite (connect()/connectBluetooth()).
+        userRequestedDisconnect = true
         val c = cancelJobsAndReleaseNetwork()
         // Repart d'un état par défaut, mais en gardant l'hôte/port et le transport (Wi-Fi
         // ou Bluetooth) actuellement affichés (sinon une déconnexion effacerait ce que
@@ -1455,5 +1493,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // STALE_AFTER_MS côté Dashboard (3s), donc jamais visible comme périmée, pour un
         // cinquième des requêtes qu'au rythme normal (voir PidCatalog.SLOW_PIDS).
         private const val SLOW_PID_EVERY_N_CYCLES = 5
+        // Une tentative échouée peut déjà prendre ~9s (4s de recherche Wi-Fi + 5s de
+        // connexion socket, voir requestWifiNetwork/Elm327Client.connect) : ce délai
+        // s'ajoute entre deux tentatives, pour ne pas marteler en continu tant que le
+        // contact n'est pas mis.
+        private const val AUTO_RECONNECT_INTERVAL_MS = 5_000L
     }
 }
