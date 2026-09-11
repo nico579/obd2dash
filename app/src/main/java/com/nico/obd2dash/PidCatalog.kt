@@ -24,6 +24,14 @@ object PidCatalog {
     // (voir audit, "Contexte standard et fréquence").
     val CONTEXT_ONLY_PIDS = setOf(0x4F, 0x50)
 
+    // Températures : secondes à minutes pour bouger, contrairement au RPM/vitesse (voir
+    // audit, "Contexte standard et fréquence"). Les interroger au même rythme que les
+    // mesures qui varient vraiment n'apporte rien à l'affichage, juste une commande de plus
+    // par cycle. ObdViewModel.startPolling ne les relit qu'à une fraction de la fréquence
+    // normale, jamais assez espacée pour paraître périmées (voir VALUE_UNAVAILABLE_AFTER_MS
+    // et STALE_AFTER_MS côté Dashboard).
+    val SLOW_PIDS = setOf(0x05, 0x0F, 0x46, 0x5C)
+
     // Échelles réelles du PID24 (ratio/tension max), annoncées par PID4F pour LE VÉHICULE
     // CONNECTÉ. Ce ne sont pas des constantes universelles : SAE J1979-DA (table B60) exige
     // d'utiliser les maxima non nuls annoncés par PID4F quand il est supporté, faute de quoi

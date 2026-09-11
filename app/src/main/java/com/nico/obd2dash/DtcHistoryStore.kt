@@ -23,58 +23,90 @@ class DtcHistoryStore(context: Context) {
     private val prefs = context.getSharedPreferences("obd2dash", Context.MODE_PRIVATE)
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.FRANCE)
 
+    // Historique de session pour un véhicule non identifié (VIN absent, notamment tout le
+    // chemin non-CAN) : jamais écrit sur le disque ni partagé entre connexions, pour ne pas
+    // fusionner deux véhicules différents sous le même identifiant UNKNOWN_VEHICLE (voir
+    // audit, "Deux véhicules et historique") — un défaut "non retrouvé" sur le second
+    // pouvait sinon effacer, à tort, un défaut réel toujours actif sur le premier. Vidé à
+    // chaque nouvelle connexion sans VIN (voir resetSessionHistory, appelée par
+    // ObdViewModel.connect), gardé le temps d'UNE connexion pour rester utile pendant une
+    // session (plusieurs rafraîchissements DTC de suite construisent quand même un
+    // premier/dernier vu cohérent).
+    private var sessionHistory: Map<String, DtcHistoryEntry> = emptyMap()
+
+    /** À appeler une fois par connexion dont le véhicule n'est pas identifié (voir ci-dessus). */
+    fun resetSessionHistory() {
+        sessionHistory = emptyMap()
+    }
+
     fun record(vehicleId: String, currentCodes: List<String>): List<DtcHistoryEntry> {
-        migrateLegacyIfNeeded()
-        val key = keyFor(vehicleId)
-        val now = dateFormat.format(Date())
-        val obj = JSONObject(prefs.getString(key, null) ?: "{}")
-        val currentSet = currentCodes.toSet()
-
-        val allCodes = mutableSetOf<String>()
-        obj.keys().forEach { allCodes.add(it) }
-        allCodes.addAll(currentSet)
-
-        for (code in allCodes) {
-            val existing = obj.optJSONObject(code)
-            val isActiveNow = code in currentSet
-            val entry = JSONObject()
-            entry.put("firstSeen", existing?.optString("firstSeen").takeUnless { it.isNullOrEmpty() } ?: now)
-            entry.put("lastSeen", if (isActiveNow) now else (existing?.optString("lastSeen") ?: now))
-            entry.put("active", isActiveNow)
-            obj.put(code, entry)
+        if (vehicleId == UNKNOWN_VEHICLE) {
+            sessionHistory = mergeHistory(sessionHistory, currentCodes, dateFormat.format(Date()))
+            return sessionHistory.values.sortedByDescending { it.lastSeen }
         }
-
-        prefs.edit().putString(key, obj.toString()).apply()
-        return load(vehicleId)
+        val key = keyFor(vehicleId)
+        val merged = mergeHistory(readPersisted(key), currentCodes, dateFormat.format(Date()))
+        prefs.edit().putString(key, writePersisted(merged)).apply()
+        return merged.values.sortedByDescending { it.lastSeen }
     }
 
     fun load(vehicleId: String): List<DtcHistoryEntry> {
-        migrateLegacyIfNeeded()
-        val obj = JSONObject(prefs.getString(keyFor(vehicleId), null) ?: "{}")
-        val list = mutableListOf<DtcHistoryEntry>()
-        obj.keys().forEach { code ->
-            val e = obj.getJSONObject(code)
-            list.add(DtcHistoryEntry(code, e.optString("firstSeen"), e.optString("lastSeen"), e.optBoolean("active")))
+        if (vehicleId == UNKNOWN_VEHICLE) {
+            return sessionHistory.values.sortedByDescending { it.lastSeen }
         }
-        return list.sortedByDescending { it.lastSeen }
+        return readPersisted(keyFor(vehicleId)).values.sortedByDescending { it.lastSeen }
     }
 
     private fun keyFor(vehicleId: String) = "dtc_history_$vehicleId"
 
-    // L'historique était à l'origine sous une seule clé globale, commune à tous les
-    // véhicules (avant que le VIN ne soit lu). On le rattache une seule fois au profil
-    // "véhicule inconnu" plutôt que de le perdre silencieusement.
-    private fun migrateLegacyIfNeeded() {
-        val legacy = prefs.getString(LEGACY_KEY, null) ?: return
-        val unknownKey = keyFor(UNKNOWN_VEHICLE)
-        if (prefs.getString(unknownKey, null) == null) {
-            prefs.edit().putString(unknownKey, legacy).apply()
+    private fun readPersisted(key: String): Map<String, DtcHistoryEntry> {
+        val obj = JSONObject(prefs.getString(key, null) ?: "{}")
+        return obj.keys().asSequence().associateWith { code ->
+            val e = obj.getJSONObject(code)
+            DtcHistoryEntry(code, e.optString("firstSeen"), e.optString("lastSeen"), e.optBoolean("active"))
         }
-        prefs.edit().remove(LEGACY_KEY).apply()
+    }
+
+    private fun writePersisted(entries: Map<String, DtcHistoryEntry>): String {
+        val obj = JSONObject()
+        for ((code, entry) in entries) {
+            obj.put(
+                code,
+                JSONObject()
+                    .put("firstSeen", entry.firstSeen)
+                    .put("lastSeen", entry.lastSeen)
+                    .put("active", entry.active)
+            )
+        }
+        return obj.toString()
     }
 
     companion object {
-        private const val LEGACY_KEY = "dtc_history"
         const val UNKNOWN_VEHICLE = "inconnu"
+    }
+}
+
+/**
+ * Fusionne un historique existant avec les codes actuellement lus : fonction pure (aucun
+ * accès disque), partagée par le chemin persisté (véhicule identifié) et le chemin
+ * en mémoire (véhicule inconnu, voir [DtcHistoryStore.sessionHistory]). [now] est injecté
+ * plutôt que recalculé ici pour rester testable sans dépendre de l'horloge système.
+ */
+internal fun mergeHistory(
+    previous: Map<String, DtcHistoryEntry>,
+    currentCodes: List<String>,
+    now: String
+): Map<String, DtcHistoryEntry> {
+    val currentSet = currentCodes.toSet()
+    val allCodes = previous.keys + currentSet
+    return allCodes.associateWith { code ->
+        val existing = previous[code]
+        val isActiveNow = code in currentSet
+        DtcHistoryEntry(
+            code = code,
+            firstSeen = existing?.firstSeen ?: now,
+            lastSeen = if (isActiveNow) now else (existing?.lastSeen ?: now),
+            active = isActiveNow
+        )
     }
 }

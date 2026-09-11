@@ -389,6 +389,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // inattendu et readVin() renvoie null normalement, sans lever.
                 val vin = c.readVin()
                 vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
+                // Sans VIN, l'historique de CETTE connexion ne doit rien hériter d'une
+                // précédente session sans VIN, potentiellement un autre véhicule (voir A6bis
+                // / audit "Deux véhicules et historique") : jamais persisté pour ce cas, voir
+                // DtcHistoryStore.resetSessionHistory.
+                historyStore.resetSessionHistory()
 
                 // Échelles réelles des PID24/0B (voir PidCatalog.o2MaxRatio/o2MaxVoltage/
                 // mapMaxKpa) : caractéristique fixe de ce véhicule, lue une fois ici plutôt
@@ -510,12 +515,22 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // n'évoluent pas pendant la session : les réinterroger ici ne changerait jamais
         // leur valeur, au prix d'une commande de moins pour celles qui varient vraiment
         // (voir audit, "Contexte standard et fréquence").
-        val toPoll = PidCatalog.defs.filter { it.pid in supported && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
+        val fastPids = PidCatalog.defs.filter {
+            it.pid in supported && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS && it.pid !in PidCatalog.SLOW_PIDS
+        }
+        val slowPids = PidCatalog.defs.filter { it.pid in supported && it.pid in PidCatalog.SLOW_PIDS }
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
+            var cycle = 0
             while (c.isConnected) {
                 if (!dtcOperationInProgress) {
                     try {
+                        // Les températures (SLOW_PIDS) ne sont ajoutées qu'une fraction des
+                        // cycles : assez souvent pour ne jamais paraître périmées à l'affichage
+                        // (bien en dessous de VALUE_UNAVAILABLE_AFTER_MS), trop lentes pour
+                        // justifier le même rythme que le RPM/la vitesse (voir audit, "Contexte
+                        // standard et fréquence").
+                        val toPoll = if (cycle % SLOW_PID_EVERY_N_CYCLES == 0) fastPids + slowPids else fastPids
                         val newValues = mutableMapOf<Int, GaugeValue>()
                         for (def in toPoll) {
                             // Revérifié à chaque PID, pas seulement au début du cycle : un
@@ -547,6 +562,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         return@launch
                     }
                 }
+                cycle++
                 delay(300)
             }
             // Atteint uniquement si c.isConnected est devenu faux SANS exception (voir A2) :
@@ -1058,5 +1074,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // ~600 o/échantillon (~40 colonnes max) : à 5s, une session de 2h fait autour de
         // 850 Ko. Assez fin pour une analyse de tendance, sans accumuler des Mo inutiles.
         private const val RECORDING_INTERVAL_MS = 5_000L
+        // 5 cycles à 300ms = 1,5s : largement sous VALUE_UNAVAILABLE_AFTER_MS (10s) et même
+        // STALE_AFTER_MS côté Dashboard (3s), donc jamais visible comme périmée, pour un
+        // cinquième des requêtes qu'au rythme normal (voir PidCatalog.SLOW_PIDS).
+        private const val SLOW_PID_EVERY_N_CYCLES = 5
     }
 }
