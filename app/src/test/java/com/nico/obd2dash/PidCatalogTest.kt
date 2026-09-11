@@ -2,6 +2,7 @@ package com.nico.obd2dash
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
@@ -78,5 +79,33 @@ class PidCatalogTest {
         PidCatalog.o2MaxVoltage = 8.0 // repli : PID4F octet B etait nul, pas assigne
         val bytes = listOf(0xFF, 0xFF, 0xFF, 0xFF)
         assertEquals("10,000 · 8,000 V", def(0x24).decode(bytes))
+    }
+
+    // --- extractLeadingNumber : lecture du graphique dans le texte deja affiche ---
+
+    @Test
+    fun `extractLeadingNumber lit un entier avec unite`() {
+        assertEquals(1305.0, extractLeadingNumber("1305 rpm"))
+    }
+
+    @Test
+    fun `extractLeadingNumber convertit la virgule francaise`() {
+        assertEquals(94.20, extractLeadingNumber("94,20 V"))
+    }
+
+    @Test
+    fun `extractLeadingNumber garde le signe negatif`() {
+        assertEquals(-2.3, extractLeadingNumber("-2,3 %"))
+    }
+
+    @Test
+    fun `extractLeadingNumber sur un champ composite ne reprend que le premier nombre`() {
+        // Sonde O2 large bande (PID24) : "ratio · tension", on ne graphe que le ratio.
+        assertEquals(1.000, extractLeadingNumber("1,000 · 8,961 V"))
+    }
+
+    @Test
+    fun `extractLeadingNumber sans aucun nombre rend null`() {
+        assertNull(extractLeadingNumber("--"))
     }
 }

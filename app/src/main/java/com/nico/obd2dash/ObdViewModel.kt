@@ -52,6 +52,15 @@ data class RecordingFile(val path: String, val name: String, val sizeBytes: Long
 /** Valeur d'une jauge avec l'instant de sa dernière lecture réussie, pour en afficher la fraîcheur. */
 data class GaugeValue(val text: String, val updatedAtMs: Long)
 
+/** Un point du graphique (voir GraphScreen) : [value] vient de PidCatalog.extractLeadingNumber sur le texte déjà décodé, pas d'un second décodeur numérique séparé. */
+data class GraphPoint(val atMs: Long, val value: Double)
+
+// Fenêtre glissante plutôt qu'un historique complet de session : un PID rapide (300ms)
+// sur un trajet d'une heure ferait ~12000 points, illisible sur un écran de téléphone et
+// inutilement coûteux en mémoire pour un usage "suivre la tendance récente", pas une
+// analyse a posteriori (déjà couverte par l'enregistrement CSV).
+internal const val GRAPH_HISTORY_MAX_POINTS = 200
+
 // Au-delà de cet âge, une valeur n'est plus assez fraîche pour être présentée comme
 // l'état actuel du véhicule : le Dashboard la masque ("--"), et l'enregistrement CSV
 // laisse la cellule vide plutôt que de répéter une lecture périmée comme si elle était
@@ -74,6 +83,12 @@ data class ObdUiState(
     val bondedBluetoothDevices: List<BluetoothDevice> = emptyList(),
     val supportedPids: Set<Int> = emptySet(),
     val values: Map<Int, GaugeValue> = emptyMap(),
+    // PID actuellement suivi par l'écran Graphique, et son historique (voir GraphPoint).
+    // Repartent à zéro à chaque nouvelle connexion (comme le reste de l'état) : un
+    // historique qui continuerait après une coupure/reconnexion afficherait une tendance
+    // avec un trou silencieux au milieu.
+    val graphPid: Int? = null,
+    val graphHistory: List<GraphPoint> = emptyList(),
     val vin: String? = null,
     val protocol: String? = null,
     // null = jamais lu avec succès (pas encore connecté, ou dernière lecture en échec) :
@@ -461,6 +476,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(connectionMode = mode) }
     }
 
+    /** Change le PID suivi par l'écran Graphique ; repart d'un historique vide (voir GraphPoint). */
+    fun selectGraphPid(pid: Int?) {
+        _state.update { it.copy(graphPid = pid, graphHistory = emptyList()) }
+    }
+
     fun connect(host: String, portText: String) {
         if (_state.value.connectionState == ConnectionState.CONNECTING) return
         userRequestedDisconnect = false
@@ -754,7 +774,19 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         // Fusionne plutôt que remplace : une lecture ratée ponctuelle garde
                         // la dernière valeur connue au lieu d'afficher "--" en régression.
                         if (newValues.isNotEmpty()) {
-                            _state.update { it.copy(values = it.values + newValues) }
+                            _state.update { s ->
+                                // Lu depuis s (pas une variable capturée plus haut) : le PID
+                                // suivi a pu changer entre deux cycles de polling.
+                                val graphValue = s.graphPid?.let { newValues[it] }
+                                val number = graphValue?.let { extractLeadingNumber(it.text) }
+                                val history = if (number != null) {
+                                    (s.graphHistory + GraphPoint(graphValue.updatedAtMs, number))
+                                        .takeLast(GRAPH_HISTORY_MAX_POINTS)
+                                } else {
+                                    s.graphHistory
+                                }
+                                s.copy(values = s.values + newValues, graphHistory = history)
+                            }
                         }
                     } catch (e: CancellationException) {
                         throw e

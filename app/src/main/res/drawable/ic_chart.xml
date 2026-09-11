@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône "graphique" pour l'onglet Graphique (MainActivity) : trois barres croissantes.
+     Vecteur maison plutôt que material-icons-extended (androidx.compose.material.icons.
+     filled.ShowChart n'est pas dans le jeu d'icônes "core" utilisé ici) : ajouter toute la
+     bibliothèque étendue pour une seule icône aurait gonflé l'APK pour rien, minifyEnabled
+     étant à false en release (voir app/build.gradle.kts), donc sans réduction des icônes
+     inutilisées. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M3,14L8,14L8,21L3,21Z M10,9L15,9L15,21L10,21Z M17,3L22,3L22,21L17,21Z" />
+</vector>

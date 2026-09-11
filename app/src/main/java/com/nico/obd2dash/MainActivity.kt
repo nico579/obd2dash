@@ -42,17 +42,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.nico.obd2dash.ui.AutoTestScreen
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.DtcScreen
+import com.nico.obd2dash.ui.GraphScreen
 import com.nico.obd2dash.ui.ProbeScreen
 import com.nico.obd2dash.ui.SettingsScreen
 import java.io.File
 
-private enum class Screen { DASHBOARD, DTC, PROBE, AUTO_TEST }
+private enum class Screen { DASHBOARD, DTC, PROBE, GRAPH, AUTO_TEST }
 
 class MainActivity : ComponentActivity() {
 
@@ -146,6 +148,12 @@ class MainActivity : ComponentActivity() {
                                     label = { Text("Sondage") }
                                 )
                                 NavigationBarItem(
+                                    selected = screen == Screen.GRAPH,
+                                    onClick = { screen = Screen.GRAPH },
+                                    icon = { Icon(painterResource(R.drawable.ic_chart), contentDescription = null) },
+                                    label = { Text("Graphique") }
+                                )
+                                NavigationBarItem(
                                     selected = screen == Screen.AUTO_TEST,
                                     onClick = { screen = Screen.AUTO_TEST },
                                     icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
@@ -197,6 +205,11 @@ class MainActivity : ComponentActivity() {
                                 onStopScan = { viewModel.stopFapScan() },
                                 onShareProbe = { path -> shareCsvFile(path, "Partager le sondage") },
                                 onDeleteProbe = { path -> viewModel.deleteProbe(path) },
+                                modifier = Modifier.padding(padding)
+                            )
+                            Screen.GRAPH -> GraphScreen(
+                                state = state,
+                                onSelectPid = { pid -> viewModel.selectGraphPid(pid) },
                                 modifier = Modifier.padding(padding)
                             )
                             Screen.AUTO_TEST -> AutoTestScreen(

@@ -147,3 +147,17 @@ object PidCatalog {
         return voltage + " · " + "%.1f %%".format((b[1] - 128) * 100.0 / 128.0)
     }
 }
+
+/**
+ * Reprend le premier nombre d'un texte déjà produit par Def.decode (ex: "94,20 V" -> 94.2,
+ * "-2,3 %" -> -2.3), pour le graphique (voir GraphScreen) : lit directement dans le texte
+ * déjà affiché ailleurs plutôt que de dupliquer la formule de chaque Def dans un second
+ * décodeur numérique à maintenir en parallèle, qui pourrait diverger de ce qui s'affiche
+ * réellement. Sur un champ composite ("1,000 · 8,961 V", sonde O2 large bande PID24), ne
+ * reprend que le premier nombre (le ratio) : pas de quoi justifier un cas spécial pour un
+ * seul PID hors PRIMARY_PIDS. Virgule française et point acceptés indifféremment.
+ */
+internal fun extractLeadingNumber(text: String): Double? {
+    val match = Regex("""-?\d+(?:[.,]\d+)?""").find(text) ?: return null
+    return match.value.replace(',', '.').toDoubleOrNull()
+}
