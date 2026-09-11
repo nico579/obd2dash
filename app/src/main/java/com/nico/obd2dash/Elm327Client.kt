@@ -1,5 +1,7 @@
 package com.nico.obd2dash
 
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothSocket
 import android.net.Network
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -13,15 +15,35 @@ import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.UUID
+
+/** Où joindre l'adaptateur ELM327 : Wi-Fi (socket TCP) ou Bluetooth (RFCOMM/SPP). */
+sealed class ConnectionTarget {
+    data class Wifi(val host: String, val port: Int = 35000) : ConnectionTarget()
+    data class Bluetooth(val device: BluetoothDevice) : ConnectionTarget()
+}
 
 /**
- * Client texte pour un adaptateur ELM327 WiFi.
- * Protocole : socket TCP brut, on envoie des commandes AT/PID suivies de \r,
- * la sonde répond en ASCII hexadécimal et termine chaque réponse par '>'.
+ * Client texte pour un adaptateur ELM327, Wi-Fi ou Bluetooth (voir [ConnectionTarget]).
+ * Protocole identique dans les deux cas, c'est tout l'intérêt de ce client texte AT/OBD :
+ * on envoie des commandes suivies de \r, la sonde répond en ASCII hexadécimal et termine
+ * chaque réponse par '>'. Seule l'ouverture du flux ci-dessous diffère par transport ;
+ * sendRaw() et tout ce qui suit ne connaissent que out/reader, pas le transport sous-jacent.
+ *
+ * Non vérifié sur un vrai adaptateur Bluetooth (voir ConnectionTarget.Bluetooth) : le seul
+ * matériel testé à ce jour est un ELM327 Wi-Fi. En particulier, `Socket.soTimeout` borne
+ * une lecture Wi-Fi bloquée à 3s de façon garantie par l'OS ; `BluetoothSocket` n'a pas
+ * d'équivalent direct, donc une lecture Bluetooth sur un adaptateur qui ne répond jamais
+ * peut bloquer indéfiniment ce thread (Dispatchers.IO en a beaucoup, ça ne gèle pas le
+ * reste de l'app, mais l'opération concernée resterait "en cours" jusqu'à reconnexion
+ * manuelle). Documenté ici plutôt que masqué par un correctif non vérifiable.
  */
-class Elm327Client(private val host: String, private val port: Int = 35000) {
+class Elm327Client(private val target: ConnectionTarget) {
+
+    constructor(host: String, port: Int = 35000) : this(ConnectionTarget.Wifi(host, port))
 
     private var socket: Socket? = null
+    private var bluetoothSocket: BluetoothSocket? = null
     private var out: OutputStream? = null
     private var reader: BufferedReader? = null
 
@@ -41,15 +63,34 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         private set
 
     suspend fun connect(network: Network? = null) = withContext(Dispatchers.IO) {
-        val s = Socket()
-        // Force le socket à sortir par le WiFi de la sonde plutôt que par la 4G,
-        // voir le commentaire dans ObdViewModel.requestWifiNetwork().
-        network?.bindSocket(s)
-        s.connect(InetSocketAddress(host, port), 5000)
-        s.soTimeout = 3000
-        socket = s
-        out = s.getOutputStream()
-        reader = BufferedReader(InputStreamReader(s.getInputStream()))
+        when (val t = target) {
+            is ConnectionTarget.Wifi -> {
+                val s = Socket()
+                // Force le socket à sortir par le WiFi de la sonde plutôt que par la 4G,
+                // voir le commentaire dans ObdViewModel.requestWifiNetwork().
+                network?.bindSocket(s)
+                s.connect(InetSocketAddress(t.host, t.port), 5000)
+                s.soTimeout = 3000
+                socket = s
+                out = s.getOutputStream()
+                reader = BufferedReader(InputStreamReader(s.getInputStream()))
+            }
+            is ConnectionTarget.Bluetooth -> {
+                try {
+                    // UUID standard du profil Bluetooth SPP (Serial Port Profile), le même
+                    // pour tout adaptateur ELM327 Bluetooth : ce n'est pas propre à un appareil.
+                    val sock = t.device.createRfcommSocketToServiceRecord(SPP_UUID)
+                    sock.connect()
+                    bluetoothSocket = sock
+                    out = sock.outputStream
+                    reader = BufferedReader(InputStreamReader(sock.inputStream))
+                } catch (e: SecurityException) {
+                    // BLUETOOTH_CONNECT (Android 12+) refusée ou jamais demandée : message
+                    // plus clair qu'une SecurityException brute pour l'utilisateur.
+                    throw IOException("Permission Bluetooth manquante", e)
+                }
+            }
+        }
 
         // Séquence d'init standard ELM327
         sendRaw("ATZ")   // reset
@@ -94,14 +135,29 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
     fun disconnect() {
         // Fermer le socket EN PREMIER interrompt immédiatement une lecture bloquée
         // (reader.close() attend le même verrou interne que r.read(), donc le fermer
-        // avant le socket pouvait bloquer l'appelant jusqu'au timeout de lecture).
+        // avant le socket pouvait bloquer l'appelant jusqu'au timeout de lecture). Vrai
+        // pour Socket ; BluetoothSocket n'a pas la même garantie documentée (voir le
+        // commentaire de classe), fermé en premier ici par cohérence malgré tout.
         runCatching { socket?.close() }
+        runCatching { bluetoothSocket?.close() }
         runCatching { reader?.close() }
         runCatching { out?.close() }
         socket = null
+        bluetoothSocket = null
     }
 
-    val isConnected: Boolean get() = socket?.isConnected == true
+    val isConnected: Boolean
+        get() = when (target) {
+            is ConnectionTarget.Wifi -> socket?.isConnected == true
+            // BluetoothSocket n'expose pas d'état "connecté" queryable (contrairement à
+            // Socket.isConnected) : sa présence après connect() réussi en tient lieu, ne
+            // devient false qu'après un disconnect() explicite de notre côté.
+            is ConnectionTarget.Bluetooth -> bluetoothSocket != null
+        }
+
+    companion object {
+        private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+    }
 
     /** Envoie une commande brute et retourne la réponse (sans le '>' final). */
     suspend fun sendRaw(command: String): String = withContext(Dispatchers.IO) {

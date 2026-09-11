@@ -11,12 +11,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import android.bluetooth.BluetoothDevice
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.nico.obd2dash.ConnectionMode
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.GaugeValue
 import com.nico.obd2dash.ObdUiState
@@ -49,9 +52,12 @@ private const val STALE_AFTER_MS = 3_000L
 fun DashboardScreen(
     state: ObdUiState,
     onConnect: (host: String, port: String) -> Unit,
+    onConnectBluetooth: (BluetoothDevice) -> Unit,
     onDisconnect: () -> Unit,
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
+    onModeChange: (ConnectionMode) -> Unit,
+    onRefreshBluetoothDevices: () -> Unit,
     onToggleRecording: () -> Unit,
     onShareRecording: (String) -> Unit,
     onDeleteRecording: (String) -> Unit,
@@ -73,31 +79,82 @@ fun DashboardScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("OBD2 Dash", style = MaterialTheme.typography.headlineMedium)
-
         if (state.connectionState != ConnectionState.CONNECTED) {
-            OutlinedTextField(
-                value = state.host,
-                onValueChange = onHostChange,
-                label = { Text("IP de la sonde") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = state.port,
-                onValueChange = onPortChange,
-                label = { Text("Port") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Button(
-                onClick = { onConnect(state.host, state.port) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    when (state.connectionState) {
-                        ConnectionState.CONNECTING -> "Connexion..."
-                        else -> "Connecter"
-                    }
+            val connecting = state.connectionState == ConnectionState.CONNECTING
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ModeButton(
+                    "Wi-Fi",
+                    selected = state.connectionMode == ConnectionMode.WIFI,
+                    enabled = !connecting,
+                    onClick = { onModeChange(ConnectionMode.WIFI) },
+                    modifier = Modifier.weight(1f)
                 )
+                ModeButton(
+                    "Bluetooth",
+                    selected = state.connectionMode == ConnectionMode.BLUETOOTH,
+                    enabled = !connecting,
+                    onClick = { onModeChange(ConnectionMode.BLUETOOTH) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (state.connectionMode == ConnectionMode.WIFI) {
+                OutlinedTextField(
+                    value = state.host,
+                    onValueChange = onHostChange,
+                    label = { Text("IP de la sonde") },
+                    enabled = !connecting,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = state.port,
+                    onValueChange = onPortChange,
+                    label = { Text("Port") },
+                    enabled = !connecting,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = { onConnect(state.host, state.port) },
+                    enabled = !connecting,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (connecting) "Connexion..." else "Connecter")
+                }
+            } else {
+                LaunchedEffect(state.connectionMode) { onRefreshBluetoothDevices() }
+                Text(
+                    "Sélectionne un appareil déjà appairé dans les réglages Bluetooth du " +
+                        "téléphone. Non vérifié sur un vrai adaptateur ELM327 Bluetooth (seul " +
+                        "du Wi-Fi a été testé à ce jour) : le protocole est identique, mais " +
+                        "cette voie de connexion elle-même ne l'est pas.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = onRefreshBluetoothDevices,
+                    enabled = !connecting,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Actualiser les appareils appairés")
+                }
+                if (state.bondedBluetoothDevices.isEmpty()) {
+                    Text(
+                        "Aucun appareil appairé (ou Bluetooth désactivé, ou permission refusée).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    for (device in state.bondedBluetoothDevices) {
+                        BluetoothDeviceRow(
+                            device = device,
+                            enabled = !connecting,
+                            onClick = { onConnectBluetooth(device) }
+                        )
+                    }
+                }
+                if (connecting) {
+                    Text("Connexion...", style = MaterialTheme.typography.bodyMedium)
+                }
             }
             state.errorMessage?.let {
                 Text(it, color = MaterialTheme.colorScheme.error)
@@ -215,6 +272,38 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelet
                 TextButton(onClick = { confirmingDelete = false }) { Text("Annuler") }
             }
         )
+    }
+}
+
+/** Bouton plein si sélectionné, contour sinon : matérialise le choix Wi-Fi/Bluetooth sans dépendre d'un composant à sélection segmentée expérimental pour deux options seulement. */
+@Composable
+private fun ModeButton(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    if (selected) {
+        Button(onClick = onClick, enabled = enabled, modifier = modifier) { Text(label) }
+    } else {
+        OutlinedButton(onClick = onClick, enabled = enabled, modifier = modifier) { Text(label) }
+    }
+}
+
+@Composable
+private fun BluetoothDeviceRow(device: BluetoothDevice, enabled: Boolean, onClick: () -> Unit) {
+    // .name peut lever une SecurityException sans BLUETOOTH_CONNECT (ne devrait pas arriver
+    // ici : la liste elle-même vient d'un appel qui l'exige déjà ; try/catch explicite
+    // plutôt que runCatching, seule forme reconnue par le lint MissingPermission d'Android).
+    // L'adresse MAC est le repli sûr dans tous les cas.
+    val name = try { device.name ?: device.address } catch (e: SecurityException) { device.address }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(name, style = MaterialTheme.typography.bodyMedium)
+            Text(device.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Button(onClick = onClick, enabled = enabled) { Text("Connecter") }
     }
 }
 

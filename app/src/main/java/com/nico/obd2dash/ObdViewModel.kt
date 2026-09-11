@@ -1,6 +1,9 @@
 package com.nico.obd2dash
 
 import android.app.Application
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
@@ -32,6 +35,9 @@ import java.util.Locale
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
+/** Transport vers la sonde ELM327 : Wi-Fi (IP/port) ou Bluetooth (appareil appairé). Persisté pour la reconnexion automatique au lancement (voir ObdViewModel.init). */
+enum class ConnectionMode { WIFI, BLUETOOTH }
+
 /** Comment un sondage FAP s'est terminé, pour l'afficher clairement (voir audit, "Ergonomie du sondage") : null = jamais lancé cette session, ou encore en cours. */
 enum class FapScanOutcome { TERMINE, INTERROMPU, ERREUR }
 
@@ -60,6 +66,12 @@ data class ObdUiState(
     // et sont persistés au moment de la connexion.
     val host: String = "192.168.0.10",
     val port: String = "35000",
+    val connectionMode: ConnectionMode = ConnectionMode.WIFI,
+    // Nom d'affichage du dernier appareil Bluetooth utilisé/sélectionné (voir
+    // ObdViewModel.connectBluetooth) ; bondedDevices n'est rafraîchie qu'à la demande
+    // (ouverture du sélecteur), pas un flux continu de l'état du Bluetooth système.
+    val bluetoothDeviceName: String? = null,
+    val bondedBluetoothDevices: List<BluetoothDevice> = emptyList(),
     val supportedPids: Set<Int> = emptySet(),
     val values: Map<Int, GaugeValue> = emptyMap(),
     val vin: String? = null,
@@ -242,7 +254,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(
         ObdUiState(
             host = prefs.getString(KEY_HOST, null) ?: "192.168.0.10",
-            port = prefs.getString(KEY_PORT, null) ?: "35000"
+            port = prefs.getString(KEY_PORT, null) ?: "35000",
+            connectionMode = savedConnectionMode(),
+            bluetoothDeviceName = prefs.getString(KEY_BLUETOOTH_NAME, null)
         )
     )
     val state: StateFlow<ObdUiState> = _state
@@ -272,6 +286,60 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // Les enregistrements/sondages des sessions précédentes existent déjà sur le disque
         // au lancement de l'app : visibles sans attendre une nouvelle session.
         _state.update { it.copy(recordings = listRecordings(), probes = listProbes()) }
+        // Connexion automatique au lancement (comme Torque) : retente la dernière sonde
+        // utilisée sans action de l'utilisateur. Échoue silencieusement vers l'écran de
+        // connexion habituel si elle n'est pas joignable, exactement comme un échec
+        // manuel (voir connect()/connectBluetooth(), aucun chemin d'erreur spécifique ici).
+        autoConnectOnLaunch()
+    }
+
+    private fun savedConnectionMode(): ConnectionMode =
+        runCatching { ConnectionMode.valueOf(prefs.getString(KEY_CONNECTION_MODE, null) ?: "") }
+            .getOrDefault(ConnectionMode.WIFI)
+
+    private fun autoConnectOnLaunch() {
+        when (savedConnectionMode()) {
+            ConnectionMode.WIFI -> connect(_state.value.host, _state.value.port)
+            ConnectionMode.BLUETOOTH -> {
+                val address = prefs.getString(KEY_BLUETOOTH_ADDRESS, null) ?: return
+                val device = runCatching { bluetoothAdapter()?.getRemoteDevice(address) }.getOrNull() ?: return
+                connectBluetooth(device)
+            }
+        }
+    }
+
+    private fun bluetoothAdapter(): BluetoothAdapter? =
+        getApplication<Application>().getSystemService(BluetoothManager::class.java)?.adapter
+
+    private fun bluetoothDeviceName(device: BluetoothDevice): String =
+        // .name lève une SecurityException sans BLUETOOTH_CONNECT sur API 31+ (try/catch
+        // explicite plutôt que runCatching : le lint MissingPermission d'Android ne
+        // reconnaît que cette forme comme une protection valable) ; l'adresse MAC ne
+        // demande elle aucune permission et reste un identifiant valable à défaut.
+        try {
+            device.name ?: device.address
+        } catch (e: SecurityException) {
+            device.address
+        }
+
+    /**
+     * Appareils déjà appairés (voir réglages Bluetooth du téléphone) : cette app ne fait
+     * aucune découverte/appairage elle-même, ce qui évite ACCESS_FINE_LOCATION (nécessaire
+     * pour scanner activement, pas pour lister des appairages déjà faits). Rafraîchie à la
+     * demande (ouverture du sélecteur), pas un flux continu.
+     */
+    fun refreshBondedBluetoothDevices() {
+        val adapter = bluetoothAdapter()
+        val devices = if (adapter != null && adapter.isEnabled) {
+            try {
+                adapter.bondedDevices.toList()
+            } catch (e: SecurityException) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+        _state.update { it.copy(bondedBluetoothDevices = devices) }
     }
 
     private fun listRecordings(): List<RecordingFile> = listCsvFiles("recordings")
@@ -356,6 +424,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(port = value) }
     }
 
+    /** Sélection d'écran seulement (voir onModeChange) : ne persiste et n'affecte le transport réel qu'au moment de connect()/connectBluetooth(). */
+    fun setConnectionMode(mode: ConnectionMode) {
+        _state.update { it.copy(connectionMode = mode) }
+    }
+
     fun connect(host: String, portText: String) {
         if (_state.value.connectionState == ConnectionState.CONNECTING) return
 
@@ -370,38 +443,18 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        prefs.edit().putString(KEY_HOST, host).putString(KEY_PORT, portText).apply()
-        // Repart d'un état neuf (hôte/port et enregistrements passés gardés) : sans ça, les
-        // valeurs, DTC, historique etc. d'une session précédente (potentiellement un AUTRE
-        // véhicule) restaient affichés sous l'identité de la nouvelle connexion jusqu'à ce
-        // qu'un nouveau scan les remplace, ou pour toujours s'il échoue. Les enregistrements
-        // CSV ne sont pas liés à une session : ce sont des fichiers sur le disque, pas de
-        // raison de les faire disparaître de la liste au moment de se reconnecter.
-        _state.update {
-            ObdUiState(
-                host = it.host,
-                port = it.port,
-                recordings = it.recordings,
-                probes = it.probes,
-                connectionState = ConnectionState.CONNECTING
-            )
-        }
+        prefs.edit()
+            .putString(KEY_HOST, host)
+            .putString(KEY_PORT, portText)
+            .putString(KEY_CONNECTION_MODE, ConnectionMode.WIFI.name)
+            .apply()
+        beginConnecting(ConnectionMode.WIFI)
 
         connectJob?.cancel()
         connectJob = viewModelScope.launch {
-            // Referme une éventuelle connexion précédente (ex: reconnexion après une
-            // erreur) avant d'en ouvrir une nouvelle, pour ne pas laisser un socket
-            // orphelin tourner en tâche de fond.
-            pollJob?.cancel()
-            stopAutoTest()
-            stopRecording()
-            stopFapScan()
-            unregisterNetworkCallback()
-            client?.disconnect()
-            client = null
-
+            prepareForNewConnection()
             val c = Elm327Client(host, port)
-            try {
+            finishConnecting(c) {
                 // Le téléphone a souvent WiFi (sonde, sans Internet) + 4G actifs en même
                 // temps. Android route par défaut vers le réseau qui a Internet (donc la 4G),
                 // ce qui rend la sonde injoignable. On force explicitement le socket à sortir
@@ -415,91 +468,164 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                 "Vérifie que le téléphone est bien connecté au WiFi de la sonde."
                         )
                     }
-                    return@launch
+                    return@finishConnecting false
                 }
                 c.connect(wifiNetwork)
-                client = c
+                true
+            }
+        }
+    }
 
-                val supported = c.discoverSupportedPids()
-                // Ne PAS envelopper dans runCatching : readVin() ne lève que si sendRaw a
-                // échoué au niveau transport (timeout, coupure), auquel cas Elm327Client a
-                // déjà fermé le socket en interne. Avaler cette exception ici publierait
-                // "connecté" sur un client mort (le polling ne démarrerait même pas, puisque
-                // c.isConnected serait déjà faux, sans qu'aucune erreur ne soit montrée).
-                // Un ECU qui ne supporte simplement pas le mode 09 répond par un préfixe
-                // inattendu et readVin() renvoie null normalement, sans lever.
-                val vin = c.readVin()
-                vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
-                // Sans VIN, l'historique de CETTE connexion ne doit rien hériter d'une
-                // précédente session sans VIN, potentiellement un autre véhicule (voir A6bis
-                // / audit "Deux véhicules et historique") : jamais persisté pour ce cas, voir
-                // DtcHistoryStore.resetSessionHistory.
-                historyStore.resetSessionHistory()
+    /**
+     * Connexion Bluetooth (RFCOMM/SPP) : voir Elm327Client et ConnectionTarget.Bluetooth.
+     * [device] doit être déjà appairé (voir bondedBluetoothDevices) ; cette fonction ne
+     * fait aucune découverte, seulement la connexion socket. Non vérifié sur un vrai
+     * adaptateur Bluetooth, voir le commentaire de classe d'Elm327Client.
+     */
+    fun connectBluetooth(device: BluetoothDevice) {
+        if (_state.value.connectionState == ConnectionState.CONNECTING) return
 
-                // Échelles réelles des PID24/0B (voir PidCatalog.o2MaxRatio/o2MaxVoltage/
-                // mapMaxKpa) : caractéristique fixe de ce véhicule, lue une fois ici plutôt
-                // qu'à chaque cycle de polling. PidCatalog est un singleton partagé entre
-                // connexions : chaque octet est remis à son repli si CE véhicule ne
-                // supporte pas PID4F OU annonce zéro sur cet octet précis (voir A4 : un
-                // octet nul ne veut pas dire "plafonner à zéro", mais "garder le repli"),
-                // pour qu'une valeur laissée par un véhicule précédent ne s'applique pas ici.
-                val scaleBytes = if (0x4F in supported) c.readPidBytes(0x4F) else null
-                PidCatalog.o2MaxRatio = scaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.toDouble() ?: 2.0
-                PidCatalog.o2MaxVoltage = scaleBytes?.getOrNull(1)?.takeIf { it != 0 }?.toDouble() ?: 8.0
-                PidCatalog.mapMaxKpa = scaleBytes?.getOrNull(3)?.takeIf { it != 0 }?.let { it * 10.0 }
+        prefs.edit()
+            .putString(KEY_CONNECTION_MODE, ConnectionMode.BLUETOOTH.name)
+            .putString(KEY_BLUETOOTH_ADDRESS, device.address)
+            .putString(KEY_BLUETOOTH_NAME, bluetoothDeviceName(device))
+            .apply()
+        beginConnecting(ConnectionMode.BLUETOOTH, bluetoothDeviceName(device))
 
-                // Même principe pour le débit d'air (PID10), annoncé par PID50 (un seul
-                // octet, max en dizaines de g/s).
-                val mafScaleBytes = if (0x50 in supported) c.readPidBytes(0x50) else null
-                PidCatalog.mafMaxGramsPerSec = mafScaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.let { it * 10.0 }
+        connectJob?.cancel()
+        connectJob = viewModelScope.launch {
+            prepareForNewConnection()
+            val c = Elm327Client(ConnectionTarget.Bluetooth(device))
+            finishConnecting(c) {
+                c.connect()
+                true
+            }
+        }
+    }
 
-                // PID4F/PID50 sont exclus du polling répété (voir startPolling) puisqu'ils
-                // ne varient pas ; affichés une fois ici à partir des octets déjà reçus
-                // ci-dessus, pour ne pas rester vides sur le Dashboard faute d'y être jamais
-                // "mesurés" par le polling normal.
-                val now = System.currentTimeMillis()
-                val contextValues = mutableMapOf<Int, GaugeValue>()
-                PidCatalog.defs.firstOrNull { it.pid == 0x4F }?.let { def ->
-                    if (scaleBytes != null && scaleBytes.size >= def.expectedBytes) {
-                        runCatching { def.decode(scaleBytes) }.getOrNull()?.let {
-                            contextValues[def.pid] = GaugeValue(it, now)
-                        }
+    /** Repart d'un état neuf (hôte/port et enregistrements passés gardés) : sans ça, les
+     * valeurs, DTC, historique etc. d'une session précédente (potentiellement un AUTRE
+     * véhicule) restaient affichés sous l'identité de la nouvelle connexion jusqu'à ce
+     * qu'un nouveau scan les remplace, ou pour toujours s'il échoue. Les enregistrements
+     * CSV ne sont pas liés à une session : ce sont des fichiers sur le disque, pas de
+     * raison de les faire disparaître de la liste au moment de se reconnecter. */
+    private fun beginConnecting(mode: ConnectionMode, bluetoothName: String? = null) {
+        _state.update {
+            ObdUiState(
+                host = it.host,
+                port = it.port,
+                connectionMode = mode,
+                bluetoothDeviceName = bluetoothName ?: it.bluetoothDeviceName,
+                recordings = it.recordings,
+                probes = it.probes,
+                connectionState = ConnectionState.CONNECTING
+            )
+        }
+    }
+
+    /** Referme une éventuelle connexion précédente (ex: reconnexion après une erreur)
+     * avant d'en ouvrir une nouvelle, pour ne pas laisser un client orphelin tourner en
+     * tâche de fond. */
+    private fun prepareForNewConnection() {
+        pollJob?.cancel()
+        stopAutoTest()
+        stopRecording()
+        stopFapScan()
+        unregisterNetworkCallback()
+        client?.disconnect()
+        client = null
+    }
+
+    /**
+     * Établissement de session commun aux deux transports, une fois [doConnect] chargé
+     * d'ouvrir le flux propre à chacun (Wi-Fi avec liaison réseau, Bluetooth sans). Renvoyer
+     * false depuis [doConnect] annule l'établissement sans le traiter comme une erreur
+     * (ex: pas de réseau Wi-Fi détecté, déjà signalé par l'appelant).
+     */
+    private suspend fun finishConnecting(c: Elm327Client, doConnect: suspend () -> Boolean) {
+        try {
+            if (!doConnect()) return
+            client = c
+
+            val supported = c.discoverSupportedPids()
+            // Ne PAS envelopper dans runCatching : readVin() ne lève que si sendRaw a
+            // échoué au niveau transport (timeout, coupure), auquel cas Elm327Client a
+            // déjà fermé le socket en interne. Avaler cette exception ici publierait
+            // "connecté" sur un client mort (le polling ne démarrerait même pas, puisque
+            // c.isConnected serait déjà faux, sans qu'aucune erreur ne soit montrée).
+            // Un ECU qui ne supporte simplement pas le mode 09 répond par un préfixe
+            // inattendu et readVin() renvoie null normalement, sans lever.
+            val vin = c.readVin()
+            vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
+            // Sans VIN, l'historique de CETTE connexion ne doit rien hériter d'une
+            // précédente session sans VIN, potentiellement un autre véhicule (voir A6bis
+            // / audit "Deux véhicules et historique") : jamais persisté pour ce cas, voir
+            // DtcHistoryStore.resetSessionHistory.
+            historyStore.resetSessionHistory()
+
+            // Échelles réelles des PID24/0B (voir PidCatalog.o2MaxRatio/o2MaxVoltage/
+            // mapMaxKpa) : caractéristique fixe de ce véhicule, lue une fois ici plutôt
+            // qu'à chaque cycle de polling. PidCatalog est un singleton partagé entre
+            // connexions : chaque octet est remis à son repli si CE véhicule ne
+            // supporte pas PID4F OU annonce zéro sur cet octet précis (voir A4 : un
+            // octet nul ne veut pas dire "plafonner à zéro", mais "garder le repli"),
+            // pour qu'une valeur laissée par un véhicule précédent ne s'applique pas ici.
+            val scaleBytes = if (0x4F in supported) c.readPidBytes(0x4F) else null
+            PidCatalog.o2MaxRatio = scaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.toDouble() ?: 2.0
+            PidCatalog.o2MaxVoltage = scaleBytes?.getOrNull(1)?.takeIf { it != 0 }?.toDouble() ?: 8.0
+            PidCatalog.mapMaxKpa = scaleBytes?.getOrNull(3)?.takeIf { it != 0 }?.let { it * 10.0 }
+
+            // Même principe pour le débit d'air (PID10), annoncé par PID50 (un seul
+            // octet, max en dizaines de g/s).
+            val mafScaleBytes = if (0x50 in supported) c.readPidBytes(0x50) else null
+            PidCatalog.mafMaxGramsPerSec = mafScaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.let { it * 10.0 }
+
+            // PID4F/PID50 sont exclus du polling répété (voir startPolling) puisqu'ils
+            // ne varient pas ; affichés une fois ici à partir des octets déjà reçus
+            // ci-dessus, pour ne pas rester vides sur le Dashboard faute d'y être jamais
+            // "mesurés" par le polling normal.
+            val now = System.currentTimeMillis()
+            val contextValues = mutableMapOf<Int, GaugeValue>()
+            PidCatalog.defs.firstOrNull { it.pid == 0x4F }?.let { def ->
+                if (scaleBytes != null && scaleBytes.size >= def.expectedBytes) {
+                    runCatching { def.decode(scaleBytes) }.getOrNull()?.let {
+                        contextValues[def.pid] = GaugeValue(it, now)
                     }
                 }
-                PidCatalog.defs.firstOrNull { it.pid == 0x50 }?.let { def ->
-                    if (mafScaleBytes != null && mafScaleBytes.size >= def.expectedBytes) {
-                        runCatching { def.decode(mafScaleBytes) }.getOrNull()?.let {
-                            contextValues[def.pid] = GaugeValue(it, now)
-                        }
+            }
+            PidCatalog.defs.firstOrNull { it.pid == 0x50 }?.let { def ->
+                if (mafScaleBytes != null && mafScaleBytes.size >= def.expectedBytes) {
+                    runCatching { def.decode(mafScaleBytes) }.getOrNull()?.let {
+                        contextValues[def.pid] = GaugeValue(it, now)
                     }
                 }
+            }
 
-                if (!c.isConnected) {
-                    error("Connexion perdue pendant l'établissement de la session")
-                }
-                _state.update {
-                    it.copy(
-                        connectionState = ConnectionState.CONNECTED,
-                        supportedPids = supported,
-                        vin = vin,
-                        protocol = c.detectedProtocol,
-                        dtcHistory = historyStore.load(vehicleId),
-                        values = it.values + contextValues
-                    )
-                }
-                startPolling(c, supported)
-            } catch (e: CancellationException) {
-                // c n'est affecté à `client` qu'après c.connect() plus haut : si l'annulation
-                // arrive avant, personne d'autre ne connaît ce client pour le refermer (voir
-                // A7). Idempotent et sans risque si c a déjà été publié et fermé ailleurs.
-                c.disconnect()
-                throw e
-            } catch (e: Exception) {
-                c.disconnect()
-                client = null
-                _state.update {
-                    it.copy(connectionState = ConnectionState.ERROR, errorMessage = e.message ?: "Connexion échouée")
-                }
+            if (!c.isConnected) {
+                error("Connexion perdue pendant l'établissement de la session")
+            }
+            _state.update {
+                it.copy(
+                    connectionState = ConnectionState.CONNECTED,
+                    supportedPids = supported,
+                    vin = vin,
+                    protocol = c.detectedProtocol,
+                    dtcHistory = historyStore.load(vehicleId),
+                    values = it.values + contextValues
+                )
+            }
+            startPolling(c, supported)
+        } catch (e: CancellationException) {
+            // c n'est affecté à `client` qu'après doConnect() plus haut : si l'annulation
+            // arrive avant, personne d'autre ne connaît ce client pour le refermer (voir
+            // A7). Idempotent et sans risque si c a déjà été publié et fermé ailleurs.
+            c.disconnect()
+            throw e
+        } catch (e: Exception) {
+            c.disconnect()
+            client = null
+            _state.update {
+                it.copy(connectionState = ConnectionState.ERROR, errorMessage = e.message ?: "Connexion échouée")
             }
         }
     }
@@ -642,6 +768,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             ObdUiState(
                 host = it.host,
                 port = it.port,
+                connectionMode = it.connectionMode,
+                bluetoothDeviceName = it.bluetoothDeviceName,
                 recordings = it.recordings,
                 probes = it.probes,
                 connectionState = ConnectionState.ERROR,
@@ -1282,14 +1410,21 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     fun disconnect() {
         val c = cancelJobsAndReleaseNetwork()
-        // Repart d'un état par défaut, mais en gardant l'hôte/port actuellement affichés
-        // (sinon une déconnexion effacerait ce que l'utilisateur vient de configurer), et
-        // les fichiers déjà produits (enregistrements, sondages) pour pouvoir encore les
-        // partager après coup.
+        // Repart d'un état par défaut, mais en gardant l'hôte/port et le transport (Wi-Fi
+        // ou Bluetooth) actuellement affichés (sinon une déconnexion effacerait ce que
+        // l'utilisateur vient de configurer), et les fichiers déjà produits (enregistrements,
+        // sondages) pour pouvoir encore les partager après coup.
         _state.update {
             // recordings/probes portés tels quels : cancelJobsAndReleaseNetwork() ci-dessus
             // vient de les rafraîchir via stopRecording()/stopFapScan() si actifs.
-            ObdUiState(host = it.host, port = it.port, recordings = it.recordings, probes = it.probes)
+            ObdUiState(
+                host = it.host,
+                port = it.port,
+                connectionMode = it.connectionMode,
+                bluetoothDeviceName = it.bluetoothDeviceName,
+                recordings = it.recordings,
+                probes = it.probes
+            )
         }
         // Fermeture hors du thread principal : socket.close() est désormais rapide
         // (voir Elm327Client.disconnect()), mais autant ne pas en dépendre.
@@ -1310,6 +1445,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val KEY_HOST = "conn_host"
         private const val KEY_PORT = "conn_port"
+        private const val KEY_CONNECTION_MODE = "conn_mode"
+        private const val KEY_BLUETOOTH_ADDRESS = "conn_bt_address"
+        private const val KEY_BLUETOOTH_NAME = "conn_bt_name"
         // ~600 o/échantillon (~40 colonnes max) : à 5s, une session de 2h fait autour de
         // 850 Ko. Assez fin pour une analyse de tendance, sans accumuler des Mo inutiles.
         private const val RECORDING_INTERVAL_MS = 5_000L

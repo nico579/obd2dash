@@ -9,12 +9,18 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -22,12 +28,18 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.nico.obd2dash.ui.AutoTestScreen
@@ -58,6 +70,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // BLUETOOTH_CONNECT (permission d'exécution) n'existe qu'à partir d'Android 12 ; avant,
+    // BLUETOOTH/BLUETOOTH_ADMIN (déclarées dans le manifeste) suffisent sans prompt. Sans
+    // cette permission, adapter.bondedDevices lève une SecurityException (voir
+    // ObdViewModel.refreshBondedBluetoothDevices, qui l'attrape et rend une liste vide).
+    private val bluetoothPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) viewModel.refreshBondedBluetoothDevices()
+        }
+
+    private fun ensureBluetoothPermissionThenRefresh() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            viewModel.refreshBondedBluetoothDevices()
+        } else {
+            bluetoothPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -67,6 +100,7 @@ class MainActivity : ComponentActivity() {
                     val state by viewModel.state.collectAsState()
 
                     Scaffold(
+                        topBar = { TopAppBar(title = { Text("OBD2 Dash") }, actions = { ConnectionIndicator(state.connectionState) }) },
                         bottomBar = {
                             NavigationBar {
                                 NavigationBarItem(
@@ -100,9 +134,12 @@ class MainActivity : ComponentActivity() {
                             Screen.DASHBOARD -> DashboardScreen(
                                 state = state,
                                 onConnect = { host, port -> viewModel.connect(host, port) },
+                                onConnectBluetooth = { device -> viewModel.connectBluetooth(device) },
                                 onDisconnect = { viewModel.disconnect() },
                                 onHostChange = { viewModel.updateHost(it) },
                                 onPortChange = { viewModel.updatePort(it) },
+                                onModeChange = { viewModel.setConnectionMode(it) },
+                                onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
                                 onToggleRecording = {
                                     if (state.isRecording) {
                                         viewModel.stopRecording()
@@ -153,5 +190,29 @@ class MainActivity : ComponentActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(shareIntent, chooserTitle))
+    }
+}
+
+/**
+ * Indicateur persistant (comme Torque) : visible sur tous les écrans, pas seulement le
+ * Dashboard, pour repérer une perte de connexion sans devoir y retourner. Couleurs
+ * littérales plutôt que les jetons du thème Material (primary/error...) : vert/rouge est
+ * une convention universelle de feu tricolore demandée telle quelle, indépendante de la
+ * palette générée par le thème (qui n'est pas forcément vert/rouge par défaut).
+ */
+@Composable
+private fun ConnectionIndicator(state: ConnectionState) {
+    val (color, label) = when (state) {
+        ConnectionState.CONNECTED -> Color(0xFF2E7D32) to "Connecté"
+        ConnectionState.CONNECTING -> Color(0xFFF9A825) to "Connexion..."
+        ConnectionState.ERROR -> Color(0xFFC62828) to "Erreur"
+        ConnectionState.DISCONNECTED -> Color(0xFF9E9E9E) to "Déconnecté"
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(end = 16.dp)
+    ) {
+        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(color))
+        Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 6.dp))
     }
 }
