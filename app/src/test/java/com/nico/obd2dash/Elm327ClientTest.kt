@@ -148,6 +148,30 @@ class Elm327ClientTest {
         assertEquals("", client.reassembleHex(response, "4902"))
     }
 
+    @Test
+    fun `reassembleHex rejette une reponse plus courte que la longueur ISO-TP annoncee`() {
+        // Exemple reproduit dans l'audit A3 : readUdsDid(F19E) recevait "00A" (10 octets
+        // annonces) mais seulement 6 octets de trames ("62F19E414243"), et rendait quand
+        // meme Positive([65,66,67]) avant ce correctif.
+        val response = "00A\r0:62F19E414243"
+        assertEquals("", client.reassembleHex(response, "62F19E"))
+    }
+
+    @Test
+    fun `reassembleHex tronque le remplissage au-dela de la longueur ISO-TP annoncee`() {
+        // "006" = 6 octets utiles ; la trame en contient 7, le dernier est du remplissage.
+        val response = "006\r0:4902013132333435"
+        assertEquals("490201313233", client.reassembleHex(response, "4902"))
+    }
+
+    @Test
+    fun `reassembleHex sans ligne de longueur garde le comportement precedent`() {
+        // Toutes les reponses de ce fil de test n'incluent pas cette ligne (jamais vue sur
+        // cette sonde dans ces captures) : son absence ne doit rien changer.
+        val response = "0:490201313233\r1:34353637"
+        assertEquals("49020131323334353637", client.reassembleHex(response, "4902"))
+    }
+
     // --- parseHexPayload ---
 
     @Test

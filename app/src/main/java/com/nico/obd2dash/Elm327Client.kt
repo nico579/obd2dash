@@ -168,15 +168,35 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val frameRegex = Regex("^([0-9A-Fa-f]):(.+)$")
         val frames = mutableListOf<String>()
         var expectedIndex = 0
+        // Longueur ISO-TP totale annoncée par l'ELM327 avant la première trame d'une
+        // réponse multi-trame (ex: "00A" = 10 octets), jusqu'ici récupérée puis jetée
+        // faute de correspondre à `frameRegex` (voir A3) : une trame manquante en fin de
+        // séquence passait alors inaperçue, la donnée partielle étant acceptée telle
+        // quelle. Une ligne de ce type après le début des trames n'est pas ce format
+        // (déjà ignorée avant ce correctif), on ne la traite donc que si aucune trame
+        // n'a encore été vue.
+        var declaredLength: Int? = null
         for (line in lines) {
-            val m = frameRegex.find(line) ?: continue
+            val m = frameRegex.find(line)
+            if (m == null) {
+                if (frames.isEmpty()) declaredLength = line.toIntOrNull(16)
+                continue
+            }
             val index = m.groupValues[1].toInt(16)
             val data = m.groupValues[2].trim()
             if (index != expectedIndex) return ""
             frames.add(data)
             expectedIndex = (expectedIndex + 1) % 16
         }
-        if (frames.isNotEmpty()) return frames.joinToString("")
+        if (frames.isNotEmpty()) {
+            val joined = frames.joinToString("")
+            val declaredHexLen = declaredLength?.times(2)
+            return when {
+                declaredHexLen == null -> joined
+                joined.length < declaredHexLen -> "" // trame(s) manquante(s) : rejeter, pas tronquer en silence
+                else -> joined.take(declaredHexLen) // retire le remplissage de fin de trame
+            }
+        }
         val hexLines = lines.filter { line -> line.all { c -> c in '0'..'9' || c in 'A'..'F' || c in 'a'..'f' } }
         return hexLines.firstOrNull { it.uppercase().startsWith(expectedPrefix.uppercase()) }
             ?: hexLines.firstOrNull()
@@ -451,7 +471,11 @@ class Elm327Client(private val host: String, private val port: Int = 35000) {
         val bytes = parseHexPayload(hexstr, expectedPrefix) ?: return null
         val vinBytes = bytes.drop(1) // octet "nombre d'items"
         val vin = vinBytes.filter { it in 0x20..0x7E }.map { it.toChar() }.joinToString("")
-        return vin.ifBlank { null }
+        // ISO 3779 : un VIN fait toujours exactement 17 caracteres. Une chaine plus courte
+        // (trame tronquee non detectee autrement, voir A3) n'est pas un VIN partiel utile :
+        // c'est une identite fausse qui peut fusionner l'historique DTC de deux vehicules
+        // differents (voir DtcHistoryStore).
+        return vin.takeIf { it.length == 17 }
     }
 
     /**

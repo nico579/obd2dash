@@ -29,14 +29,15 @@ import com.nico.obd2dash.GaugeValue
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.RecordingFile
+import com.nico.obd2dash.VALUE_UNAVAILABLE_AFTER_MS
 import kotlinx.coroutines.delay
 
 // Au-delà de ce délai sans nouvelle lecture, une valeur est affichée atténuée (une pause
-// de polling pendant un refresh DTC dure normalement moins longtemps que ça). Au-delà du
-// second délai, plus large pour ne pas clignoter pendant une pause normale, elle est
-// masquée : trop vieille pour être présentée comme l'état actuel du véhicule.
+// de polling pendant un refresh DTC dure normalement moins longtemps que ça). Au-delà de
+// VALUE_UNAVAILABLE_AFTER_MS (partagé avec l'enregistrement CSV, voir ObdViewModel), plus
+// large pour ne pas clignoter pendant une pause normale, elle est masquée : trop vieille
+// pour être présentée comme l'état actuel du véhicule.
 private const val STALE_AFTER_MS = 3_000L
-private const val UNAVAILABLE_AFTER_MS = 10_000L
 
 @Composable
 fun DashboardScreen(
@@ -181,7 +182,7 @@ private fun staleness(value: GaugeValue?, nowMs: Long): Pair<String, Boolean> {
     if (value == null) return "--" to false
     val age = nowMs - value.updatedAtMs
     return when {
-        age > UNAVAILABLE_AFTER_MS -> "--" to false
+        age > VALUE_UNAVAILABLE_AFTER_MS -> "--" to false
         age > STALE_AFTER_MS -> value.text to true
         else -> value.text to false
     }
