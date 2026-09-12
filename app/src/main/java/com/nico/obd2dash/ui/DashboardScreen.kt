@@ -123,17 +123,15 @@ fun DashboardScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            // Erreur affichée seulement ici (état ERROR, provoqué uniquement par une action
-            // explicite : basculer de transport depuis ce même écran alors que la nouvelle
-            // cible est injoignable) : une tentative automatique qui échoue passe par
-            // RECONNECTING, jamais par ERROR, précisément pour ne rien afficher de ce genre
-            // pendant une simple attente (voir ObdViewModel, "ça sert à rien" sur ce même
-            // message vu s'afficher pendant l'attente normale avant ce correctif).
-            if (state.connectionState == ConnectionState.ERROR) {
-                state.errorMessage?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            // errorMessage jamais affiché ici, même en ERROR (constaté : switchConnectionMode
+            // passe par connect()/connectBluetooth() en isAutoRetry=false, donc CHAQUE tap
+            // Wi-Fi/Bluetooth qui échoue immédiatement traverse ERROR avant que la boucle
+            // d'auto-reconnexion ne reprenne la main 5s plus tard, rendant ce texte fréquent,
+            // pas un cas rare réservé à une vraie action explicite comme supposé au premier
+            // correctif : "y a toujours le message de connexion en rouge"). L'app étant
+            // entièrement automatique, aucun détail technique de cet échec n'est actionnable
+            // depuis l'écran ; il reste consultable dans le rapport diagnostic exporté
+            // (buildDiagnosticReport) et dans le journal (EventLog), pas ici.
         } else {
             // bigGaugePids : choix de l'utilisateur depuis Réglages (voir ObdUiState),
             // PRIMARY_PIDS par défaut tant que rien n'est personnalisé.

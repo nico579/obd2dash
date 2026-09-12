@@ -138,17 +138,13 @@ fun SettingsScreen(
         if (state.connectionState == ConnectionState.CONNECTED) {
             Text(stringResource(R.string.settings_connected_label), color = MaterialTheme.colorScheme.primary)
         }
-        // Gardé derrière ERROR, comme sur Dashboard (voir DashboardScreen) : errorMessage est
-        // aussi écrit pendant un échec purement automatique (RECONNECTING, voir
-        // ObdViewModel.connect), et l'afficher sans cette garde ici le montrait en continu
-        // pendant une simple attente normale, avant que le WiFi de la sonde soit à portée
-        // ("il y a des messages furtifs... ça sert à rien", texte constaté qui ne disait rien
-        // d'actionnable puisque rien n'a réellement échoué du point de vue de l'utilisateur).
-        if (state.connectionState == ConnectionState.ERROR) {
-            state.errorMessage?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
-        }
+        // errorMessage jamais affiché ici, même derrière ERROR (voir DashboardScreen pour
+        // l'historique complet) : switchConnectionMode() traverse ERROR à chaque tap Wi-Fi/
+        // Bluetooth qui échoue immédiatement, avant que la boucle d'auto-reconnexion ne
+        // reprenne la main 5s plus tard, rendant ce texte fréquent et jamais actionnable
+        // depuis l'écran vu que tout est automatique ("y a toujours le message de connexion
+        // en rouge" constaté malgré la garde ERROR déjà en place). Reste consultable dans le
+        // rapport diagnostic exporté (buildDiagnosticReport) et le journal (EventLog).
         // Distinct de errorMessage (voir ObdUiState.recordingError, audit B4) : affiché
         // aussi ici pour qui ne serait pas déjà sur le Dashboard au moment de l'échec.
         state.recordingError?.let {
