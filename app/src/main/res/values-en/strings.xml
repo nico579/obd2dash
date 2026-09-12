@@ -41,7 +41,7 @@
 
     <!-- SettingsScreen -->
     <string name="settings_title">Connection settings</string>
-    <string name="settings_intro">The connection happens automatically at launch and keeps retrying on its own as long as it fails. Change the target address, transport, or Bluetooth device here.</string>
+    <string name="settings_intro">The connection happens automatically at launch and keeps retrying on its own as long as it fails. Change the target address or Bluetooth device here (the Wi-Fi/Bluetooth transport is chosen from the Dashboard).</string>
     <string name="settings_wifi_host_label">Probe IP address</string>
     <string name="settings_wifi_port_label">Port</string>
     <string name="settings_wifi_connecting">Connecting...</string>

@@ -19,6 +19,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,6 +55,7 @@ private const val STALE_AFTER_MS = 3_000L
 fun DashboardScreen(
     state: ObdUiState,
     onDisconnect: () -> Unit,
+    onModeChange: (ConnectionMode) -> Unit,
     onToggleRecording: () -> Unit,
     onShareRecording: (String) -> Unit,
     onDeleteRecording: (String) -> Unit,
@@ -76,11 +78,31 @@ fun DashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         if (state.connectionState != ConnectionState.CONNECTED) {
-            // Pas de formulaire IP/port ni de bouton Connecter ici : la connexion est
-            // entièrement automatique (voir ObdViewModel.startAutoReconnectLoop), retentée
+            // Pas de formulaire IP/port ni de liste d'appareils Bluetooth ici : la connexion
+            // est entièrement automatique (voir ObdViewModel.startAutoReconnectLoop), retentée
             // toute seule tant qu'elle échoue (sonde injoignable avant que le contact soit
-            // mis, par exemple). Changer d'adresse, de transport ou d'appareil Bluetooth se
-            // fait depuis Réglages (icône engrenage), pas depuis cet écran.
+            // mis, par exemple). Changer l'adresse ou l'appareil Bluetooth précis se fait
+            // depuis Réglages (icône engrenage), pas depuis cet écran.
+            //
+            // Le choix Wi-Fi/Bluetooth lui-même, si : visible dès le premier lancement plutôt
+            // que caché derrière l'icône Réglages, pour qu'un nouvel utilisateur comprenne
+            // tout de suite qu'il doit choisir son transport (demande explicite). Réglages
+            // n'affiche plus que les détails du transport déjà choisi ici.
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ModeButton(
+                    "Wi-Fi",
+                    selected = state.connectionMode == ConnectionMode.WIFI,
+                    onClick = { onModeChange(ConnectionMode.WIFI) },
+                    modifier = Modifier.weight(1f)
+                )
+                ModeButton(
+                    "Bluetooth",
+                    selected = state.connectionMode == ConnectionMode.BLUETOOTH,
+                    onClick = { onModeChange(ConnectionMode.BLUETOOTH) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
             when (state.connectionState) {
                 ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> {
                     // Un seul texte pour les deux : "Reconnexion" présumait à tort qu'une
@@ -209,6 +231,16 @@ fun DashboardScreen(
                 )
             }
         }
+    }
+}
+
+/** Bouton plein si sélectionné, contour sinon : matérialise le choix Wi-Fi/Bluetooth sans dépendre d'un composant à sélection segmentée expérimental pour deux options seulement. */
+@Composable
+private fun ModeButton(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    if (selected) {
+        Button(onClick = onClick, enabled = enabled, modifier = modifier) { Text(label) }
+    } else {
+        OutlinedButton(onClick = onClick, enabled = enabled, modifier = modifier) { Text(label) }
     }
 }
 

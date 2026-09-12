@@ -42,20 +42,20 @@ fun SettingsScreen(
     onConnectBluetooth: (BluetoothDevice) -> Unit,
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
-    onModeChange: (ConnectionMode) -> Unit,
     onRefreshBluetoothDevices: () -> Unit,
     onSetBigGaugePid: (pid: Int, selected: Boolean) -> Unit,
     onShareLog: (String) -> Unit,
     onDeleteLog: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // RECONNECTING inclus, pas seulement CONNECTING : attemptAutoConnect marque
-    // isAutoRetry=true dès le tout premier essai (voir ObdViewModel), donc l'app bascule
-    // entre les deux toutes les 5s tant que la connexion n'a jamais abouti. Avec CONNECTING
-    // seul, ces boutons/champs s'activaient et se désactivaient au même rythme (constaté :
-    // clignotement du choix Wi-Fi/Bluetooth pendant l'attente).
-    val connecting = state.connectionState == ConnectionState.CONNECTING ||
-        state.connectionState == ConnectionState.RECONNECTING
+    // Purement informatif sur le bouton Wi-Fi (texte "Connexion..."), plus jamais utilisé
+    // pour désactiver quoi que ce soit ici (voir plus bas) : verrouiller Wi-Fi/Bluetooth,
+    // IP/port ou la liste Bluetooth pendant que l'auto-connexion tourne empêchait de
+    // corriger un mauvais réglage (mode ou adresse) précisément quand c'est le plus
+    // nécessaire, tant qu'elle échoue en boucle sur l'ancien. connect()/connectBluetooth()
+    // annulent déjà proprement toute tentative en cours avant d'en relancer une (voir
+    // connectJob?.cancel()) : rien n'empêchait ces contrôles de rester actifs.
+    val connectingNow = state.connectionState == ConnectionState.CONNECTING
 
     Column(
         modifier = modifier
@@ -71,44 +71,27 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ModeButton(
-                "Wi-Fi",
-                selected = state.connectionMode == ConnectionMode.WIFI,
-                enabled = !connecting,
-                onClick = { onModeChange(ConnectionMode.WIFI) },
-                modifier = Modifier.weight(1f)
-            )
-            ModeButton(
-                "Bluetooth",
-                selected = state.connectionMode == ConnectionMode.BLUETOOTH,
-                enabled = !connecting,
-                onClick = { onModeChange(ConnectionMode.BLUETOOTH) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-
+        // Le choix Wi-Fi/Bluetooth lui-même vit sur Dashboard (voir DashboardScreen.ModeButton),
+        // visible dès le premier lancement plutôt que caché derrière l'icône Réglages : ici,
+        // seuls les détails du transport DÉJÀ choisi (adresse/port, ou appareil Bluetooth).
         if (state.connectionMode == ConnectionMode.WIFI) {
             OutlinedTextField(
                 value = state.host,
                 onValueChange = onHostChange,
                 label = { Text(stringResource(R.string.settings_wifi_host_label)) },
-                enabled = !connecting,
                 modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
                 value = state.port,
                 onValueChange = onPortChange,
                 label = { Text(stringResource(R.string.settings_wifi_port_label)) },
-                enabled = !connecting,
                 modifier = Modifier.fillMaxWidth()
             )
             Button(
                 onClick = { onConnect(state.host, state.port) },
-                enabled = !connecting,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(stringResource(if (connecting) R.string.settings_wifi_connecting else R.string.settings_wifi_connect_now))
+                Text(stringResource(if (connectingNow) R.string.settings_wifi_connecting else R.string.settings_wifi_connect_now))
             }
         } else {
             LaunchedEffect(state.connectionMode) { onRefreshBluetoothDevices() }
@@ -119,7 +102,6 @@ fun SettingsScreen(
             )
             OutlinedButton(
                 onClick = onRefreshBluetoothDevices,
-                enabled = !connecting,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(stringResource(R.string.settings_bluetooth_refresh_button))
@@ -134,7 +116,7 @@ fun SettingsScreen(
                 for (device in state.bondedBluetoothDevices) {
                     BluetoothDeviceRow(
                         device = device,
-                        enabled = !connecting,
+                        enabled = true,
                         onClick = { onConnectBluetooth(device) }
                     )
                 }
@@ -200,16 +182,6 @@ fun SettingsScreen(
                 )
             }
         }
-    }
-}
-
-/** Bouton plein si sélectionné, contour sinon : matérialise le choix Wi-Fi/Bluetooth sans dépendre d'un composant à sélection segmentée expérimental pour deux options seulement. */
-@Composable
-private fun ModeButton(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    if (selected) {
-        Button(onClick = onClick, enabled = enabled, modifier = modifier) { Text(label) }
-    } else {
-        OutlinedButton(onClick = onClick, enabled = enabled, modifier = modifier) { Text(label) }
     }
 }
 

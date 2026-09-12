@@ -41,7 +41,7 @@
 
     <!-- SettingsScreen -->
     <string name="settings_title">Réglages de connexion</string>
-    <string name="settings_intro">La connexion se fait automatiquement au lancement et se retente seule tant qu\'elle échoue. Change ici l\'adresse, le transport ou l\'appareil Bluetooth visés.</string>
+    <string name="settings_intro">La connexion se fait automatiquement au lancement et se retente seule tant qu\'elle échoue. Change ici l\'adresse ou l\'appareil Bluetooth visés (le transport Wi-Fi/Bluetooth se choisit depuis le Dashboard).</string>
     <string name="settings_wifi_host_label">IP de la sonde</string>
     <string name="settings_wifi_port_label">Port</string>
     <string name="settings_wifi_connecting">Connexion...</string>

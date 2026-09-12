@@ -238,7 +238,6 @@ class MainActivity : ComponentActivity() {
                                 onConnectBluetooth = { device -> viewModel.connectBluetooth(device) },
                                 onHostChange = { viewModel.updateHost(it) },
                                 onPortChange = { viewModel.updatePort(it) },
-                                onModeChange = { viewModel.setConnectionMode(it) },
                                 onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
                                 onSetBigGaugePid = { pid, selected -> viewModel.setBigGaugePidSelected(pid, selected) },
                                 onShareLog = { path -> shareCsvFile(path, R.string.share_log_title, mimeType = "text/plain") },
@@ -251,6 +250,7 @@ class MainActivity : ComponentActivity() {
                             Screen.DASHBOARD -> DashboardScreen(
                                 state = state,
                                 onDisconnect = { viewModel.disconnect() },
+                                onModeChange = { viewModel.setConnectionMode(it) },
                                 onToggleRecording = {
                                     if (state.isRecording) {
                                         viewModel.stopRecording()
