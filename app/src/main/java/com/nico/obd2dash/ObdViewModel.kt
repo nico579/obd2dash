@@ -834,6 +834,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // ET pendant une pause diagnostique légitime (refresh DTC, sondage FAP : ça peut
             // durer plusieurs secondes sans qu'aucun PID ne soit lu, ce n'est pas une panne).
             var lastSuccessAtMs = System.currentTimeMillis()
+            // 0 (pas System.currentTimeMillis()) : un premier releve MIL arrive des le
+            // premier cycle eligible plutot que d'attendre un plein MIL_CHECK_INTERVAL_MS,
+            // pour qu'un enregistrement court (smoke test, trajet bref) ait quand meme une
+            // colonne MIL renseignee des le debut (voir capturer les defauts pendant
+            // l'enregistrement, ci-dessous).
+            var lastMilCheckAtMs = 0L
             while (c.isConnected) {
                 if (dtcOperationInProgress) {
                     lastSuccessAtMs = System.currentTimeMillis()
@@ -884,6 +890,55 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         } else if (System.currentTimeMillis() - lastSuccessAtMs > ZOMBIE_CONNECTION_TIMEOUT_MS) {
                             handleConnectionLost(c, "Plus aucune réponse de la sonde depuis ${ZOMBIE_CONNECTION_TIMEOUT_MS / 1000}s")
                             return@launch
+                        }
+
+                        // Surveillance MIL en arrière-plan, à un rythme bien plus lent que le
+                        // reste du cycle (voir MIL_CHECK_INTERVAL_MS) : sert à capturer un
+                        // nouveau défaut PENDANT un enregistrement en cours au lieu de dépendre
+                        // de l'utilisateur pour aller manuellement sur l'écran DTC (le CSV
+                        // n'avait jusqu'ici aucune colonne reflétant l'état du voyant). Revérifié
+                        // comme les PID ci-dessus : dtcOperationInProgress a pu devenir vrai
+                        // entre le début du cycle et ce point.
+                        if (!dtcOperationInProgress &&
+                            System.currentTimeMillis() - lastMilCheckAtMs > MIL_CHECK_INTERVAL_MS
+                        ) {
+                            lastMilCheckAtMs = System.currentTimeMillis()
+                            try {
+                                val (mil, count) = c.readMilStatus()
+                                if (_state.value.milOn != true && mil) {
+                                    // Transition éteint/non lu -> allumé : va chercher les codes
+                                    // réels (readStoredDtcs, "03"), pas seulement ce compteur.
+                                    // Volontairement PAS aussi complet qu'un refreshDtcs() (pas
+                                    // de pending/readiness/freeze frame ici) : le but est
+                                    // d'identifier VITE ce qui vient d'apparaître pendant le
+                                    // trajet, pas de reproduire l'écran DTC en arrière-plan.
+                                    val stored = c.readStoredDtcs()
+                                    val history = historyStore.record(vehicleId, stored)
+                                    EventLog.log(
+                                        "Voyant moteur (MIL) allumé pendant le trajet : " +
+                                            stored.joinToString(", ").ifEmpty { "$count code(s) annoncé(s), détail illisible" }
+                                    )
+                                    _state.update {
+                                        it.copy(
+                                            milOn = mil,
+                                            dtcCount = count,
+                                            storedDtcs = stored,
+                                            dtcHistory = history,
+                                            dtcLastSuccessAtMs = System.currentTimeMillis()
+                                        )
+                                    }
+                                } else {
+                                    _state.update { it.copy(milOn = mil, dtcCount = count) }
+                                }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                // Ratée ponctuelle traitée comme n'importe quel PID de toPoll
+                                // ci-dessus (voir newValues) : un échec de decode/timeout isolé
+                                // sur cette seule vérification ne doit pas faire perdre toute la
+                                // session. Une vraie coupure sera de toute façon détectée par la
+                                // lecture normale des PID ou le filet anti-zombie plus haut.
+                            }
                         }
                     } catch (e: CancellationException) {
                         throw e
@@ -1363,7 +1418,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
         try {
             writeSessionMetadata(writer)
-            writer.write(csvRow(listOf("Horodatage", "État") + columns.map { it.label }))
+            writer.write(csvRow(listOf("Horodatage", "État", "MIL", "Codes stockés") + columns.map { it.label }))
             writer.newLine()
             writer.flush()
         } catch (e: Exception) {
@@ -1446,7 +1501,26 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     freshDynamicCount < dynamicColumns.size -> "partiel"
                     else -> "ok"
                 }
-                val row = listOf(timestampFormat.format(Date()), etat) + cells
+                // MIL/codes stockés : alimentés en arrière-plan par la "Surveillance MIL" de
+                // startPolling, pas par une commande envoyée ici (voir MIL_CHECK_INTERVAL_MS).
+                // "non lu" tant qu'aucune vérification n'a encore eu lieu (ex: tout début d'un
+                // enregistrement très court) : distinct d'un MIL éteint confirmé, pour ne pas
+                // laisser croire à une lecture qui n'a pas eu lieu.
+                val milText = when (snapshot.milOn) {
+                    true -> "allumé"
+                    false -> "éteint"
+                    null -> "non lu"
+                }
+                // Les codes réels (storedDtcs) ne sont récupérés qu'à la transition MIL éteint
+                // -> allumé ou via un refresh manuel de l'écran DTC (voir startPolling) : entre
+                // les deux, seul le compteur brut de PID01 est disponible, affiché comme repli
+                // plutôt que de laisser la colonne vide alors qu'un chiffre est bien connu.
+                val dtcText = when {
+                    snapshot.storedDtcs != null -> snapshot.storedDtcs.joinToString(" ").ifEmpty { "aucun" }
+                    snapshot.dtcCount != null -> "${snapshot.dtcCount} annoncé(s), détail non lu"
+                    else -> ""
+                }
+                val row = listOf(timestampFormat.format(Date()), etat, milText, dtcText) + cells
                 val written = withContext(Dispatchers.IO) {
                     runCatching {
                         recordingWriter?.write(csvRow(row))
@@ -1794,6 +1868,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // ~600 o/échantillon (~40 colonnes max) : à 5s, une session de 2h fait autour de
         // 850 Ko. Assez fin pour une analyse de tendance, sans accumuler des Mo inutiles.
         private const val RECORDING_INTERVAL_MS = 5_000L
+        // Bien plus lent que RECORDING_INTERVAL_MS : le MIL/nombre de codes stockés ne
+        // change pas d'une seconde à l'autre comme le régime ou la vitesse, une commande
+        // PID01 de plus à chaque cycle rapide serait un coût réseau inutile pour une
+        // surveillance qui reste utile même vérifiée toutes les 30s (voir la colonne MIL
+        // du CSV, ObdViewModel.startPolling/resumeRecordingLoop).
+        private const val MIL_CHECK_INTERVAL_MS = 30_000L
         // 5 cycles : le délai entre deux cycles n'est QUE le delay(300) ci-dessus, pas le
         // temps du cycle complet (voir audit) : chaque PID lu dans ce cycle ajoute son
         // propre aller-retour réseau, largement variable selon la sonde/le transport. Reste
