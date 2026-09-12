@@ -76,22 +76,30 @@ fun GraphScreen(
     ) {
         Text(stringResource(R.string.graph_title), style = MaterialTheme.typography.headlineSmall)
 
-        // RECONNECTING inclus, pas seulement CONNECTED : une coupure transitoire ne doit
-        // pas effacer la courbe déjà tracée ni forcer à recommencer (voir
-        // ObdViewModel.handleConnectionLost, "le stop doit être manuel"). graphPid/
-        // graphHistory/supportedPids survivent à une coupure par design (.copy()), la
-        // courbe continue donc de s'afficher, en pause, jusqu'à la reprise du polling.
-        if (state.connectionState != ConnectionState.CONNECTED && state.connectionState != ConnectionState.RECONNECTING) {
+        // CONTEXT_ONLY_PIDS (PID4F/PID50) exclus : jamais repollés après la connexion (voir
+        // ObdViewModel.startPolling), leur sélection ici restait bloquée sur "Collecte des
+        // données..." pour toujours, un seul point ne suffisant jamais à tracer une courbe
+        // (voir audit B5, P3 associé).
+        val options = PidCatalog.defs.filter { it.pid in state.supportedPids && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
+
+        // Basé sur "y a-t-il un paramètre à proposer", pas directement sur connectionState :
+        // pendant la phase de connexion (CONNECTING/RECONNECTING avant tout premier succès,
+        // ou entre deux tentatives auto), supportedPids est vide, donc options aussi, et le
+        // picker n'aurait rien à proposer. Avec l'ancienne condition (!= CONNECTED &&
+        // != RECONNECTING), CONNECTING affichait ce message mais RECONNECTING affichait déjà
+        // le picker (vide) juste en dessous : les deux se succèdent toutes les ~5s tant que
+        // la connexion n'a jamais abouti, d'où le battement constaté. RECONNECTING inclus, pas
+        // seulement CONNECTED, une fois options non vide : une coupure transitoire APRÈS une
+        // connexion réussie ne doit pas effacer la courbe déjà tracée ni forcer à recommencer
+        // (voir ObdViewModel.handleConnectionLost, "le stop doit être manuel") - graphPid/
+        // graphHistory/supportedPids survivent tous les trois à une telle coupure (.copy()),
+        // la courbe continue donc de s'afficher, en pause, jusqu'à la reprise du polling.
+        if (options.isEmpty()) {
             Text(
                 stringResource(R.string.graph_not_connected),
                 style = MaterialTheme.typography.bodyMedium
             )
         } else {
-            // CONTEXT_ONLY_PIDS (PID4F/PID50) exclus : jamais repollés après la connexion
-            // (voir ObdViewModel.startPolling), leur sélection ici restait bloquée sur
-            // "Collecte des données..." pour toujours, un seul point ne suffisant jamais à
-            // tracer une courbe (voir audit B5, P3 associé).
-            val options = PidCatalog.defs.filter { it.pid in state.supportedPids && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
             val selectedDef = options.firstOrNull { it.pid == state.graphPid }
 
             PidPicker(

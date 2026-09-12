@@ -191,27 +191,40 @@ class MainActivity : ComponentActivity() {
                                     icon = { Icon(Icons.Filled.Home, contentDescription = null) },
                                     label = { Text(stringResource(R.string.nav_dashboard)) }
                                 )
+                                // DTC/Sondage/Graphique/Smoke test verrouillés tant que CONNECTED
+                                // n'est pas atteint (demande explicite) : seul Dashboard reste
+                                // accessible pendant l'attente initiale ou une reconnexion, ces
+                                // écrans n'ont rien d'exploitable à montrer avant une connexion
+                                // réussie (supportedPids vide, aucune donnée véhicule). Ne force
+                                // pas la navigation si on y est déjà et que la connexion tombe en
+                                // cours de route (RECONNECTING) : seul le résultat d'un NOUVEAU
+                                // tap est bloqué, l'écran déjà affiché gère lui-même ce cas.
+                                val connected = state.connectionState == ConnectionState.CONNECTED
                                 NavigationBarItem(
                                     selected = screen == Screen.DTC,
                                     onClick = { screen = Screen.DTC; showSettings = false },
+                                    enabled = connected,
                                     icon = { Icon(Icons.Filled.Warning, contentDescription = null) },
                                     label = { Text(stringResource(R.string.nav_dtc)) }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.PROBE,
                                     onClick = { screen = Screen.PROBE; showSettings = false },
+                                    enabled = connected,
                                     icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                                     label = { Text(stringResource(R.string.nav_probe)) }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.GRAPH,
                                     onClick = { screen = Screen.GRAPH; showSettings = false },
+                                    enabled = connected,
                                     icon = { Icon(painterResource(R.drawable.ic_chart), contentDescription = null) },
                                     label = { Text(stringResource(R.string.nav_graph)) }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.AUTO_TEST,
                                     onClick = { screen = Screen.AUTO_TEST; showSettings = false },
+                                    enabled = connected,
                                     icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
                                     label = { Text(stringResource(R.string.nav_smoke_test)) }
                                 )

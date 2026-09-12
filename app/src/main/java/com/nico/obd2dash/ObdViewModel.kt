@@ -669,6 +669,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * avait été commencé, pas l'effacer (voir handleConnectionLost, "le stop doit être
      * manuel"). Le seul vrai arrêt reste stopRecording()/disconnect(), jamais une tentative
      * de connexion qui démarre.
+     *
+     * supportedPids fait partie de ce deuxième groupe (pas une remise à zéro comme VIN/DTC) :
+     * un oubli laissait GraphScreen sans aucun paramètre à proposer pendant CHAQUE nouvelle
+     * tentative de reconnexion (cette fonction tournant à chaque essai, pas seulement le
+     * premier), y compris juste après une coupure réelle en cours de route où la liste
+     * précédente restait pourtant valable pour le même véhicule.
      */
     private fun beginConnecting(mode: ConnectionMode, bluetoothName: String? = null) {
         _state.update {
@@ -685,6 +691,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 recordingSamples = it.recordingSamples,
                 graphPid = it.graphPid,
                 graphHistory = it.graphHistory,
+                supportedPids = it.supportedPids,
                 connectionState = ConnectionState.CONNECTING
             )
         }
