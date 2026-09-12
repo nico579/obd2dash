@@ -41,6 +41,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -67,6 +68,8 @@ import com.nico.obd2dash.ui.GraphScreen
 import com.nico.obd2dash.ui.Obd2DashTheme
 import com.nico.obd2dash.ui.ProbeScreen
 import com.nico.obd2dash.ui.SettingsScreen
+import com.nico.obd2dash.ui.navBarContainerColor
+import com.nico.obd2dash.ui.topBarContainerColor
 import java.io.File
 
 private enum class Screen { DASHBOARD, DTC, PROBE, GRAPH, AUTO_TEST }
@@ -172,6 +175,7 @@ class MainActivity : ComponentActivity() {
                         containerColor = Color.Transparent,
                         topBar = {
                             TopAppBar(
+                                colors = TopAppBarDefaults.topAppBarColors(containerColor = topBarContainerColor()),
                                 title = {
                                     Text(stringResource(if (showSettings) R.string.topbar_title_settings else R.string.app_name))
                                 },
@@ -197,7 +201,7 @@ class MainActivity : ComponentActivity() {
                             // sans ça, screen changeait bien en interne mais l'écran affiché
                             // restait Réglages (priorité du "if (showSettings)" ci-dessous),
                             // jusqu'à ce que la flèche de retour soit pressée séparément.
-                            NavigationBar {
+                            NavigationBar(containerColor = navBarContainerColor()) {
                                 NavigationBarItem(
                                     selected = screen == Screen.DASHBOARD,
                                     onClick = { screen = Screen.DASHBOARD; showSettings = false },
