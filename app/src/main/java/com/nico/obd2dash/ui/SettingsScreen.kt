@@ -49,7 +49,13 @@ fun SettingsScreen(
     onDeleteLog: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val connecting = state.connectionState == ConnectionState.CONNECTING
+    // RECONNECTING inclus, pas seulement CONNECTING : attemptAutoConnect marque
+    // isAutoRetry=true dès le tout premier essai (voir ObdViewModel), donc l'app bascule
+    // entre les deux toutes les 5s tant que la connexion n'a jamais abouti. Avec CONNECTING
+    // seul, ces boutons/champs s'activaient et se désactivaient au même rythme (constaté :
+    // clignotement du choix Wi-Fi/Bluetooth pendant l'attente).
+    val connecting = state.connectionState == ConnectionState.CONNECTING ||
+        state.connectionState == ConnectionState.RECONNECTING
 
     Column(
         modifier = modifier
