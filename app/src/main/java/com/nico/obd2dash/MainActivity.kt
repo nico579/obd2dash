@@ -116,7 +116,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             Obd2DashTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
+                // contentColor explicite : Surface déduit normalement la couleur de texte par
+                // défaut à partir de sa propre couleur de fond (contentColorFor), mais
+                // Color.Transparent (nécessaire ici pour laisser voir le dégradé du thème,
+                // voir Obd2DashTheme) ne correspond à aucun rôle connu de cette déduction,
+                // d'où un texte presque invisible constaté sur un vrai téléphone (tout Text()
+                // sans couleur explicite héritait d'une valeur par défaut proche du noir).
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                ) {
                     var screen by remember { mutableStateOf(Screen.DASHBOARD) }
                     var showSettings by remember { mutableStateOf(false) }
                     val state by viewModel.state.collectAsState()
