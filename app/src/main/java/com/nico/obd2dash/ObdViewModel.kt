@@ -306,7 +306,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             port = prefs.getString(KEY_PORT, null) ?: "35000",
             connectionMode = savedConnectionMode(),
             bluetoothDeviceName = prefs.getString(KEY_BLUETOOTH_NAME, null),
-            bigGaugePids = loadBigGaugePids()
+            bigGaugePids = loadBigGaugePids(DtcHistoryStore.UNKNOWN_VEHICLE)
         )
     )
     val state: StateFlow<ObdUiState> = _state
@@ -372,8 +372,17 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { ConnectionMode.valueOf(prefs.getString(KEY_CONNECTION_MODE, null) ?: "") }
             .getOrDefault(ConnectionMode.WIFI)
 
-    private fun loadBigGaugePids(): Set<Int> =
-        prefs.getString(KEY_BIG_GAUGE_PIDS, null)
+    // Une clé par véhicule (VIN, ou UNKNOWN_VEHICLE si non lu) plutôt qu'un seul réglage
+    // global : demande explicite (le choix "gros paramètres" a du sens PAR véhicule, un
+    // utilitaire diesel et une citadine essence n'ont pas les mêmes PID pertinents à
+    // surveiller en gros). Même principe que DtcHistoryStore, déjà scindé par vehicleId.
+    private fun bigGaugePidsKey(vehicleId: String) = "$KEY_BIG_GAUGE_PIDS:$vehicleId"
+
+    // Repli sur l'ancienne clé globale (jamais scindée par véhicule avant ce correctif) si
+    // rien n'est encore enregistré pour CE véhicule précis : évite de perdre un réglage
+    // déjà fait par un utilisateur existant simplement parce que la clé a changé de forme.
+    private fun loadBigGaugePids(vehicleId: String): Set<Int> =
+        (prefs.getString(bigGaugePidsKey(vehicleId), null) ?: prefs.getString(KEY_BIG_GAUGE_PIDS, null))
             ?.split(",")
             ?.mapNotNull { it.trim().toIntOrNull() }
             ?.toSet()
@@ -381,7 +390,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Coche/décoche un paramètre pour l'affichage en gros (voir ObdUiState.bigGaugePids),
-     * persisté immédiatement comme host/port. Refuse silencieusement d'ajouter un
+     * persisté immédiatement comme host/port, sous la clé du véhicule CONNECTÉ (voir
+     * vehicleId, mis à jour par finishConnecting()). Refuse silencieusement d'ajouter un
      * septième paramètre plutôt que de dépasser MAX_BIG_GAUGE_PIDS : l'UI (Réglages)
      * désactive déjà les cases non cochées une fois le maximum atteint, ce garde-fou
      * n'est là qu'en repli.
@@ -394,7 +404,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             else -> current
         }
         if (updated == current) return
-        prefs.edit().putString(KEY_BIG_GAUGE_PIDS, updated.joinToString(",")).apply()
+        prefs.edit().putString(bigGaugePidsKey(vehicleId), updated.joinToString(",")).apply()
         _state.update { it.copy(bigGaugePids = updated) }
     }
 
@@ -568,6 +578,46 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     /** Sélection d'écran seulement (voir onModeChange) : ne persiste et n'affecte le transport réel qu'au moment de connect()/connectBluetooth(). */
     fun setConnectionMode(mode: ConnectionMode) {
         _state.update { it.copy(connectionMode = mode) }
+    }
+
+    /**
+     * Change le transport ET tente réellement de s'y connecter, contrairement à
+     * setConnectionMode() ci-dessus : utilisée par le bouton Wi-Fi/Bluetooth du Dashboard
+     * (voir DashboardScreen.ModeButton), qui n'a plus de bouton "Se connecter" séparé juste
+     * après comme dans l'ancien formulaire de Réglages. Sans ceci, taper Bluetooth ne
+     * changeait que l'affichage : la boucle d'auto-reconnexion visait toujours le transport
+     * persisté (Wi-Fi), et son prochain essai (5s) rappelait beginConnecting(WIFI), qui
+     * réécrit connectionMode dans son état reconstruit — l'affichage revenait donc tout
+     * seul sur Wi-Fi (constaté : "je clique sur Bluetooth, ça repasse sur Wi-Fi").
+     *
+     * Bluetooth sans appareil déjà choisi (KEY_BLUETOOTH_ADDRESS absent, ex. tout premier
+     * essai de ce transport) : rien à reconnecter automatiquement, un appareil précis reste
+     * à choisir dans Réglages. Le simple appel à setConnectionMode() ne suffit PAS ici : ça
+     * ne fait que changer l'affichage SANS persister le mode (voir sa propre doc), donc la
+     * boucle d'auto-reconnexion restait calée sur l'ancien transport persisté et l'écrasait
+     * au cycle suivant (5s), reproduisant exactement le même bug que ce correctif visait à
+     * régler (constaté deux fois : sans device connu, ça "repassait sur Wi-Fi" pareil).
+     * Persiste donc explicitement KEY_CONNECTION_MODE ici, et repasse l'état à DISCONNECTED
+     * (pas de tentative en cours pour ce transport tant qu'aucun appareil n'est choisi) :
+     * attemptAutoConnect() lira alors le bon mode, verra qu'aucune adresse n'est encore
+     * connue, et n'attentera simplement rien, sans jamais revenir sur Wi-Fi tout seul.
+     */
+    fun switchConnectionMode(mode: ConnectionMode) {
+        when (mode) {
+            ConnectionMode.WIFI -> connect(_state.value.host, _state.value.port)
+            ConnectionMode.BLUETOOTH -> {
+                val address = prefs.getString(KEY_BLUETOOTH_ADDRESS, null)
+                val device = address?.let { runCatching { bluetoothAdapter()?.getRemoteDevice(it) }.getOrNull() }
+                if (device != null) {
+                    connectBluetooth(device)
+                } else {
+                    userRequestedDisconnect = false
+                    connectJob?.cancel()
+                    prefs.edit().putString(KEY_CONNECTION_MODE, ConnectionMode.BLUETOOTH.name).apply()
+                    _state.update { it.copy(connectionMode = mode, connectionState = ConnectionState.DISCONNECTED) }
+                }
+            }
+        }
     }
 
     /** Change le PID suivi par l'écran Graphique ; repart d'un historique vide (voir GraphPoint). */
@@ -787,6 +837,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     vin = vin,
                     protocol = c.detectedProtocol,
                     dtcHistory = historyStore.load(vehicleId),
+                    bigGaugePids = loadBigGaugePids(vehicleId),
                     values = it.values + contextValues
                 )
             }

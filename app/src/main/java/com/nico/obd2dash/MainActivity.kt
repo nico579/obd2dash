@@ -250,7 +250,7 @@ class MainActivity : ComponentActivity() {
                             Screen.DASHBOARD -> DashboardScreen(
                                 state = state,
                                 onDisconnect = { viewModel.disconnect() },
-                                onModeChange = { viewModel.setConnectionMode(it) },
+                                onModeChange = { viewModel.switchConnectionMode(it) },
                                 onToggleRecording = {
                                     if (state.isRecording) {
                                         viewModel.stopRecording()

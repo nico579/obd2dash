@@ -17,7 +17,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -48,14 +51,29 @@ fun SettingsScreen(
     onDeleteLog: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Purement informatif sur le bouton Wi-Fi (texte "Connexion..."), plus jamais utilisé
-    // pour désactiver quoi que ce soit ici (voir plus bas) : verrouiller Wi-Fi/Bluetooth,
-    // IP/port ou la liste Bluetooth pendant que l'auto-connexion tourne empêchait de
-    // corriger un mauvais réglage (mode ou adresse) précisément quand c'est le plus
-    // nécessaire, tant qu'elle échoue en boucle sur l'ancien. connect()/connectBluetooth()
-    // annulent déjà proprement toute tentative en cours avant d'en relancer une (voir
-    // connectJob?.cancel()) : rien n'empêchait ces contrôles de rester actifs.
-    val connectingNow = state.connectionState == ConnectionState.CONNECTING
+    // Pas de bouton "Se connecter" ici (demande explicite) : le polling/l'auto-connexion
+    // tournent déjà en continu (voir ObdViewModel.startAutoReconnectLoop), donc pas besoin
+    // d'un déclencheur manuel. Les champs IP/port éditent l'état au fil de la frappe (voir
+    // onHostChange/onPortChange) ; c'est en QUITTANT cet écran, pas à chaque caractère, que
+    // la nouvelle adresse est réellement tentée (voir DisposableEffect plus bas) - un connect()
+    // par lettre tapée serait à la fois inutile et perturbant pendant la saisie.
+    //
+    // rememberUpdatedState, pas une simple capture directe de state/onConnect dans onDispose :
+    // DisposableEffect(Unit) n'exécute son bloc qu'une fois (clé Unit stable), donc un
+    // onDispose qui capturerait state/onConnect directement figerait leur toute première
+    // valeur composée, ignorant tout ce qui a été tapé depuis (l'IP éditée juste avant de
+    // sortir serait perdue). rememberUpdatedState garde ces deux références à jour à chaque
+    // recomposition, pour que le onDispose, lu seulement au moment où il se déclenche,
+    // voie bien la dernière valeur.
+    val currentState by rememberUpdatedState(state)
+    val currentOnConnect by rememberUpdatedState(onConnect)
+    DisposableEffect(Unit) {
+        onDispose {
+            if (currentState.connectionMode == ConnectionMode.WIFI) {
+                currentOnConnect(currentState.host, currentState.port)
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -87,12 +105,6 @@ fun SettingsScreen(
                 label = { Text(stringResource(R.string.settings_wifi_port_label)) },
                 modifier = Modifier.fillMaxWidth()
             )
-            Button(
-                onClick = { onConnect(state.host, state.port) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(stringResource(if (connectingNow) R.string.settings_wifi_connecting else R.string.settings_wifi_connect_now))
-            }
         } else {
             LaunchedEffect(state.connectionMode) { onRefreshBluetoothDevices() }
             Text(
@@ -138,28 +150,39 @@ fun SettingsScreen(
         // Menu de configuration, pas un réglage de connexion : le panneau qui en résulte
         // (voir DashboardScreen.primaryDefs) est lui affiché sur le Dashboard, l'écran
         // qu'on garde ouvert en conduisant, pas ici (voir ObdUiState.bigGaugePids).
-        HorizontalDivider()
-        Text(stringResource(R.string.settings_big_gauges_title), style = MaterialTheme.typography.titleMedium)
-        Text(
-            stringResource(R.string.settings_big_gauges_description, state.bigGaugePids.size),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        for (def in PidCatalog.defs) {
-            val checked = def.pid in state.bigGaugePids
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(
-                    checked = checked,
-                    onCheckedChange = { onSetBigGaugePid(def.pid, it) },
-                    // Cases non cochées désactivées une fois le maximum atteint (voir
-                    // ObdViewModel.MAX_BIG_GAUGE_PIDS), plutôt qu'un message d'erreur après
-                    // coup : la limite reste visible avant même d'essayer de la dépasser.
-                    enabled = checked || state.bigGaugePids.size < 6
-                )
-                Text(def.label, style = MaterialTheme.typography.bodyMedium)
+        //
+        // Liste limitée aux PID que LE VÉHICULE CONNECTÉ annonce réellement supporter
+        // (state.supportedPids), pas tout PidCatalog.defs (~50 PID) : proposer de choisir
+        // en gros un paramètre que ce véhicule précis ne renverra jamais n'a pas de sens.
+        // Vide tant que non connecté (rien à annoncer) : section entière masquée plutôt que
+        // montrée avec une liste vide (demande explicite). bigGaugePids restauré par
+        // véhicule à la connexion (voir ObdViewModel.finishConnecting/loadBigGaugePids) :
+        // rebranche automatiquement les coches déjà faites pour CE VIN précis.
+        val availableDefs = PidCatalog.defs.filter { it.pid in state.supportedPids }
+        if (availableDefs.isNotEmpty()) {
+            HorizontalDivider()
+            Text(stringResource(R.string.settings_big_gauges_title), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.settings_big_gauges_description, state.bigGaugePids.size),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            for (def in availableDefs) {
+                val checked = def.pid in state.bigGaugePids
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = checked,
+                        onCheckedChange = { onSetBigGaugePid(def.pid, it) },
+                        // Cases non cochées désactivées une fois le maximum atteint (voir
+                        // ObdViewModel.MAX_BIG_GAUGE_PIDS), plutôt qu'un message d'erreur après
+                        // coup : la limite reste visible avant même d'essayer de la dépasser.
+                        enabled = checked || state.bigGaugePids.size < 6
+                    )
+                    Text(def.label, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
 

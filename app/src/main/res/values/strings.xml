@@ -44,8 +44,6 @@
     <string name="settings_intro">La connexion se fait automatiquement au lancement et se retente seule tant qu\'elle échoue. Change ici l\'adresse ou l\'appareil Bluetooth visés (le transport Wi-Fi/Bluetooth se choisit depuis le Dashboard).</string>
     <string name="settings_wifi_host_label">IP de la sonde</string>
     <string name="settings_wifi_port_label">Port</string>
-    <string name="settings_wifi_connecting">Connexion...</string>
-    <string name="settings_wifi_connect_now">Se connecter maintenant</string>
     <string name="settings_bluetooth_intro">Sélectionne un appareil déjà appairé dans les réglages Bluetooth du téléphone. Non vérifié sur un vrai adaptateur ELM327 Bluetooth (seul du Wi-Fi a été testé à ce jour) : le protocole est identique, mais cette voie de connexion elle-même ne l\'est pas.</string>
     <string name="settings_bluetooth_refresh_button">Actualiser les appareils appairés</string>
     <string name="settings_bluetooth_no_devices">Aucun appareil appairé (ou Bluetooth désactivé, ou permission refusée).</string>
