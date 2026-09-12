@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.Window
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -39,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -114,6 +118,35 @@ class MainActivity : ComponentActivity() {
                     var screen by remember { mutableStateOf(Screen.DASHBOARD) }
                     var showSettings by remember { mutableStateOf(false) }
                     val state by viewModel.state.collectAsState()
+
+                    // Écran maintenu allumé seulement pendant l'usage réel "au volant" : connecté
+                    // ET sur Dashboard ou Graphique (jauges/courbe en train d'être regardées),
+                    // pas sur Réglages/DTC/Sondage/Smoke test, et pas tant que la connexion
+                    // n'est pas établie (inutile de garder l'écran allumé en attente au garage).
+                    // FLAG_KEEP_SCREEN_ON standard Android (voir View.keepScreenOn), pas de
+                    // wake lock ici : contrairement à RecordingService (CPU actif écran éteint),
+                    // le seul besoin est que l'écran ne s'éteigne pas tout seul pendant que
+                    // l'app reste au premier plan.
+                    //
+                    // FLAG_TURN_SCREEN_ON + FLAG_SHOW_WHEN_LOCKED en plus (voir demande
+                    // explicite) : la connexion automatique retente pendant plusieurs
+                    // dizaines de secondes (toutes les 5s) après le contact mis, largement
+                    // de quoi laisser le délai de verrouillage système éteindre l'écran avant
+                    // que la connexion aboutisse. Sans ces deux flags, keepScreenOn seul
+                    // n'aurait rien changé : il empêche l'extinction FUTURE, il ne rallume pas
+                    // un écran déjà éteint. FLAG_SHOW_WHEN_LOCKED affiche le Dashboard par-
+                    // dessus un verrouillage existant SANS le lever (pas FLAG_DISMISS_KEYGUARD) :
+                    // si un code est configuré, il reste actif et se represente dès qu'on
+                    // quitte cet écran, comme un réveil ou un lecteur vidéo au-dessus du
+                    // verrouillage, pas un contournement permanent.
+                    val view = LocalView.current
+                    val keepAwake = !showSettings &&
+                        state.connectionState == ConnectionState.CONNECTED &&
+                        (screen == Screen.DASHBOARD || screen == Screen.GRAPH)
+                    SideEffect {
+                        view.keepScreenOn = keepAwake
+                        applyWakeOverLockScreenFlags(window, keepAwake)
+                    }
 
                     // Sans ça, le retour système depuis Réglages ferme l'Activity racine
                     // (Android <=11) ou la met en arrière-plan (Android 12+) au lieu de
@@ -261,6 +294,20 @@ class MainActivity : ComponentActivity() {
         }
         startActivity(Intent.createChooser(shareIntent, getString(chooserTitleRes)))
     }
+}
+
+/**
+ * FLAG_TURN_SCREEN_ON/FLAG_SHOW_WHEN_LOCKED plutôt que Activity.setTurnScreenOn()/
+ * setShowWhenLocked() (API 27+, plus récentes) : minSdk de ce projet est 26, ces deux
+ * flags restent la seule API qui couvre tout l'intervalle supporté. Dépréciées, pas
+ * supprimées : toujours documentées et fonctionnelles, la dépréciation ne fait
+ * qu'indiquer l'existence de l'alternative plus récente.
+ */
+@Suppress("DEPRECATION")
+private fun applyWakeOverLockScreenFlags(window: Window, active: Boolean) {
+    val flags = WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+    if (active) window.addFlags(flags) else window.clearFlags(flags)
 }
 
 /**
