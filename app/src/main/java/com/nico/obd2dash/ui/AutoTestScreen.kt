@@ -74,12 +74,16 @@ fun AutoTestScreen(
                     Text(if (state.autoTestChecks.isEmpty()) "Lancer le smoke test" else "Relancer le smoke test")
                 }
             }
+        }
 
-            if (state.autoTestChecks.isNotEmpty()) {
-                HorizontalDivider()
-                for (check in state.autoTestChecks) {
-                    AutoTestRow(check)
-                }
+        // Résultat du dernier smoke test : déplacé hors du bloc CONNECTED (voir audit,
+        // "Résultats d'outils") : une reconnexion qui suit immédiatement l'étape
+        // d'enregistrement ne doit pas faire disparaître les statuts déjà obtenus, seul le
+        // contrôle pour en lancer un NOUVEAU exige une connexion active.
+        if (state.autoTestChecks.isNotEmpty()) {
+            HorizontalDivider()
+            for (check in state.autoTestChecks) {
+                AutoTestRow(check)
             }
         }
     }

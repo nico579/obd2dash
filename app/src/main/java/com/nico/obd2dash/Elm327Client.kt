@@ -6,6 +6,9 @@ import android.net.Network
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -80,8 +83,29 @@ class Elm327Client(private val target: ConnectionTarget) {
                     // UUID standard du profil Bluetooth SPP (Serial Port Profile), le même
                     // pour tout adaptateur ELM327 Bluetooth : ce n'est pas propre à un appareil.
                     val sock = t.device.createRfcommSocketToServiceRecord(SPP_UUID)
-                    sock.connect()
+                    // Publié AVANT connect() (voir audit B8) : connect() est un appel Java
+                    // bloquant, pas un point de suspension Kotlin, donc annuler cette
+                    // coroutine pendant qu'il tourne ne l'interrompt pas tout seul. Sans
+                    // publier ce socket ici, rien ne pourrait le fermer pendant qu'il est
+                    // encore en train de se connecter. BluetoothSocket.close() depuis un
+                    // autre thread interrompt bien une connexion en cours (voir la doc
+                    // Android citée ci-dessous), ce qui rend l'échéance ci-dessous réellement
+                    // effective plutôt que cosmétique (un withTimeout seul autour de
+                    // sock.connect() ne ferait qu'annuler la coroutine sans jamais débloquer
+                    // cet appel Java, l'adaptateur resterait "en cours de connexion" jusqu'à
+                    // ce qu'il réponde de lui-même, potentiellement jamais).
                     bluetoothSocket = sock
+                    coroutineScope {
+                        val watchdog = launch {
+                            delay(BLUETOOTH_CONNECT_TIMEOUT_MS)
+                            runCatching { sock.close() }
+                        }
+                        try {
+                            sock.connect()
+                        } finally {
+                            watchdog.cancel()
+                        }
+                    }
                     out = sock.outputStream
                     reader = BufferedReader(InputStreamReader(sock.inputStream))
                 } catch (e: SecurityException) {
@@ -133,11 +157,12 @@ class Elm327Client(private val target: ConnectionTarget) {
     }
 
     fun disconnect() {
-        // Fermer le socket EN PREMIER interrompt immédiatement une lecture bloquée
-        // (reader.close() attend le même verrou interne que r.read(), donc le fermer
-        // avant le socket pouvait bloquer l'appelant jusqu'au timeout de lecture). Vrai
-        // pour Socket ; BluetoothSocket n'a pas la même garantie documentée (voir le
-        // commentaire de classe), fermé en premier ici par cohérence malgré tout.
+        // Fermer le socket EN PREMIER interrompt immédiatement une lecture ou une connexion
+        // bloquée (reader.close() attend le même verrou interne que r.read(), donc le
+        // fermer avant le socket pouvait bloquer l'appelant jusqu'au timeout de lecture).
+        // Vrai aussi pour BluetoothSocket : sa documentation garantit qu'un close() depuis
+        // un autre thread interrompt une opération bloquante en cours (connect() ou read(),
+        // voir audit B8) : un commentaire antérieur affirmait ici à tort le contraire.
         runCatching { socket?.close() }
         runCatching { bluetoothSocket?.close() }
         runCatching { reader?.close() }
@@ -149,14 +174,20 @@ class Elm327Client(private val target: ConnectionTarget) {
     val isConnected: Boolean
         get() = when (target) {
             is ConnectionTarget.Wifi -> socket?.isConnected == true
-            // BluetoothSocket n'expose pas d'état "connecté" queryable (contrairement à
-            // Socket.isConnected) : sa présence après connect() réussi en tient lieu, ne
-            // devient false qu'après un disconnect() explicite de notre côté.
-            is ConnectionTarget.Bluetooth -> bluetoothSocket != null
+            // BluetoothSocket.isConnected() existe depuis l'API 14, bien en dessous du
+            // minSdk de ce projet (voir audit B8) : un commentaire antérieur affirmait à
+            // tort son absence et se rabattait sur la seule présence de la référence, qui
+            // restait vraie même après une déconnexion silencieuse côté adaptateur.
+            is ConnectionTarget.Bluetooth -> runCatching { bluetoothSocket?.isConnected }.getOrNull() == true
         }
 
     companion object {
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+        // BluetoothSocket.connect() ne prend pas de délai en paramètre (contrairement à
+        // Socket.connect(SocketAddress, timeout) côté Wi-Fi) : sans cette échéance, un
+        // adaptateur qui ne répond jamais à la demande de connexion RFCOMM bloquerait ce
+        // thread indéfiniment (voir audit B8).
+        private const val BLUETOOTH_CONNECT_TIMEOUT_MS = 10_000L
     }
 
     /** Envoie une commande brute et retourne la réponse (sans le '>' final). */
@@ -503,15 +534,24 @@ class Elm327Client(private val target: ConnectionTarget) {
      * Freeze frame (mode 02) : conditions capturées par le calculateur au moment où le
      * DTC s'est déclenché. Contrairement au mode 01, la réponse commence par un octet
      * d'écho du numéro de trame avant la donnée réelle (trouvaille de la session de scan).
+     *
+     * Le numéro de trame fait partie du préfixe attendu, pas seulement service+PID (voir
+     * audit B6) : sans lui, une réponse à une AUTRE capture (même service, même PID,
+     * numéro de trame différent) passait le filtre de reassembleHex/parseHexPayload et son
+     * premier octet était supprimé sans jamais être comparé à celui demandé. Preuve : requête
+     * 020C00, réponse 420C011AF8 (trame 01) acceptée comme si elle répondait à la trame 00
+     * demandée, décodée 1726 tr/min au lieu des 3000 tr/min réels de la trame 00
+     * (420C002EE0). Inclure le numéro de trame dans le préfixe fait à la fois la sélection
+     * ET la vérification en un seul endroit, avec le même mécanisme déjà utilisé pour
+     * service+PID ailleurs dans ce fichier.
      */
     suspend fun readFreezeFrameBytes(pid: Int, frame: Int = 0): List<Int>? {
         val pidHex = "%02X".format(pid)
         val frameHex = "%02X".format(frame)
-        val expectedPrefix = "42$pidHex"
+        val expectedPrefix = "42$pidHex$frameHex"
         val response = sendRaw("02$pidHex$frameHex")
         val hexstr = reassembleHex(response, expectedPrefix)
-        val bytes = parseHexPayload(hexstr, expectedPrefix) ?: return null
-        return bytes.drop(1).ifEmpty { null } // 1er octet = écho du numéro de trame, pas la donnée
+        return parseHexPayload(hexstr, expectedPrefix)
     }
 
     /**
@@ -558,9 +598,17 @@ class Elm327Client(private val target: ConnectionTarget) {
      * peut se mélanger avec un autre puisque les headers restent désactivés (ATH0, voir
      * reassembleHex). Toujours suivi de [resetTargetHeader] par l'appelant, même en cas
      * d'erreur ou d'annulation (voir ObdViewModel.startFapScan).
+     *
+     * Vérifie la réponse plutôt que de l'ignorer (voir audit B7) : l'ELM327 répond "?"
+     * quand la commande est refusée (forme incorrecte pour ce contexte, voir ELM327DS.pdf
+     * p. 8-9), auquel cas le sondage continuerait en croyant une adresse ciblée qui n'a
+     * jamais été appliquée.
      */
     suspend fun setTargetHeader(header: String) {
-        sendRaw("ATSH$header")
+        val response = sendRaw("ATSH$header").trim().uppercase()
+        if (response != "OK") {
+            throw IOException("ATSH$header refusé par l'adaptateur : ${response.ifBlank { "(vide)" }}")
+        }
     }
 
     /** Revient à la diffusion fonctionnelle standard 11 bits (7DF) après [setTargetHeader]. */

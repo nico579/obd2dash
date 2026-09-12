@@ -19,7 +19,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,6 +38,8 @@ import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.GraphPoint
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
+import com.nico.obd2dash.VALUE_UNAVAILABLE_AFTER_MS
+import kotlinx.coroutines.delay
 
 /**
  * Courbe en direct d'un paramètre choisi (voir ObdViewModel.selectGraphPid/GraphPoint).
@@ -49,6 +53,17 @@ fun GraphScreen(
     onSelectPid: (Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Même ticker que DashboardScreen (voir staleness) : sans lui, "Actuel" resterait figé
+    // sur la valeur du dernier recomposition déclenché par autre chose que le temps, au
+    // lieu de retomber sur "--" une fois VALUE_UNAVAILABLE_AFTER_MS dépassé (voir audit B5).
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(500)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -69,7 +84,11 @@ fun GraphScreen(
                 style = MaterialTheme.typography.bodyMedium
             )
         } else {
-            val options = PidCatalog.defs.filter { it.pid in state.supportedPids }
+            // CONTEXT_ONLY_PIDS (PID4F/PID50) exclus : jamais repollés après la connexion
+            // (voir ObdViewModel.startPolling), leur sélection ici restait bloquée sur
+            // "Collecte des données..." pour toujours, un seul point ne suffisant jamais à
+            // tracer une courbe (voir audit B5, P3 associé).
+            val options = PidCatalog.defs.filter { it.pid in state.supportedPids && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
             val selectedDef = options.firstOrNull { it.pid == state.graphPid }
 
             PidPicker(
@@ -103,10 +122,12 @@ fun GraphScreen(
                             .fillMaxWidth()
                             .height(220.dp)
                     )
-                    Text(
-                        "Actuel : ${state.values[selectedDef.pid]?.text ?: "--"}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    // Même seuil de péremption que les jauges du Dashboard (voir B5) : sans
+                    // lui, une valeur figée depuis une coupure ou une pause diagnostique
+                    // s'affichait "Actuel" indéfiniment, alors que le Dashboard masquait déjà
+                    // cette même valeur après VALUE_UNAVAILABLE_AFTER_MS.
+                    val (text, _) = staleness(state.values[selectedDef.pid], nowMs)
+                    Text("Actuel : $text", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -166,7 +187,12 @@ private fun LineChart(points: List<GraphPoint>, modifier: Modifier = Modifier) {
                 val x = (point.atMs - minTime).toFloat() / timeRange.toFloat() * size.width
                 val yFraction = ((point.value - minValue) / valueRange).toFloat()
                 val y = size.height - yFraction * size.height
-                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                // Une coupure réelle (perte réseau, pause diagnostique prolongée) ne doit
+                // pas se lire comme une transition continue entre deux valeurs sans rapport
+                // (voir audit B5) : on relève le crayon plutôt que relier deux points de
+                // part et d'autre d'un trou. Même seuil que la péremption des jauges.
+                val gapBeforeThis = index > 0 && point.atMs - points[index - 1].atMs > VALUE_UNAVAILABLE_AFTER_MS
+                if (index == 0 || gapBeforeThis) path.moveTo(x, y) else path.lineTo(x, y)
             }
             drawPath(
                 path,

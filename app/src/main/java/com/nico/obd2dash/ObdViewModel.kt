@@ -119,6 +119,11 @@ data class ObdUiState(
     // polling, aucune commande supplémentaire sur le fil.
     val isRecording: Boolean = false,
     val recordingSamples: Int = 0,
+    // Distinct de errorMessage (réservé à la connexion, affiché uniquement hors CONNECTED
+    // par DashboardScreen) : une erreur d'enregistrement doit rester visible près de son
+    // propre bouton MÊME connecté, sinon elle n'apparaît nulle part sur cet écran (voir
+    // audit B4). Conservée jusqu'au prochain essai (voir startRecording).
+    val recordingError: String? = null,
     // Tous les enregistrements terminés (le disque garde tout, même après une nouvelle
     // session) : sans cette liste, seul le tout dernier fichier resterait accessible pour
     // le partage, les précédents existeraient sur le téléphone sans moyen de les retrouver.
@@ -303,6 +308,16 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     // startFapScan() (stopFapScanAndGetPrevious annule le job actuellement dans dtcJob,
     // soit l'auto-test lui-même si on le lui avait assigné).
     private var autoTestJob: Job? = null
+
+    // true seulement si CE smoke test a lui-même démarré l'enregistrement en cours (voir
+    // B1) : sans ce garde-fou, stopAutoTest() arrêtait n'importe quel enregistrement actif
+    // au moment de son appel, y compris un enregistrement manuel démarré AVANT le test ou
+    // toujours en cours après lui, simplement parce qu'un enregistrement était actif :
+    // stopAutoTest() est aussi appelé par précaution depuis refreshDtcs()/
+    // probeHeaderFormat()/prepareForNewConnection()/handleConnectionLost(), bien avant tout
+    // smoke test réel. Remis à false dès que le test relâche ou n'a jamais pris cette
+    // propriété.
+    private var autoTestOwnsRecording = false
 
     private var probeWriter: BufferedWriter? = null
 
@@ -951,22 +966,22 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun refreshDtcs() {
         val c = client ?: return
-        // Une deuxième entrée sur l'écran DTC pendant qu'un refresh tourne encore, ou un
-        // sondage FAP en cours, annule le précédent plutôt que de les laisser cogner en
-        // parallèle sur le fil (stopFapScanAndGetPrevious ferme aussi proprement un sondage
-        // éventuel : un simple dtcJob?.cancel() laisserait son fichier ouvert indéfiniment).
-        // stopAutoTest() en plus : le smoke test automatique n'utilise pas dtcJob (voir son
-        // champ dédié autoTestJob), donc stopFapScanAndGetPrevious seul ne le verrait pas.
-        stopAutoTest()
-        val previousJob = stopFapScanAndGetPrevious()
+        // Une deuxième entrée sur l'écran DTC pendant qu'un refresh tourne encore, un
+        // sondage FAP en cours, ou un smoke test automatique, annule le précédent plutôt
+        // que de les laisser cogner en parallèle sur le fil (voir beginExclusiveDiagnostic).
+        val previousJobs = beginExclusiveDiagnostic()
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
             _state.update { it.copy(dtcLoading = true, dtcError = null) }
             try {
-                // cancel() ne fait que DEMANDER l'arrêt du job précédent : sans ce join, sa
-                // propre restauration (ex: ATH0 après une capture headers, cf. A8) peut encore
-                // être en vol et sa commande se mélanger avec la nôtre sur le même mutex.
-                previousJob?.join()
+                // cancel() ne fait que DEMANDER l'arrêt des jobs précédents : sans ce join,
+                // leur propre restauration (ex: ATH0 après une capture headers, cf. A8) peut
+                // encore être en vol et leur commande se mélanger avec la nôtre sur le même
+                // mutex. Les DEUX jobs capturés par beginExclusiveDiagnostic (dtcJob ET
+                // autoTestJob) doivent être attendus, pas seulement l'un des deux (voir B2 :
+                // un appel à stopAutoTest() séparé de stopFapScanAndGetPrevious() perdait la
+                // référence au job de ce dernier avant que l'appelant ait pu le récupérer).
+                previousJobs.forEach { it.join() }
                 val (mil, count) = c.readMilStatus()
                 val stored = c.readStoredDtcs()
                 val pending = c.readPendingDtcs()
@@ -1029,8 +1044,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun probeHeaderFormat() {
         val c = client ?: return
-        stopAutoTest()
-        val previousJob = stopFapScanAndGetPrevious()
+        val previousJobs = beginExclusiveDiagnostic()
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
             // dtcLoading=false : ce job vient d'annuler un éventuel refreshDtcs() en cours
@@ -1039,9 +1053,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // bon) si on ne le remettait pas ici.
             _state.update { it.copy(headerProbeResult = "Lecture...", dtcLoading = false) }
             try {
-                // Voir le commentaire équivalent dans refreshDtcs (A8) : attendre que le job
-                // précédent ait fini sa propre restauration avant d'envoyer nos commandes.
-                previousJob?.join()
+                // Voir le commentaire équivalent dans refreshDtcs (A8/B2) : attendre que les
+                // jobs précédents (dtcJob ET autoTestJob) aient fini leur propre restauration
+                // avant d'envoyer nos commandes.
+                previousJobs.forEach { it.join() }
                 // Calculé AVANT l'appel à update() : c.probeHeaderFormat() a des effets de
                 // bord réels sur la sonde (ATH1/ATH0). Le placer à l'intérieur du bloc
                 // update{} l'exposerait à être réexécuté plusieurs fois si sa comparaison
@@ -1093,9 +1108,25 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // par défaut en diffusion (voir audit, "Sondage UDS expérimental") — sans cette
         // option il n'y a aucun moyen de reproduire le même essai depuis l'app.
         val targetHeader = targetHeaderText.trim().removePrefix("0x").removePrefix("0X").uppercase()
-        if (targetHeader.isNotEmpty() && targetHeader.toIntOrNull(16) == null) {
-            _state.update { it.copy(fapScanError = "Adresse cible invalide (hexadécimal, ex: 7E0), ou la laisser vide.") }
-            return
+        if (targetHeader.isNotEmpty()) {
+            // Seule forme réellement prise en charge : CAN 11 bits, exactement 3 chiffres
+            // hexadécimaux (ex: 7E0). "1" passait toIntOrNull(16) sans être une forme valide
+            // d'ATSH (voir ELM327DS.pdf p. 25) ; le CAN 29 bits (8 chiffres) et le ciblage
+            // non-CAN existent sur l'ELM327 mais ne sont pas pris en charge ici (voir audit
+            // B7) : autant le refuser explicitement plutôt que laisser croire à un ciblage
+            // qui ne s'applique pas comme demandé.
+            if (targetHeader.length != 3 || targetHeader.toIntOrNull(16) == null) {
+                _state.update {
+                    it.copy(fapScanError = "Adresse cible invalide : exactement 3 chiffres hexadécimaux (ex: 7E0), ou la laisser vide.")
+                }
+                return
+            }
+            if (!c.isCanProtocol) {
+                _state.update {
+                    it.copy(fapScanError = "Ciblage d'adresse non pris en charge hors CAN (protocole détecté : ${c.detectedProtocol ?: "non-CAN"}).")
+                }
+                return
+            }
         }
 
         // Ferme aussi proprement un refresh DTC ou une capture de headers en cours
@@ -1107,19 +1138,29 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
         val dir = File(getApplication<Application>().filesDir, "probes").apply { mkdirs() }
         val baseName = "fap_scan_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
-        val writer = try {
-            uniqueFile(dir, baseName).bufferedWriter().apply {
-                writeSessionMetadata(this, listOf("Adresse cible" to targetHeader.ifEmpty { "diffusion (défaut)" }))
-                write(csvRow(listOf("Horodatage", "DID", "Résultat", "NRC", "Détail", "Réponse brute")))
-                newLine()
-                flush()
-            }
+        val probeFile = try {
+            uniqueFile(dir, baseName)
         } catch (e: Exception) {
-            // Création/écriture d'en-tête non protégée avant ce correctif (voir A5) :
-            // un stockage plein ou une permission révoquée levait une IOException non
-            // rattrapée jusqu'ici, hors coroutine (cet appel est synchrone), donc un crash
-            // direct de l'UI au clic sur "Démarrer".
             _state.update { it.copy(fapScanError = "Impossible de créer le fichier de sondage : ${e.message}") }
+            return
+        }
+        val writer = try {
+            probeFile.bufferedWriter()
+        } catch (e: Exception) {
+            _state.update { it.copy(fapScanError = "Impossible d'ouvrir le fichier de sondage : ${e.message}") }
+            return
+        }
+        try {
+            writeSessionMetadata(writer, listOf("Adresse cible" to targetHeader.ifEmpty { "diffusion (défaut)" }))
+            writer.write(csvRow(listOf("Horodatage", "DID", "Résultat", "NRC", "Détail", "Réponse brute")))
+            writer.newLine()
+            writer.flush()
+        } catch (e: Exception) {
+            // En-tête non écrit : le writer reste fermé explicitement ici (voir A5, résiduel
+            // relevé par l'audit B4) plutôt que de laisser un descripteur de fichier ouvert
+            // sans jamais plus être référencé nulle part.
+            runCatching { writer.close() }
+            _state.update { it.copy(fapScanError = "Impossible d'initialiser le fichier de sondage : ${e.message}") }
             return
         }
         probeWriter = writer
@@ -1142,71 +1183,103 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             dtcOperationCount++
             try {
                 previousJob?.join()
-                try {
-                    // ATSH n'a de sens qu'en CAN : sur un véhicule non-CAN, la commande
-                    // échouera probablement sans effet plutôt que de casser quoi que ce
-                    // soit, mais elle n'est envoyée que si l'utilisateur l'a explicitement
-                    // demandée (targetHeader vide = comportement inchangé, diffusion).
-                    if (targetHeader.isNotEmpty()) c.setTargetHeader(targetHeader)
-                    for (did in startDid..endDid) {
-                        _state.update { it.copy(fapScanCurrentDid = did) }
-                        val probe = c.readUdsDid(did)
-                        val result = probe.result
-                        val didHex = "%04X".format(did)
-                        val nrcHex = (result as? UdsDidResult.Negative)?.let { "%02X".format(it.nrc) } ?: ""
-                        val (label, detail) = when (result) {
-                            is UdsDidResult.Positive ->
-                                "positif" to result.data.joinToString(" ") { "%02X".format(it) }.ifBlank { "(vide)" }
-                            is UdsDidResult.Negative -> "négatif" to nrcDescription(result.nrc)
-                            UdsDidResult.NoResponse -> "aucune réponse" to ""
-                        }
-                        // \r/\n remplacés par des espaces : une réponse brute multi-trame
-                        // reste sur une seule ligne de CSV, plus lisible dans un tableur
-                        // simple qu'un champ entre guillemets sur plusieurs lignes.
-                        val rawForCsv = probe.rawResponse.replace('\r', ' ').replace('\n', ' ').trim()
-                        val row = listOf(rowTimestampFormat.format(Date()), didHex, label, nrcHex, detail, rawForCsv)
-                        val written = withContext(Dispatchers.IO) {
-                            runCatching {
-                                probeWriter?.write(csvRow(row))
-                                probeWriter?.newLine()
-                                probeWriter?.flush()
-                            }.isSuccess
-                        }
-                        if (!written) {
-                            // Ne pas continuer à compter des DID "faits" qui ne sont plus
-                            // écrits nulle part (voir A5) : arrêter et le dire, en gardant
-                            // le fichier partiel déjà sur le disque.
-                            _state.update {
-                                it.copy(
-                                    fapScanError = "Écriture du sondage échouée, arrêté.",
-                                    fapScanOutcome = FapScanOutcome.ERREUR
-                                )
-                            }
-                            break
-                        }
+                // ATSH n'a de sens qu'en CAN : la validation dans startFapScan() refuse déjà
+                // un protocole non-CAN ou une forme invalide avant d'arriver ici. Il reste
+                // possible que l'adaptateur refuse quand même la commande (réponse "?", voir
+                // ELM327DS.pdf p. 8-9) : vérifier la réponse plutôt que de continuer comme si
+                // la cible avait été appliquée (voir audit B7).
+                val targetApplied = if (targetHeader.isEmpty()) {
+                    true
+                } else {
+                    try {
+                        c.setTargetHeader(targetHeader)
+                        true
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
                         _state.update {
                             it.copy(
-                                fapScanDone = it.fapScanDone + 1,
-                                fapScanPositives = if (result is UdsDidResult.Positive) {
-                                    it.fapScanPositives + "$didHex : $detail"
-                                } else {
-                                    it.fapScanPositives
-                                }
+                                fapScanError = e.message ?: "Adresse cible refusée par l'adaptateur",
+                                fapScanOutcome = FapScanOutcome.ERREUR
                             )
                         }
+                        false
                     }
-                } finally {
-                    if (targetHeader.isNotEmpty()) withContext(NonCancellable) { c.resetTargetHeader() }
                 }
-                // Verdict "terminé" seulement si rien n'a déjà tranché autrement ci-dessus
-                // (échec d'écriture) : une annulation externe ne redescend jamais jusqu'ici
-                // (voir stopFapScanAndGetPrevious pour son propre verdict "interrompu").
-                if (_state.value.fapScanOutcome == null) {
-                    _state.update { it.copy(fapScanOutcome = FapScanOutcome.TERMINE) }
+                if (targetApplied) {
+                    try {
+                        for (did in startDid..endDid) {
+                            _state.update { it.copy(fapScanCurrentDid = did) }
+                            val probe = c.readUdsDid(did)
+                            val result = probe.result
+                            val didHex = "%04X".format(did)
+                            val nrcHex = (result as? UdsDidResult.Negative)?.let { "%02X".format(it.nrc) } ?: ""
+                            val (label, detail) = when (result) {
+                                is UdsDidResult.Positive ->
+                                    "positif" to result.data.joinToString(" ") { "%02X".format(it) }.ifBlank { "(vide)" }
+                                is UdsDidResult.Negative -> "négatif" to nrcDescription(result.nrc)
+                                UdsDidResult.NoResponse -> "aucune réponse" to ""
+                            }
+                            // \r/\n remplacés par des espaces : une réponse brute multi-trame
+                            // reste sur une seule ligne de CSV, plus lisible dans un tableur
+                            // simple qu'un champ entre guillemets sur plusieurs lignes.
+                            val rawForCsv = probe.rawResponse.replace('\r', ' ').replace('\n', ' ').trim()
+                            val row = listOf(rowTimestampFormat.format(Date()), didHex, label, nrcHex, detail, rawForCsv)
+                            val written = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    probeWriter?.write(csvRow(row))
+                                    probeWriter?.newLine()
+                                    probeWriter?.flush()
+                                }.isSuccess
+                            }
+                            if (!written) {
+                                // Ne pas continuer à compter des DID "faits" qui ne sont plus
+                                // écrits nulle part (voir A5) : arrêter et le dire, en gardant
+                                // le fichier partiel déjà sur le disque.
+                                _state.update {
+                                    it.copy(
+                                        fapScanError = "Écriture du sondage échouée, arrêté.",
+                                        fapScanOutcome = FapScanOutcome.ERREUR
+                                    )
+                                }
+                                break
+                            }
+                            _state.update {
+                                it.copy(
+                                    fapScanDone = it.fapScanDone + 1,
+                                    fapScanPositives = if (result is UdsDidResult.Positive) {
+                                        it.fapScanPositives + "$didHex : $detail"
+                                    } else {
+                                        it.fapScanPositives
+                                    }
+                                )
+                            }
+                        }
+                    } finally {
+                        if (targetHeader.isNotEmpty()) {
+                            // Best-effort : si la restauration échoue aussi, le signaler
+                            // plutôt que de l'avaler en silence (voir audit B7), sans pour
+                            // autant masquer une éventuelle exception réelle du bloc ci-dessus.
+                            withContext(NonCancellable) {
+                                runCatching { c.resetTargetHeader() }
+                                    .onFailure { EventLog.log("Restauration de l'adresse cible échouée : ${it.message}") }
+                            }
+                        }
+                    }
+                    // Verdict "terminé" seulement si rien n'a déjà tranché autrement ci-dessus
+                    // (échec d'écriture) : une annulation externe ne redescend jamais jusqu'ici
+                    // (voir stopFapScanAndGetPrevious pour son propre verdict "interrompu").
+                    if (_state.value.fapScanOutcome == null) {
+                        _state.update { it.copy(fapScanOutcome = FapScanOutcome.TERMINE) }
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Distinct de l'INTERROMPU par défaut que poserait stopFapScanAndGetPrevious
+                // ci-dessous (via handleConnectionLost) : une vraie exception de transport
+                // n'est pas une interruption volontaire (voir audit, "Résultats d'outils").
+                _state.update { it.copy(fapScanError = e.message ?: "Lecture échouée", fapScanOutcome = FapScanOutcome.ERREUR) }
                 handleConnectionLost(c, e.message ?: "Lecture échouée")
                 return@launch
             } finally {
@@ -1276,26 +1349,36 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
         val dir = File(getApplication<Application>().filesDir, "recordings").apply { mkdirs() }
         val baseName = "obd_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
-        val writer = try {
-            uniqueFile(dir, baseName).bufferedWriter().apply {
-                writeSessionMetadata(this)
-                write(csvRow(listOf("Horodatage", "État") + columns.map { it.label }))
-                newLine()
-                flush()
-            }
+        val file = try {
+            uniqueFile(dir, baseName)
         } catch (e: Exception) {
-            // Création/écriture d'en-tête non protégée avant ce correctif (voir A5) :
-            // un stockage plein ou une permission révoquée levait une IOException non
-            // rattrapée jusqu'ici, hors coroutine (cet appel est synchrone), donc un crash
-            // direct de l'UI au clic sur "Démarrer l'enregistrement".
-            _state.update { it.copy(errorMessage = "Impossible de créer l'enregistrement : ${e.message}") }
+            _state.update { it.copy(recordingError = "Impossible de créer l'enregistrement : ${e.message}") }
+            return
+        }
+        val writer = try {
+            file.bufferedWriter()
+        } catch (e: Exception) {
+            _state.update { it.copy(recordingError = "Impossible d'ouvrir l'enregistrement : ${e.message}") }
+            return
+        }
+        try {
+            writeSessionMetadata(writer)
+            writer.write(csvRow(listOf("Horodatage", "État") + columns.map { it.label }))
+            writer.newLine()
+            writer.flush()
+        } catch (e: Exception) {
+            // En-tête non écrit : le writer reste fermé explicitement ici (voir A5, résiduel
+            // relevé par l'audit B4) plutôt que de laisser un descripteur de fichier ouvert
+            // sans jamais plus être référencé nulle part.
+            runCatching { writer.close() }
+            _state.update { it.copy(recordingError = "Impossible d'initialiser l'enregistrement : ${e.message}") }
             return
         }
 
         EventLog.log("Démarrage de l'enregistrement ($baseName.csv)")
         recordingColumns = columns
         recordingWriter = writer
-        _state.update { it.copy(isRecording = true, recordingSamples = 0) }
+        _state.update { it.copy(isRecording = true, recordingSamples = 0, recordingError = null) }
         // Effort raisonnable, pas une condition bloquante : démarré depuis un bouton
         // visible à l'écran, c'est un cas autorisé à lancer un service de premier plan
         // (voir RecordingService). Un échec ici (rare) laisse l'enregistrement fonctionner
@@ -1319,37 +1402,51 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * resté vrai pendant la coupure).
      */
     private fun resumeRecordingLoop() {
+        // Colonnes réellement mesurées par le polling (voir startPolling) : les PID
+        // "contexte" (CONTEXT_ONLY_PIDS) sont lus une fois à la connexion et jamais
+        // périmés par design, ils ne comptent donc pas dans "combien de mesures
+        // dynamiques cette ligne a obtenu" (voir B3 ci-dessous).
+        val dynamicColumns = recordingColumns.filter { it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
         recordingJob = viewModelScope.launch {
             val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
             while (true) {
                 delay(RECORDING_INTERVAL_MS)
                 val snapshot = _state.value
                 val now = System.currentTimeMillis()
+                val cells = recordingColumns.map { def ->
+                    val value = snapshot.values[def.pid]
+                    // CONTEXT_ONLY_PIDS exclus de la limite d'âge : lus une seule fois à
+                    // la connexion par design (voir startPolling), ils dépasseraient ce
+                    // seuil dès les 10 premières secondes de CHAQUE enregistrement sans
+                    // que la valeur soit fausse (constaté sur capture réelle : colonne
+                    // "Ratio/tension O2 max annoncés" vide dans tout l'enregistrement).
+                    if (value != null &&
+                        (def.pid in PidCatalog.CONTEXT_ONLY_PIDS || now - value.updatedAtMs <= VALUE_UNAVAILABLE_AFTER_MS)
+                    ) {
+                        value.text
+                    } else {
+                        ""
+                    }
+                }
                 // Colonne "État" : une pause diagnostique (refresh DTC, capture headers,
                 // sondage FAP) suspend le polling sans arrêter l'enregistrement, sinon on
                 // rejoue silencieusement les dernières valeurs comme si elles étaient
-                // fraîches (voir A1). Une valeur elle-même plus vieille que
-                // VALUE_UNAVAILABLE_AFTER_MS est laissée vide plutôt que répétée : un trou
-                // visible dans le CSV plutôt qu'une donnée fantôme. Une coupure réseau (voir
-                // RECONNECTING) produit le même trou, pour la même raison : rien à afficher
-                // de fiable tant que le polling n'a pas repris.
-                val etat = if (dtcOperationInProgress) "pause diagnostic" else "ok"
-                val row = listOf(timestampFormat.format(Date()), etat) +
-                    recordingColumns.map { def ->
-                        val value = snapshot.values[def.pid]
-                        // CONTEXT_ONLY_PIDS exclus de la limite d'âge : lus une seule fois à
-                        // la connexion par design (voir startPolling), ils dépasseraient ce
-                        // seuil dès les 10 premières secondes de CHAQUE enregistrement sans
-                        // que la valeur soit fausse (constaté sur capture réelle : colonne
-                        // "Ratio/tension O2 max annoncés" vide dans tout l'enregistrement).
-                        if (value != null &&
-                            (def.pid in PidCatalog.CONTEXT_ONLY_PIDS || now - value.updatedAtMs <= VALUE_UNAVAILABLE_AFTER_MS)
-                        ) {
-                            value.text
-                        } else {
-                            ""
-                        }
-                    }
+                // fraîches (voir A1). Une ligne qui n'a par ailleurs obtenu AUCUNE mesure
+                // dynamique fraîche (sonde muette, voir capture réelle
+                // obd_20260911_201421.csv) ne doit pas non plus se lire "ok" comme une
+                // ligne normale, ni une ligne partiellement vide se confondre avec une
+                // ligne complète (voir B3) : une coupure réseau (RECONNECTING) produit le
+                // même trou de mesures, pour la même raison.
+                val freshDynamicCount = recordingColumns.indices.count { i ->
+                    recordingColumns[i].pid !in PidCatalog.CONTEXT_ONLY_PIDS && cells[i].isNotEmpty()
+                }
+                val etat = when {
+                    dtcOperationInProgress -> "pause diagnostic"
+                    dynamicColumns.isEmpty() || freshDynamicCount == 0 -> "aucune mesure"
+                    freshDynamicCount < dynamicColumns.size -> "partiel"
+                    else -> "ok"
+                }
+                val row = listOf(timestampFormat.format(Date()), etat) + cells
                 val written = withContext(Dispatchers.IO) {
                     runCatching {
                         recordingWriter?.write(csvRow(row))
@@ -1365,7 +1462,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     // Erreur disque réelle (plein, permission révoquée), pas une coupure
                     // réseau : celle-ci ne touche jamais recordingWriter (voir
                     // pauseRecordingForReconnect), donc un vrai arrêt ici reste justifié.
-                    _state.update { it.copy(errorMessage = "Écriture de l'enregistrement échouée, arrêté.") }
+                    _state.update { it.copy(recordingError = "Écriture de l'enregistrement échouée, arrêté.") }
                     stopRecording()
                     break
                 }
@@ -1378,6 +1475,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         recordingJob = null
         val wasRecording = recordingWriter != null
         runCatching { recordingWriter?.close() }
+            .onFailure { EventLog.log("Fermeture de l'enregistrement échouée : ${it.message}") }
         recordingWriter = null
         if (wasRecording) {
             EventLog.log("Arrêt de l'enregistrement (${_state.value.recordingSamples} échantillons)")
@@ -1442,10 +1540,15 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 // dtcOperationCount géré directement ici, pas via dtcJob (voir son champ) :
                 // relâché avant l'étape d'enregistrement pour que le polling normal
-                // reprenne, sinon elle ne capturerait que des valeurs figées.
+                // reprenne, sinon elle ne capturerait que des valeurs figées. Le join() du
+                // job précédent est couvert par CE MÊME try/finally, pas avant lui (voir
+                // B10) : une annulation pendant cette attente doit décrémenter le compteur
+                // tout autant qu'une annulation pendant les vérifications qui suivent, sinon
+                // il reste positif indéfiniment (polling en pause permanente, watchdog
+                // neutralisé puisqu'il se croit en pause diagnostique légitime).
                 dtcOperationCount++
-                previousJob?.join()
                 try {
+                    previousJob?.join()
                     setCheck(0, AutoTestStatus.EN_COURS)
                     try {
                         val (mil, count) = c.readMilStatus()
@@ -1523,17 +1626,31 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 if (client !== c) {
                     setCheck(5, AutoTestStatus.ECHEC, "Connexion changée en cours de test")
                 } else {
-                    startRecording()
+                    // Ne prend la propriété de l'enregistrement que s'il en démarre un
+                    // lui-même (voir B1) : un enregistrement manuel déjà en cours doit
+                    // continuer après ce test, pas s'arrêter avec lui. Les échantillons sont
+                    // comptés en delta sur la fenêtre du test, pas en valeur absolue, pour la
+                    // même raison (un enregistrement manuel déjà ancien aurait sinon un total
+                    // qui ne reflète pas ce que CE test vient d'écrire).
+                    val alreadyRecording = _state.value.isRecording
+                    if (!alreadyRecording) {
+                        startRecording()
+                        autoTestOwnsRecording = _state.value.isRecording
+                    }
                     if (!_state.value.isRecording) {
-                        setCheck(5, AutoTestStatus.ECHEC, _state.value.errorMessage ?: "L'enregistrement n'a pas démarré")
+                        setCheck(5, AutoTestStatus.ECHEC, _state.value.recordingError ?: "L'enregistrement n'a pas démarré")
                     } else {
+                        val samplesBefore = _state.value.recordingSamples
                         delay(10_000)
-                        val samples = _state.value.recordingSamples
-                        stopRecording()
-                        if (samples >= 1) {
-                            setCheck(5, AutoTestStatus.OK, "$samples échantillon(s) écrit(s)")
+                        val samplesDuring = _state.value.recordingSamples - samplesBefore
+                        if (autoTestOwnsRecording) {
+                            stopRecording()
+                            autoTestOwnsRecording = false
+                        }
+                        if (samplesDuring >= 1) {
+                            setCheck(5, AutoTestStatus.OK, "$samplesDuring échantillon(s) écrit(s) pendant le test")
                         } else {
-                            setCheck(5, AutoTestStatus.ECHEC, "Démarré, mais aucun échantillon écrit (voir errorMessage)")
+                            setCheck(5, AutoTestStatus.ECHEC, "Aucun échantillon écrit pendant le test (voir l'erreur d'enregistrement)")
                         }
                     }
                 }
@@ -1568,9 +1685,42 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     fun stopAutoTest() {
         autoTestJob?.cancel()
         autoTestJob = null
-        if (_state.value.isRecording) stopRecording()
+        // Seule la ressource que LUI a démarrée doit s'arrêter avec lui (voir B1) : cette
+        // fonction est aussi appelée par précaution depuis refreshDtcs()/probeHeaderFormat()/
+        // prepareForNewConnection()/handleConnectionLost(), bien avant tout smoke test réel,
+        // et ne doit alors jamais toucher un enregistrement manuel en cours.
+        if (autoTestOwnsRecording) {
+            stopRecording()
+            autoTestOwnsRecording = false
+        }
         stopFapScan()
         _state.update { it.copy(isAutoTesting = false) }
+    }
+
+    /**
+     * Point d'entrée commun à refreshDtcs()/probeHeaderFormat() : annule le diagnostic
+     * exclusif en cours (dtcJob ET autoTestJob, un sondage FAP manuel ou l'un des deux
+     * appartenant à un smoke test automatique) et renvoie les jobs à attendre (Job.join())
+     * avant d'envoyer de nouvelles commandes sur le même mutex.
+     *
+     * Capture la référence à autoTestJob AVANT de l'annuler, plutôt que de déléguer à
+     * stopAutoTest() puis récupérer dtcJob séparément via stopFapScanAndGetPrevious() (voir
+     * B2/A8) : stopAutoTest() appelle lui-même stopFapScan() en interne et remet dtcJob à
+     * null avant que l'appelant ait pu le récupérer, si bien que le join() ajouté pour A8
+     * n'attendait jamais rien en pratique (reproduit : ATH1 → 0101 → ATH0 au lieu d'attendre
+     * la restauration en cours).
+     */
+    private fun beginExclusiveDiagnostic(): List<Job> {
+        val previousAutoTestJob = autoTestJob
+        autoTestJob?.cancel()
+        autoTestJob = null
+        if (autoTestOwnsRecording) {
+            stopRecording()
+            autoTestOwnsRecording = false
+        }
+        _state.update { it.copy(isAutoTesting = false) }
+        val previousDtcJob = stopFapScanAndGetPrevious()
+        return listOfNotNull(previousDtcJob, previousAutoTestJob)
     }
 
     private fun unregisterNetworkCallback() {
@@ -1644,9 +1794,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // ~600 o/échantillon (~40 colonnes max) : à 5s, une session de 2h fait autour de
         // 850 Ko. Assez fin pour une analyse de tendance, sans accumuler des Mo inutiles.
         private const val RECORDING_INTERVAL_MS = 5_000L
-        // 5 cycles à 300ms = 1,5s : largement sous VALUE_UNAVAILABLE_AFTER_MS (10s) et même
-        // STALE_AFTER_MS côté Dashboard (3s), donc jamais visible comme périmée, pour un
-        // cinquième des requêtes qu'au rythme normal (voir PidCatalog.SLOW_PIDS).
+        // 5 cycles : le délai entre deux cycles n'est QUE le delay(300) ci-dessus, pas le
+        // temps du cycle complet (voir audit) : chaque PID lu dans ce cycle ajoute son
+        // propre aller-retour réseau, largement variable selon la sonde/le transport. Reste
+        // néanmoins bien sous VALUE_UNAVAILABLE_AFTER_MS (10s) et STALE_AFTER_MS côté
+        // Dashboard (3s) en pratique, donc jamais visible comme périmée, pour un cinquième
+        // des requêtes qu'au rythme normal (voir PidCatalog.SLOW_PIDS).
         private const val SLOW_PID_EVERY_N_CYCLES = 5
         // Une tentative échouée peut déjà prendre ~9s (4s de recherche Wi-Fi + 5s de
         // connexion socket, voir requestWifiNetwork/Elm327Client.connect) : ce délai

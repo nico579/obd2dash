@@ -123,17 +123,6 @@ fun ProbeScreen(
                     Text("Arrêter le sondage")
                 }
             } else {
-                state.fapScanOutcome?.let {
-                    Text(
-                        when (it) {
-                            FapScanOutcome.TERMINE -> "Dernier sondage : terminé (${state.fapScanDone}/${state.fapScanTotal})."
-                            FapScanOutcome.INTERROMPU -> "Dernier sondage : interrompu (${state.fapScanDone}/${state.fapScanTotal})."
-                            FapScanOutcome.ERREUR -> "Dernier sondage : arrêté en erreur (${state.fapScanDone}/${state.fapScanTotal})."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
                 Button(
                     onClick = { onStartScan(startDid, endDid, targetHeader) },
                     modifier = Modifier.fillMaxWidth()
@@ -141,16 +130,34 @@ fun ProbeScreen(
                     Text("Démarrer le sondage")
                 }
             }
+        }
 
-            if (state.fapScanPositives.isNotEmpty()) {
-                HorizontalDivider()
+        // Bilan du dernier sondage et réponses positives : déplacés hors du bloc CONNECTED
+        // (voir audit, "Résultats d'outils") : une reconnexion qui suit immédiatement la
+        // fin d'un sondage ne doit pas faire disparaître ce qu'il vient de trouver, seuls
+        // les contrôles pour en lancer un NOUVEAU exigent une connexion active.
+        if (!state.isFapScanning) {
+            state.fapScanOutcome?.let {
                 Text(
-                    "Réponses positives (${state.fapScanPositives.size})",
-                    style = MaterialTheme.typography.titleMedium
+                    when (it) {
+                        FapScanOutcome.TERMINE -> "Dernier sondage : terminé (${state.fapScanDone}/${state.fapScanTotal})."
+                        FapScanOutcome.INTERROMPU -> "Dernier sondage : interrompu (${state.fapScanDone}/${state.fapScanTotal})."
+                        FapScanOutcome.ERREUR -> "Dernier sondage : arrêté en erreur (${state.fapScanDone}/${state.fapScanTotal})."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                for (positive in state.fapScanPositives) {
-                    Text(positive, style = MaterialTheme.typography.bodySmall)
-                }
+            }
+        }
+
+        if (state.fapScanPositives.isNotEmpty()) {
+            HorizontalDivider()
+            Text(
+                "Réponses positives (${state.fapScanPositives.size})",
+                style = MaterialTheme.typography.titleMedium
+            )
+            for (positive in state.fapScanPositives) {
+                Text(positive, style = MaterialTheme.typography.bodySmall)
             }
         }
 

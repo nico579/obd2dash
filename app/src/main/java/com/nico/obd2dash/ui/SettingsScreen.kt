@@ -140,6 +140,11 @@ fun SettingsScreen(
         state.errorMessage?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+        // Distinct de errorMessage (voir ObdUiState.recordingError, audit B4) : affiché
+        // aussi ici pour qui ne serait pas déjà sur le Dashboard au moment de l'échec.
+        state.recordingError?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
 
         // Ici plutôt que sur le Dashboard : un journal d'événements n'est pas une donnée du
         // véhicule (contrairement aux enregistrements), c'est un diagnostic de l'app elle-même

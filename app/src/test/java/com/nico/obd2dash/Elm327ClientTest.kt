@@ -190,6 +190,29 @@ class Elm327ClientTest {
         assertNull(client.parseHexPayload("7F0311", "410C"))
     }
 
+    // --- freeze frame (readFreezeFrameBytes) : le numero de trame fait partie du prefixe,
+    // reproduit depuis l'audit B6 (requete 020C00, deux trames presentes dans la reponse).
+
+    @Test
+    fun `freeze frame distingue deux trames presentes en choisissant celle demandee`() {
+        // Trame 01 (1726 tr-min) et trame 00 (3000 tr-min) toutes deux dans la reponse :
+        // seul le numero de trame demande doit determiner laquelle est decodee.
+        val response = "420C011AF8\r420C002EE0"
+        val hexstrFrame01 = client.reassembleHex(response, "420C01")
+        assertEquals(listOf(0x1A, 0xF8), client.parseHexPayload(hexstrFrame01, "420C01"))
+        val hexstrFrame00 = client.reassembleHex(response, "420C00")
+        assertEquals(listOf(0x2E, 0xE0), client.parseHexPayload(hexstrFrame00, "420C00"))
+    }
+
+    @Test
+    fun `freeze frame rejette une reponse dont le numero de trame ne correspond pas`() {
+        // Seule la trame 01 repond, alors que la trame 00 est demandee : avant ce correctif,
+        // le premier octet (l'echo de trame) etait supprime sans jamais etre compare, une
+        // reponse a une AUTRE capture devenait alors le contexte du defaut affiche.
+        val hexstr = client.reassembleHex("420C011AF8", "420C00")
+        assertNull(client.parseHexPayload(hexstr, "420C00"))
+    }
+
     // --- parseUdsResponse ---
 
     @Test

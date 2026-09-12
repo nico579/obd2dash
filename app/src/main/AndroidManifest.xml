@@ -14,6 +14,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Wake lock partiel (voir audit B9) : le service de premier plan seul évite au
+         processus d'être tué mais ne garantit pas que le CPU continue de tourner écran
+         éteint ; permission normale, pas de prompt à l'exécution. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Sonde ELM327 Bluetooth (RFCOMM/SPP), en plus du Wi-Fi (voir ConnectionTarget) :
          connexion à un appareil déjà appairé dans les réglages du téléphone, jamais de

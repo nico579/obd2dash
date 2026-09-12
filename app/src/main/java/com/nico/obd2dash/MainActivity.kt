@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -106,6 +107,14 @@ class MainActivity : ComponentActivity() {
                     var showSettings by remember { mutableStateOf(false) }
                     val state by viewModel.state.collectAsState()
 
+                    // Sans ça, le retour système depuis Réglages ferme l'Activity racine
+                    // (Android <=11) ou la met en arrière-plan (Android 12+) au lieu de
+                    // revenir au Dashboard comme la flèche de la barre du haut (voir audit,
+                    // "Navigation") : le premier cas arrête aussi l'acquisition liée à ce
+                    // ViewModel, contrairement à ce qu'un simple retour d'écran laisse
+                    // attendre.
+                    BackHandler(enabled = showSettings) { showSettings = false }
+
                     Scaffold(
                         topBar = {
                             TopAppBar(
@@ -128,34 +137,38 @@ class MainActivity : ComponentActivity() {
                             )
                         },
                         bottomBar = {
+                            // Chaque onglet ferme aussi Réglages (voir audit, "Navigation") :
+                            // sans ça, screen changeait bien en interne mais l'écran affiché
+                            // restait Réglages (priorité du "if (showSettings)" ci-dessous),
+                            // jusqu'à ce que la flèche de retour soit pressée séparément.
                             NavigationBar {
                                 NavigationBarItem(
                                     selected = screen == Screen.DASHBOARD,
-                                    onClick = { screen = Screen.DASHBOARD },
+                                    onClick = { screen = Screen.DASHBOARD; showSettings = false },
                                     icon = { Icon(Icons.Filled.Home, contentDescription = null) },
                                     label = { Text("Dashboard") }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.DTC,
-                                    onClick = { screen = Screen.DTC },
+                                    onClick = { screen = Screen.DTC; showSettings = false },
                                     icon = { Icon(Icons.Filled.Warning, contentDescription = null) },
                                     label = { Text("DTC") }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.PROBE,
-                                    onClick = { screen = Screen.PROBE },
+                                    onClick = { screen = Screen.PROBE; showSettings = false },
                                     icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                                     label = { Text("Sondage") }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.GRAPH,
-                                    onClick = { screen = Screen.GRAPH },
+                                    onClick = { screen = Screen.GRAPH; showSettings = false },
                                     icon = { Icon(painterResource(R.drawable.ic_chart), contentDescription = null) },
                                     label = { Text("Graphique") }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.AUTO_TEST,
-                                    onClick = { screen = Screen.AUTO_TEST },
+                                    onClick = { screen = Screen.AUTO_TEST; showSettings = false },
                                     icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
                                     label = { Text("Smoke test") }
                                 )

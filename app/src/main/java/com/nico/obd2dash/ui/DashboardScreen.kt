@@ -24,6 +24,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -56,7 +57,7 @@ fun DashboardScreen(
     onDeleteRecording: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(500)
@@ -178,6 +179,13 @@ fun DashboardScreen(
                     }
                 )
             }
+            // Visible près de son propre bouton, y compris CONNECTED (voir audit B4) :
+            // errorMessage ne s'affiche sur cet écran que hors CONNECTED, une erreur
+            // d'enregistrement (démarrage refusé, écriture échouée) restait donc invisible
+            // ici tant que la connexion elle-même allait bien.
+            state.recordingError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
         }
 
         // En dehors du bloc connecté : ce sont des fichiers déjà sur le disque, consultables
@@ -257,8 +265,12 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelet
  * session, sans que la valeur soit fausse pour autant. Leur appliquer la même règle
  * d'âge que les PID vraiment repollés les aurait fait disparaître ("--") en permanence
  * après ce délai (constaté sur capture réelle du 11 septembre).
+ *
+ * internal (pas private) : réutilisée telle quelle par GraphScreen pour son "Actuel" (voir
+ * audit B5), plutôt que d'y dupliquer un calcul de péremption qui pourrait diverger avec
+ * le temps.
  */
-private fun staleness(value: GaugeValue?, nowMs: Long, neverStale: Boolean = false): Pair<String, Boolean> {
+internal fun staleness(value: GaugeValue?, nowMs: Long, neverStale: Boolean = false): Pair<String, Boolean> {
     if (value == null) return "--" to false
     if (neverStale) return value.text to false
     val age = nowMs - value.updatedAtMs
