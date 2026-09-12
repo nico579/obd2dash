@@ -40,6 +40,7 @@ import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.VALUE_UNAVAILABLE_AFTER_MS
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 /**
  * Courbe en direct d'un paramètre choisi (voir ObdViewModel.selectGraphPid/GraphPoint).
@@ -216,4 +217,4 @@ private fun LineChart(points: List<GraphPoint>, modifier: Modifier = Modifier) {
 }
 
 private fun formatGraphValue(v: Double): String =
-    if (v == v.toLong().toDouble()) v.toLong().toString() else "%.2f".format(v)
+    if (v == v.toLong().toDouble()) v.toLong().toString() else "%.2f".format(Locale.FRANCE, v)

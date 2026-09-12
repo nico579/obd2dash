@@ -1,5 +1,7 @@
 package com.nico.obd2dash
 
+import java.util.Locale
+
 /**
  * Catalogue des PID mode 01 que le dashboard sait afficher, avec leur formule de
  * décodage (SAE J1979). Seuls ceux réellement supportés par le véhicule connecté
@@ -57,26 +59,33 @@ object PidCatalog {
     var mapMaxKpa: Double? = null
     var mafMaxGramsPerSec: Double? = null
 
+    // Locale.FRANCE explicite sur CHAQUE "%f".format(...) ci-dessous : sans lui, ce format
+    // utilise la locale par défaut de la JVM (Locale.getDefault()), qui choisit le
+    // séparateur décimal ("," vs ".") - correcte par coïncidence sur un poste de dev
+    // configuré en français, mais pas sur un runner CI en C/en-US (constaté : 5 tests
+    // PidCatalogTest en échec sur GitHub Actions alors qu'ils passaient en local). Même
+    // convention déjà appliquée à chaque SimpleDateFormat de ce projet (voir
+    // ObdViewModel/EventLog) : ce fichier était la seule exception avant ce correctif.
     val defs: List<Def> = listOf(
-        Def(0x0C, "Régime moteur", 2) { b -> "%.0f rpm".format(((b[0] * 256) + b[1]) / 4.0) },
+        Def(0x0C, "Régime moteur", 2) { b -> "%.0f rpm".format(Locale.FRANCE, ((b[0] * 256) + b[1]) / 4.0) },
         Def(0x0D, "Vitesse", 1) { b -> "${b[0]} km/h" },
         Def(0x05, "Température moteur", 1) { b -> "${b[0] - 40} °C" },
-        Def(0x04, "Charge moteur", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
+        Def(0x04, "Charge moteur", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
         Def(0x10, "Débit d'air (MAF)", 2) { b ->
             val raw = (b[0] * 256) + b[1]
             val max = mafMaxGramsPerSec
             val gramsPerSec = if (max != null) raw * max / 65535.0 else raw / 100.0
-            "%.2f g/s".format(gramsPerSec)
+            "%.2f g/s".format(Locale.FRANCE, gramsPerSec)
         },
-        Def(0x42, "Tension calculateur", 2) { b -> "%.2f V".format(((b[0] * 256) + b[1]) / 1000.0) },
+        Def(0x42, "Tension calculateur", 2) { b -> "%.2f V".format(Locale.FRANCE, ((b[0] * 256) + b[1]) / 1000.0) },
         Def(0x0F, "Température admission", 1) { b -> "${b[0] - 40} °C" },
         Def(0x0B, "Pression admission", 1) { b ->
             val max = mapMaxKpa
             val kpa = if (max != null) b[0] * max / 255.0 else b[0].toDouble()
-            "%.1f kPa".format(kpa)
+            "%.1f kPa".format(Locale.FRANCE, kpa)
         },
-        Def(0x11, "Position papillon", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
-        Def(0x2F, "Niveau carburant", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
+        Def(0x11, "Position papillon", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x2F, "Niveau carburant", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
         Def(0x46, "Température ambiante", 1) { b -> "${b[0] - 40} °C" },
         Def(0x1F, "Temps depuis démarrage", 2) { b -> "${(b[0] * 256) + b[1]} s" },
 
@@ -86,13 +95,13 @@ object PidCatalog {
         // véhicule en particulier. Regroupé par thème, pas par ordre de PID.
 
         // Régulation carburant (essence à boucle fermée, souvent absent sur diesel)
-        Def(0x06, "Correction carburant CT (banc 1)", 1) { b -> "%.1f %%".format((b[0] - 128) * 100.0 / 128.0) },
-        Def(0x07, "Correction carburant LT (banc 1)", 1) { b -> "%.1f %%".format((b[0] - 128) * 100.0 / 128.0) },
-        Def(0x08, "Correction carburant CT (banc 2)", 1) { b -> "%.1f %%".format((b[0] - 128) * 100.0 / 128.0) },
-        Def(0x09, "Correction carburant LT (banc 2)", 1) { b -> "%.1f %%".format((b[0] - 128) * 100.0 / 128.0) },
+        Def(0x06, "Correction carburant CT (banc 1)", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
+        Def(0x07, "Correction carburant LT (banc 1)", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
+        Def(0x08, "Correction carburant CT (banc 2)", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
+        Def(0x09, "Correction carburant LT (banc 2)", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
         Def(0x0A, "Pression carburant", 1) { b -> "${b[0] * 3} kPa" },
-        Def(0x52, "Taux éthanol carburant", 1) { b -> "%.1f %%".format(b[0] * 100.0 / 255.0) },
-        Def(0x5E, "Débit carburant moteur", 2) { b -> "%.2f L/h".format(((b[0] * 256) + b[1]) / 20.0) },
+        Def(0x52, "Taux éthanol carburant", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] * 100.0 / 255.0) },
+        Def(0x5E, "Débit carburant moteur", 2) { b -> "%.2f L/h".format(Locale.FRANCE, ((b[0] * 256) + b[1]) / 20.0) },
 
         // Sondes O2 classiques (jusqu'à 4 : 2 bancs x 2 sondes). Octet trim = 0xFF si non
         // utilisé par ce capteur (sonde à large bande, ou position sans mesure de trim).
@@ -107,26 +116,26 @@ object PidCatalog {
         Def(0x24, "Sonde O2 large bande (ratio/V)", 4) { b ->
             val ratio = ((b[0] * 256) + b[1]) * o2MaxRatio / 65535.0
             val voltage = ((b[2] * 256) + b[3]) * o2MaxVoltage / 65535.0
-            "%.3f · %.3f V".format(ratio, voltage)
+            "%.3f · %.3f V".format(Locale.FRANCE, ratio, voltage)
         },
         Def(0x4F, "Ratio/tension O2 max annoncés", 4) { b -> "${b[0]} / ${b[1]}" },
         Def(0x50, "Débit d'air max annoncé (contexte)", 1) { b -> "${b[0] * 10} g/s" },
 
         // Allumage / injection
-        Def(0x0E, "Avance à l'allumage", 1) { b -> "%.1f °".format((b[0] - 128) / 2.0) },
+        Def(0x0E, "Avance à l'allumage", 1) { b -> "%.1f °".format(Locale.FRANCE, (b[0] - 128) / 2.0) },
 
         // Diesel / injection directe
-        Def(0x22, "Pression rail / dépression collecteur", 2) { b -> "%.1f kPa".format(((b[0] * 256) + b[1]) * 0.079) },
+        Def(0x22, "Pression rail / dépression collecteur", 2) { b -> "%.1f kPa".format(Locale.FRANCE, ((b[0] * 256) + b[1]) * 0.079) },
         Def(0x23, "Pression rail carburant (direct/diesel)", 2) { b -> "${((b[0] * 256) + b[1]) * 10} kPa" },
-        Def(0x2C, "EGR commandé", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
-        Def(0x2D, "EGR erreur", 1) { b -> "%.1f %%".format((b[0] - 128) * 100.0 / 128.0) },
+        Def(0x2C, "EGR commandé", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x2D, "EGR erreur", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
 
         // EVAP (essence)
-        Def(0x2E, "Purge EVAP commandée", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
+        Def(0x2E, "Purge EVAP commandée", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
         Def(0x32, "Pression vapeur EVAP", 2) { b ->
             val raw = (b[0] shl 8) or b[1]
             val signed = if (raw >= 32768) raw - 65536 else raw
-            "%.2f Pa".format(signed / 4.0)
+            "%.2f Pa".format(Locale.FRANCE, signed / 4.0)
         },
 
         // Historique diagnostic / conditions ambiantes
@@ -137,18 +146,18 @@ object PidCatalog {
         Def(0x5C, "Température huile moteur", 1) { b -> "${b[0] - 40} °C" },
 
         // Pédale / papillon (positions relatives et redondantes)
-        Def(0x45, "Position papillon relative", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
-        Def(0x49, "Position pédale accélérateur D", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
-        Def(0x4A, "Position pédale accélérateur E", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
-        Def(0x4C, "Commande actionneur papillon", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
-        Def(0x5A, "Position pédale relative", 1) { b -> "%.1f %%".format(b[0] / 2.55) },
+        Def(0x45, "Position papillon relative", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x49, "Position pédale accélérateur D", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x4A, "Position pédale accélérateur E", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x4C, "Commande actionneur papillon", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x5A, "Position pédale relative", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
     )
 
     /** Sonde O2 classique : tension (toujours présente) + trim court-terme (0xFF = absent). */
     private fun formatO2(b: List<Int>): String {
-        val voltage = "%.3f V".format(b[0] / 200.0)
+        val voltage = "%.3f V".format(Locale.FRANCE, b[0] / 200.0)
         if (b[1] == 0xFF) return voltage
-        return voltage + " · " + "%.1f %%".format((b[1] - 128) * 100.0 / 128.0)
+        return voltage + " · " + "%.1f %%".format(Locale.FRANCE, (b[1] - 128) * 100.0 / 128.0)
     }
 }
 

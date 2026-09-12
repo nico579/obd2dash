@@ -40,6 +40,7 @@ import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.RecordingFile
 import com.nico.obd2dash.VALUE_UNAVAILABLE_AFTER_MS
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 // Au-delà de ce délai sans nouvelle lecture, une valeur est affichée atténuée (une pause
 // de polling pendant un refresh DTC dure normalement moins longtemps que ça). Au-delà de
@@ -219,7 +220,7 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelet
         Column {
             Text(recording.date, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "%.1f Ko".format(recording.sizeBytes / 1024.0),
+                "%.1f Ko".format(Locale.FRANCE, recording.sizeBytes / 1024.0),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
