@@ -33,16 +33,26 @@ import androidx.compose.ui.graphics.Color
 // sur son violet par défaut) : c'est ce rôle que NavigationBarItem utilise pour le fond/texte
 // de l'onglet sélectionné (voir MainActivity), donc le fixer ici suffit pour tout l'écran sans
 // avoir à passer des couleurs au cas par cas à chaque NavigationBarItem.
+//
+// Revue une 3e fois après vérification en conditions réelles (retour direct : "en voiture,
+// avec reflets/luminosité variable" les textes onSurfaceVariant et les contours de champs
+// étaient trop faibles) : onBackground/onSurface et onSurfaceVariant identiques en jour ET en
+// nuit (contrairement au reste de la palette, cf. commentaire sur NightColorScheme) - la
+// lisibilité en conduite prime sur l'esthétique "nuit plus tamisée" pour le texte. outline
+// renforcé pour les contours de champs, jugés "mous" visuellement.
+
+private val TextPrimary = Color(0xFFE8EEF2)
+private val TextSecondary = Color(0xFFA5B0BA)
 
 private val DayColorScheme = darkColorScheme(
     background = Color(0xFF0B1015),
-    onBackground = Color(0xFFF2F4F5),
+    onBackground = TextPrimary,
     surface = Color(0xFF111920),
-    onSurface = Color(0xFFF2F4F5),
+    onSurface = TextPrimary,
     surfaceVariant = Color(0xFF172027),
-    onSurfaceVariant = Color(0xFF8E9AA6),
-    outline = Color(0xFF26333D),
-    outlineVariant = Color(0xFF26333D),
+    onSurfaceVariant = TextSecondary,
+    outline = Color(0xFF31424F),
+    outlineVariant = Color(0xFF31424F),
     primary = Color(0xFF2ED1C3),
     onPrimary = Color(0xFF04231F),
     secondary = Color(0xFF2ED1C3),
@@ -62,16 +72,17 @@ private val DayColorScheme = darkColorScheme(
 // Repli sur ~35-65% de la luminance du jour selon le rôle (le fond doit surtout perdre tout
 // reflet, quitte à s'assombrir beaucoup plus que le texte/l'accent qui doivent rester
 // lisibles/fonctionnels sans agresser un œil déjà adapté à l'obscurité de l'habitacle) :
-// pas un facteur unique appliqué partout.
+// pas un facteur unique appliqué partout. Texte (onBackground/onSurface/onSurfaceVariant)
+// exclu de cet assombrissement depuis la 3e revue (voir plus haut) : identique au jour.
 private val NightColorScheme = darkColorScheme(
-    background = Color(0xFF050708),
-    onBackground = Color(0xFFB8BEC2),
+    background = Color(0xFF05080B),
+    onBackground = TextPrimary,
     surface = Color(0xFF090D10),
-    onSurface = Color(0xFFB8BEC2),
+    onSurface = TextPrimary,
     surfaceVariant = Color(0xFF0D1215),
-    onSurfaceVariant = Color(0xFF5C6670),
-    outline = Color(0xFF171F25),
-    outlineVariant = Color(0xFF171F25),
+    onSurfaceVariant = TextSecondary,
+    outline = Color(0xFF1C2A33),
+    outlineVariant = Color(0xFF1C2A33),
     primary = Color(0xFF1E887F),
     onPrimary = Color(0xFF021210),
     secondary = Color(0xFF1E887F),
@@ -88,21 +99,32 @@ private val NightColorScheme = darkColorScheme(
     onErrorContainer = Color(0xFFA33236)
 )
 
-// Dégradé radial très atténué (retour direct : la 1re version formait un "cercle gris-noir"
-// bien visible, donnant une impression d'écran vide plutôt que de tableau de bord). Deux
-// corrections par rapport à avant : écart de couleur beaucoup plus faible entre le centre et
-// le bord (contraste réduit d'environ 60%, cf. les 2 Color ci-dessous, très proches l'une de
-// l'autre) et rayon bien plus grand que la diagonale d'un écran de téléphone (2800 vs 1400),
-// pour que le dégradé reste "en cours" sur tout l'écran visible au lieu de se refermer sur
-// lui-même en un anneau net avant d'atteindre les bords.
+// Dégradé radial très atténué, 3e revue (retour direct sur le rendu réel : même après la 2e
+// version, la forme circulaire restait perceptible - un dégradé radial reste par nature
+// circulaire quel que soit son contraste, seul un rayon très supérieur à la distance
+// centre-coin de l'écran rend sa portion visible presque plate). Rayon repoussé à 4200 (la
+// diagonale visible depuis le centre d'un écran de téléphone dépasse rarement 1300px) et
+// écart de couleur encore réduit d'environ 35% par rapport à la version précédente. Stop du
+// milieu = exactement `background` : le dégradé s'écarte de cette teinte de base au lieu de
+// s'en écarter dans les deux sens indépendamment.
 private val DayBackgroundBrush = Brush.radialGradient(
-    colors = listOf(Color(0xFF10161B), Color(0xFF0B1015)),
-    radius = 2800f
+    colors = listOf(Color(0xFF0E1419), Color(0xFF0B1015), Color(0xFF080C10)),
+    radius = 4200f
 )
 private val NightBackgroundBrush = Brush.radialGradient(
-    colors = listOf(Color(0xFF070A0A), Color(0xFF050708)),
-    radius = 2800f
+    colors = listOf(Color(0xFF081018), Color(0xFF05080B), Color(0xFF030507)),
+    radius = 4200f
 )
+
+// Fond dédié aux champs de saisie (OutlinedTextField) : à peine plus clair que `background`
+// plutôt qu'un simple champ transparent posé dessus (retour direct : les champs IP/Port
+// paraissaient "mous", sans définition propre), sans pour autant remonter jusqu'au ton des
+// cartes/jauges (`surface`) qui doit rester réservé aux vraies cartes.
+private val DayFieldContainer = Color(0xFF0D1319)
+private val NightFieldContainer = Color(0xFF070B0F)
+
+@Composable
+fun fieldContainerColor(): Color = if (isSystemInDarkTheme()) NightFieldContainer else DayFieldContainer
 
 // TopAppBar/NavigationBar n'ont pas de rôle dédié dans ColorScheme (Material3 les fait
 // dériver de surface + une teinte d'élévation automatique, ce qui donnait un résultat non

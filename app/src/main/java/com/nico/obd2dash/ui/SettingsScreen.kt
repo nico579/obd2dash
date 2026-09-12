@@ -15,6 +15,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -93,16 +94,26 @@ fun SettingsScreen(
         // visible dès le premier lancement plutôt que caché derrière l'icône Réglages : ici,
         // seuls les détails du transport DÉJÀ choisi (adresse/port, ou appareil Bluetooth).
         if (state.connectionMode == ConnectionMode.WIFI) {
+            // Bordure/fond explicites (retour direct : les champs paraissaient "mous" avec le
+            // contour outline très discret d'origine) ; le focus reste sur colorScheme.primary,
+            // déjà le défaut Material3, pas besoin de le répéter ici.
+            val fieldColors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = fieldContainerColor(),
+                focusedContainerColor = fieldContainerColor(),
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+            )
             OutlinedTextField(
                 value = state.host,
                 onValueChange = onHostChange,
                 label = { Text(stringResource(R.string.settings_wifi_host_label)) },
+                colors = fieldColors,
                 modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
                 value = state.port,
                 onValueChange = onPortChange,
                 label = { Text(stringResource(R.string.settings_wifi_port_label)) },
+                colors = fieldColors,
                 modifier = Modifier.fillMaxWidth()
             )
         } else {

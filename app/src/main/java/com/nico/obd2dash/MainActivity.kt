@@ -358,25 +358,35 @@ private fun applyWakeOverLockScreenFlags(window: Window, active: Boolean) {
  */
 @Composable
 private fun ConnectionIndicator(state: ConnectionState) {
+    // Connecté réutilise directement le turquoise fonctionnel de l'appli (colorScheme.primary,
+    // déjà utilisé par Wi-Fi/Bluetooth/Partager) plutôt qu'un vert isolé : un seul "cette
+    // couleur = actif/bon" dans toute l'appli, qui s'assombrit aussi cohéremment la nuit avec
+    // le reste. Attente/erreur restent des teintes dédiées (ambre/rouge, sans rôle ColorScheme
+    // équivalent), choisies plus nettes après retour direct ("sa teinte paraît un peu sale" -
+    // l'ancien amber n'était pas en cause, plutôt son mélange avec le fond via le clignotement
+    // en alpha juste en dessous, mais la teinte plus propre aide dans les deux cas).
     val (color, label) = when (state) {
-        ConnectionState.CONNECTED -> Color(0xFF2E7D32) to stringResource(R.string.connection_status_connected)
-        ConnectionState.CONNECTING -> Color(0xFFF9A825) to stringResource(R.string.connection_status_connecting)
-        ConnectionState.RECONNECTING -> Color(0xFFF9A825) to stringResource(R.string.connection_status_reconnecting)
-        ConnectionState.ERROR -> Color(0xFFC62828) to stringResource(R.string.connection_status_error)
+        ConnectionState.CONNECTED -> MaterialTheme.colorScheme.primary to stringResource(R.string.connection_status_connected)
+        ConnectionState.CONNECTING -> Color(0xFFE0A12D) to stringResource(R.string.connection_status_connecting)
+        ConnectionState.RECONNECTING -> Color(0xFFE0A12D) to stringResource(R.string.connection_status_reconnecting)
+        ConnectionState.ERROR -> Color(0xFFE25555) to stringResource(R.string.connection_status_error)
         ConnectionState.DISCONNECTED -> Color(0xFF9E9E9E) to stringResource(R.string.connection_status_disconnected)
     }
     val blinking = state == ConnectionState.CONNECTING || state == ConnectionState.RECONNECTING
     val infiniteTransition = rememberInfiniteTransition(label = "connectionIndicatorBlink")
+    // Creux remonté de 0.2 à 0.5 : en dessous, la couleur se mélange trop au fond sombre de la
+    // barre du haut et prend une teinte "sale" à chaque bas de cycle (constaté sur le
+    // téléphone) - le clignotement reste net avec un creux moins prononcé.
     val blinkAlpha by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 0.2f,
+        targetValue = 0.5f,
         animationSpec = infiniteRepeatable(animation = tween(600), repeatMode = RepeatMode.Reverse),
         label = "connectionIndicatorAlpha"
     )
     Box(
         modifier = Modifier
             .padding(end = 16.dp)
-            .size(10.dp)
+            .size(16.dp)
             .clip(CircleShape)
             // alpha AVANT background : un modifier n'affecte que ce qui vient après lui
             // dans la chaîne (plus "interne"), donc alpha().background() rend le fond
