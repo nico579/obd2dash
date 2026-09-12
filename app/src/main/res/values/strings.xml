@@ -1,4 +1,175 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">OBD2 Dash</string>
+
+    <!-- MainActivity : barre du haut, navigation, partage, voyant de connexion -->
+    <string name="topbar_title_settings">Réglages</string>
+    <string name="topbar_back">Retour</string>
+    <string name="topbar_settings_icon">Réglages de connexion</string>
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_dtc">DTC</string>
+    <string name="nav_probe">Sondage</string>
+    <string name="nav_graph">Graphique</string>
+    <string name="nav_smoke_test">Smoke test</string>
+    <string name="share_log_title">Partager le journal</string>
+    <string name="share_recording_title">Partager l\'enregistrement</string>
+    <string name="share_probe_title">Partager le sondage</string>
+    <string name="connection_status_connected">Connecté</string>
+    <string name="connection_status_connecting">Connexion...</string>
+    <string name="connection_status_reconnecting">Reconnexion...</string>
+    <string name="connection_status_error">Erreur</string>
+    <string name="connection_status_disconnected">Déconnecté</string>
+
+    <!-- Éléments partagés (RecordingRow : réutilisée par Dashboard et Sondage) -->
+    <string name="common_file_size_kb">%1$.1f Ko</string>
+    <string name="common_share">Partager</string>
+    <string name="common_delete_content_description">Supprimer %1$s</string>
+    <string name="common_delete_confirm_title">Supprimer ce fichier ?</string>
+    <string name="common_delete_confirm_message">%1$s sera définitivement supprimé, sans confirmation possible après coup.</string>
+    <string name="common_delete">Supprimer</string>
+    <string name="common_cancel">Annuler</string>
+
+    <!-- DashboardScreen -->
+    <string name="dashboard_waiting_connection">Attente de connexion</string>
+    <string name="dashboard_recording_paused">Enregistrement en pause, reprendra automatiquement (%1$d échantillons déjà enregistrés).</string>
+    <string name="dashboard_waiting_probe">En attente de la sonde %1$s...</string>
+    <string name="dashboard_auto_retry_note">Nouvel essai automatique toutes les 5 secondes.</string>
+    <string name="dashboard_disconnect_button">Déconnecter</string>
+    <string name="dashboard_stop_recording">Arrêter l\'enregistrement (%1$d échantillons)</string>
+    <string name="dashboard_start_recording">Démarrer l\'enregistrement</string>
+    <string name="dashboard_recordings_title">Enregistrements (%1$d)</string>
+
+    <!-- SettingsScreen -->
+    <string name="settings_title">Réglages de connexion</string>
+    <string name="settings_intro">La connexion se fait automatiquement au lancement et se retente seule tant qu\'elle échoue. Change ici l\'adresse, le transport ou l\'appareil Bluetooth visés.</string>
+    <string name="settings_wifi_host_label">IP de la sonde</string>
+    <string name="settings_wifi_port_label">Port</string>
+    <string name="settings_wifi_connecting">Connexion...</string>
+    <string name="settings_wifi_connect_now">Se connecter maintenant</string>
+    <string name="settings_bluetooth_intro">Sélectionne un appareil déjà appairé dans les réglages Bluetooth du téléphone. Non vérifié sur un vrai adaptateur ELM327 Bluetooth (seul du Wi-Fi a été testé à ce jour) : le protocole est identique, mais cette voie de connexion elle-même ne l\'est pas.</string>
+    <string name="settings_bluetooth_refresh_button">Actualiser les appareils appairés</string>
+    <string name="settings_bluetooth_no_devices">Aucun appareil appairé (ou Bluetooth désactivé, ou permission refusée).</string>
+    <string name="settings_bluetooth_connect_button">Connecter</string>
+    <string name="settings_connected_label">Connecté.</string>
+    <string name="settings_big_gauges_title">Valeurs affichées en gros sur le Dashboard</string>
+    <string name="settings_big_gauges_description">Choisis jusqu\'à 6 paramètres (%1$d/6 sélectionnés). Les autres paramètres supportés restent affichés en plus petit.</string>
+    <string name="settings_log_title">Journal (%1$d)</string>
+    <string name="settings_log_description">Démarrage, connexions, coupures, activation d\'une fonction, plantage. Un fichier par lancement de l\'application.</string>
+
+    <!-- DtcScreen -->
+    <string name="dtc_title">Codes défaut</string>
+    <string name="dtc_mil_on">MIL allumé</string>
+    <string name="dtc_mil_off">MIL éteint</string>
+    <string name="dtc_mil_unknown">MIL non lu</string>
+    <string name="dtc_vin_label">VIN %1$s</string>
+    <string name="dtc_protocol_label">Protocole %1$s</string>
+    <string name="dtc_model_year_label">année-modèle %1$s</string>
+    <string name="dtc_loading">Lecture...</string>
+    <string name="dtc_refresh_button">Rafraîchir</string>
+    <string name="dtc_export_subject">OBD2 Dash - export diagnostic</string>
+    <string name="dtc_share_chooser_title">Partager le diagnostic</string>
+    <string name="dtc_share_button">Partager (pour analyse sur PC)</string>
+    <string name="dtc_stored_title">Stockés (%1$s)</string>
+    <string name="dtc_pending_title">En attente (%1$s)</string>
+    <string name="dtc_description_disclaimer">Descriptions limitées aux codes génériques les plus courants, non exhaustif.</string>
+    <string name="dtc_freeze_frame_title">Freeze frame (au moment du défaut)</string>
+    <string name="dtc_readiness_title">Moniteurs de préparation</string>
+    <string name="dtc_history_title">Historique sur ce véhicule</string>
+    <string name="dtc_probe_headers_description">Diagnostic ponctuel (finding 3) : capture le format des trames avec les headers CAN activés, pour préparer la prise en charge multi-calculateur. Sans effet sur le fonctionnement normal.</string>
+    <string name="dtc_probe_headers_button">Capturer le format headers-on</string>
+    <string name="dtc_section_not_read">Non lu</string>
+    <string name="dtc_section_none">Aucun</string>
+    <string name="dtc_readiness_complete">Complet</string>
+    <string name="dtc_readiness_incomplete">Incomplet</string>
+    <string name="dtc_history_seen_range">Vu du %1$s au %2$s</string>
+    <string name="dtc_history_active">Actif</string>
+    <string name="dtc_history_not_found">Non retrouvé</string>
+
+    <!-- ProbeScreen -->
+    <string name="probe_title">Sondage FAP (expérimental, lecture seule)</string>
+    <string name="probe_intro">Interroge un par un les identifiants UDS (ReadDataByIdentifier, 0x22) d\'une plage donnée et note ce que RÉPOND CE SONDAGE : aucune écriture, aucun effacement, aucune commande d\'actionneur ou de régénération forcée. Headers CAN désactivés (ATH0) : sans adresse cible ci-dessous, impossible de savoir quel calculateur a répondu si plusieurs répondent à la diffusion. Reste en session diagnostique par défaut : certains identifiants existants peuvent malgré tout revenir en erreur s\'ils nécessitent une session étendue que cet outil ne demande volontairement pas. Le sens d\'une réponse positive reste à établir après coup, rien n\'est décodé automatiquement ici.</string>
+    <string name="probe_not_connected">Connecte-toi à la sonde depuis le Dashboard pour lancer un sondage.</string>
+    <string name="probe_start_did_label">DID début (hex)</string>
+    <string name="probe_end_did_label">DID fin (hex)</string>
+    <string name="probe_target_header_label">Adresse cible (hex, optionnel — ex: 7E0)</string>
+    <string name="probe_broadcast_note">Vide = diffusion (comportement par défaut, peut mélanger plusieurs calculateurs). Une adresse cible n\'a de sens qu\'en CAN.</string>
+    <string name="probe_current_did">DID courant : %1$s (%2$d/%3$d)</string>
+    <string name="probe_stop_button">Arrêter le sondage</string>
+    <string name="probe_start_button">Démarrer le sondage</string>
+    <string name="probe_outcome_done">Dernier sondage : terminé (%1$d/%2$d).</string>
+    <string name="probe_outcome_interrupted">Dernier sondage : interrompu (%1$d/%2$d).</string>
+    <string name="probe_outcome_error">Dernier sondage : arrêté en erreur (%1$d/%2$d).</string>
+    <string name="probe_positives_title">Réponses positives (%1$d)</string>
+    <string name="probe_saved_title">Sondages enregistrés (%1$d)</string>
+
+    <!-- GraphScreen -->
+    <string name="graph_title">Graphique</string>
+    <string name="graph_not_connected">Connecte-toi à la sonde depuis le Dashboard pour tracer une courbe.</string>
+    <string name="graph_reconnecting_note">Reconnexion en cours, la courbe reprendra automatiquement.</string>
+    <string name="graph_choose_param">Choisis un paramètre ci-dessus pour voir sa courbe.</string>
+    <string name="graph_collecting">Collecte des données...</string>
+    <string name="graph_current_value">Actuel : %1$s</string>
+    <string name="graph_picker_placeholder">Choisir un paramètre</string>
+    <string name="graph_picker_label">Paramètre</string>
+
+    <!-- AutoTestScreen -->
+    <string name="smoketest_title">Smoke test automatique</string>
+    <string name="smoketest_intro">Enchaîne des lectures et deux écritures courtes (10 s d\'enregistrement, un petit sondage UDS) contre la sonde connectée, sans manipulation entre les étapes. Complète la checklist « en voiture », ne la remplace pas : rien ici ne remplace couper le contact ou éteindre l\'écran pour de vrai.</string>
+    <string name="smoketest_not_connected">Connecte-toi à la sonde depuis le Dashboard pour lancer le smoke test.</string>
+    <string name="smoketest_stop_button">Arrêter</string>
+    <string name="smoketest_run_button">Lancer le smoke test</string>
+    <string name="smoketest_rerun_button">Relancer le smoke test</string>
+
+    <!-- ObdViewModel : messages d'erreur/statut affichés dans l'UI (pas les entrées EventLog, celles-ci restent en dur, journal technique pas une surface traduite) -->
+    <string name="error_wifi_invalid_address">Adresse IP ou port invalide (port entre 1 et 65535).</string>
+    <string name="error_wifi_no_network">Aucun réseau WiFi détecté après 4s (timeout). Vérifie que le téléphone est bien connecté au WiFi de la sonde.</string>
+    <string name="error_connection_failed_fallback">Connexion échouée</string>
+    <string name="error_zombie_connection">Plus aucune réponse de la sonde depuis %1$ds</string>
+    <string name="error_read_failed_fallback">Lecture échouée</string>
+    <string name="error_connection_lost">Connexion perdue avec la sonde</string>
+    <string name="error_dtc_read_failed_fallback">Lecture DTC échouée</string>
+    <string name="error_header_probe_reading">Lecture...</string>
+    <string name="error_header_probe_failed">Échec: %1$s</string>
+    <string name="error_probe_range_invalid">Plage invalide (hexadécimal, 0000-FFFF, début ≤ fin).</string>
+    <string name="error_probe_target_invalid">Adresse cible invalide : exactement 3 chiffres hexadécimaux (ex: 7E0), ou la laisser vide.</string>
+    <string name="error_probe_target_not_can">Ciblage d\'adresse non pris en charge hors CAN (protocole détecté : %1$s).</string>
+    <string name="error_probe_file_create">Impossible de créer le fichier de sondage : %1$s</string>
+    <string name="error_probe_file_open">Impossible d\'ouvrir le fichier de sondage : %1$s</string>
+    <string name="error_probe_file_init">Impossible d\'initialiser le fichier de sondage : %1$s</string>
+    <string name="error_probe_write_failed">Écriture du sondage échouée, arrêté.</string>
+    <string name="error_recording_file_create">Impossible de créer l\'enregistrement : %1$s</string>
+    <string name="error_recording_file_open">Impossible d\'ouvrir l\'enregistrement : %1$s</string>
+    <string name="error_recording_file_init">Impossible d\'initialiser l\'enregistrement : %1$s</string>
+    <string name="error_recording_write_failed">Écriture de l\'enregistrement échouée, arrêté.</string>
+    <string name="error_smoke_test_failed_fallback">Échec du smoke test automatique</string>
+
+    <!-- ObdViewModel : étapes et détails du smoke test automatique -->
+    <string name="smoketest_step_mil">Statut MIL (PID01)</string>
+    <string name="smoketest_step_dynamic_value">Une valeur dynamique</string>
+    <string name="smoketest_step_vin">VIN</string>
+    <string name="smoketest_step_dtc">Codes défaut</string>
+    <string name="smoketest_step_readiness">Moniteurs de préparation</string>
+    <string name="smoketest_step_recording">Enregistrement court (10s)</string>
+    <string name="smoketest_step_probe">Sondage UDS court (3 DID)</string>
+    <string name="smoketest_detail_mil_on">MIL allumé, %1$d code(s) annoncé(s)</string>
+    <string name="smoketest_detail_mil_off">MIL éteint, %1$d code(s) annoncé(s)</string>
+    <string name="smoketest_generic_failure">échec</string>
+    <string name="smoketest_no_dynamic_pid">Aucun PID dynamique annoncé supporté</string>
+    <string name="smoketest_dynamic_value_result">%1$s = %2$s</string>
+    <string name="smoketest_dynamic_value_unusable">%1$s : pas de réponse exploitable</string>
+    <string name="smoketest_vin_not_read">Non lu (normal en non-CAN, ou VIN non supporté)</string>
+    <string name="smoketest_dtc_summary">%1$d stocké(s), %2$d en attente</string>
+    <string name="smoketest_readiness_count">%1$d moniteur(s) annoncé(s)</string>
+    <string name="smoketest_readiness_unreadable">PID01 illisible pour les moniteurs</string>
+    <string name="smoketest_connection_changed">Connexion changée en cours de test</string>
+    <string name="smoketest_recording_not_started">L\'enregistrement n\'a pas démarré</string>
+    <string name="smoketest_recording_samples">%1$d échantillon(s) écrit(s) pendant le test</string>
+    <string name="smoketest_recording_zero_samples">Aucun échantillon écrit pendant le test (voir l\'erreur d\'enregistrement)</string>
+    <string name="smoketest_probe_not_started">Le sondage n\'a pas démarré</string>
+    <string name="smoketest_probe_ok">Mécanisme de sondage fonctionnel (3 DID lus)</string>
+    <string name="smoketest_probe_interrupted">Interrompu avant la fin</string>
+
+    <!-- RecordingService : canal de notification et notification de premier plan -->
+    <string name="notification_channel_recording">Enregistrement OBD2</string>
+    <string name="notification_recording_content">Enregistrement en cours</string>
 </resources>

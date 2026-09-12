@@ -33,14 +33,16 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.GraphPoint
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
+import com.nico.obd2dash.R
 import com.nico.obd2dash.VALUE_UNAVAILABLE_AFTER_MS
-import kotlinx.coroutines.delay
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /**
  * Courbe en direct d'un paramètre choisi (voir ObdViewModel.selectGraphPid/GraphPoint).
@@ -72,7 +74,7 @@ fun GraphScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Graphique", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.graph_title), style = MaterialTheme.typography.headlineSmall)
 
         // RECONNECTING inclus, pas seulement CONNECTED : une coupure transitoire ne doit
         // pas effacer la courbe déjà tracée ni forcer à recommencer (voir
@@ -81,7 +83,7 @@ fun GraphScreen(
         // courbe continue donc de s'afficher, en pause, jusqu'à la reprise du polling.
         if (state.connectionState != ConnectionState.CONNECTED && state.connectionState != ConnectionState.RECONNECTING) {
             Text(
-                "Connecte-toi à la sonde depuis le Dashboard pour tracer une courbe.",
+                stringResource(R.string.graph_not_connected),
                 style = MaterialTheme.typography.bodyMedium
             )
         } else {
@@ -100,7 +102,7 @@ fun GraphScreen(
 
             if (state.connectionState == ConnectionState.RECONNECTING) {
                 Text(
-                    "Reconnexion en cours, la courbe reprendra automatiquement.",
+                    stringResource(R.string.graph_reconnecting_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -108,12 +110,12 @@ fun GraphScreen(
 
             when {
                 selectedDef == null -> Text(
-                    "Choisis un paramètre ci-dessus pour voir sa courbe.",
+                    stringResource(R.string.graph_choose_param),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 state.graphHistory.size < 2 -> Text(
-                    "Collecte des données...",
+                    stringResource(R.string.graph_collecting),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 else -> {
@@ -128,7 +130,7 @@ fun GraphScreen(
                     // s'affichait "Actuel" indéfiniment, alors que le Dashboard masquait déjà
                     // cette même valeur après VALUE_UNAVAILABLE_AFTER_MS.
                     val (text, _) = staleness(state.values[selectedDef.pid], nowMs)
-                    Text("Actuel : $text", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.graph_current_value, text), style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -141,10 +143,10 @@ private fun PidPicker(options: List<PidCatalog.Def>, selectedLabel: String?, onS
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = selectedLabel ?: "Choisir un paramètre",
+            value = selectedLabel ?: stringResource(R.string.graph_picker_placeholder),
             onValueChange = {},
             readOnly = true,
-            label = { Text("Paramètre") },
+            label = { Text(stringResource(R.string.graph_picker_label)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor().fillMaxWidth()
         )
@@ -216,5 +218,5 @@ private fun LineChart(points: List<GraphPoint>, modifier: Modifier = Modifier) {
     }
 }
 
-private fun formatGraphValue(v: Double): String =
+internal fun formatGraphValue(v: Double): String =
     if (v == v.toLong().toDouble()) v.toLong().toString() else "%.2f".format(Locale.FRANCE, v)

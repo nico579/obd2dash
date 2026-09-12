@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OBD2 Dash</string>
+
+    <!-- MainActivity: top bar, navigation, sharing, connection indicator -->
+    <string name="topbar_title_settings">Settings</string>
+    <string name="topbar_back">Back</string>
+    <string name="topbar_settings_icon">Connection settings</string>
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_dtc">DTC</string>
+    <string name="nav_probe">Scan</string>
+    <string name="nav_graph">Graph</string>
+    <string name="nav_smoke_test">Smoke test</string>
+    <string name="share_log_title">Share the log</string>
+    <string name="share_recording_title">Share the recording</string>
+    <string name="share_probe_title">Share the scan</string>
+    <string name="connection_status_connected">Connected</string>
+    <string name="connection_status_connecting">Connecting...</string>
+    <string name="connection_status_reconnecting">Reconnecting...</string>
+    <string name="connection_status_error">Error</string>
+    <string name="connection_status_disconnected">Disconnected</string>
+
+    <!-- Shared elements (RecordingRow: reused by Dashboard and Scan) -->
+    <string name="common_file_size_kb">%1$.1f KB</string>
+    <string name="common_share">Share</string>
+    <string name="common_delete_content_description">Delete %1$s</string>
+    <string name="common_delete_confirm_title">Delete this file?</string>
+    <string name="common_delete_confirm_message">%1$s will be permanently deleted, with no way to undo it afterwards.</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_cancel">Cancel</string>
+
+    <!-- DashboardScreen -->
+    <string name="dashboard_waiting_connection">Waiting for connection</string>
+    <string name="dashboard_recording_paused">Recording paused, will resume automatically (%1$d samples already recorded).</string>
+    <string name="dashboard_waiting_probe">Waiting for the %1$s probe...</string>
+    <string name="dashboard_auto_retry_note">Automatic retry every 5 seconds.</string>
+    <string name="dashboard_disconnect_button">Disconnect</string>
+    <string name="dashboard_stop_recording">Stop recording (%1$d samples)</string>
+    <string name="dashboard_start_recording">Start recording</string>
+    <string name="dashboard_recordings_title">Recordings (%1$d)</string>
+
+    <!-- SettingsScreen -->
+    <string name="settings_title">Connection settings</string>
+    <string name="settings_intro">The connection happens automatically at launch and keeps retrying on its own as long as it fails. Change the target address, transport, or Bluetooth device here.</string>
+    <string name="settings_wifi_host_label">Probe IP address</string>
+    <string name="settings_wifi_port_label">Port</string>
+    <string name="settings_wifi_connecting">Connecting...</string>
+    <string name="settings_wifi_connect_now">Connect now</string>
+    <string name="settings_bluetooth_intro">Select a device already paired in the phone\'s Bluetooth settings. Not verified on a real Bluetooth ELM327 adapter (only Wi-Fi has been tested so far): the protocol is the same, but this connection path itself is not.</string>
+    <string name="settings_bluetooth_refresh_button">Refresh paired devices</string>
+    <string name="settings_bluetooth_no_devices">No paired device (or Bluetooth is off, or permission was denied).</string>
+    <string name="settings_bluetooth_connect_button">Connect</string>
+    <string name="settings_connected_label">Connected.</string>
+    <string name="settings_big_gauges_title">Values shown large on the Dashboard</string>
+    <string name="settings_big_gauges_description">Choose up to 6 parameters (%1$d/6 selected). Other supported parameters are still shown, smaller.</string>
+    <string name="settings_log_title">Log (%1$d)</string>
+    <string name="settings_log_description">Startup, connections, drops, feature activation, crashes. One file per app launch.</string>
+
+    <!-- DtcScreen -->
+    <string name="dtc_title">Trouble codes</string>
+    <string name="dtc_mil_on">MIL on</string>
+    <string name="dtc_mil_off">MIL off</string>
+    <string name="dtc_mil_unknown">MIL not read</string>
+    <string name="dtc_vin_label">VIN %1$s</string>
+    <string name="dtc_protocol_label">Protocol %1$s</string>
+    <string name="dtc_model_year_label">model year %1$s</string>
+    <string name="dtc_loading">Reading...</string>
+    <string name="dtc_refresh_button">Refresh</string>
+    <string name="dtc_export_subject">OBD2 Dash - diagnostic export</string>
+    <string name="dtc_share_chooser_title">Share the diagnostic</string>
+    <string name="dtc_share_button">Share (for analysis on PC)</string>
+    <string name="dtc_stored_title">Stored (%1$s)</string>
+    <string name="dtc_pending_title">Pending (%1$s)</string>
+    <string name="dtc_description_disclaimer">Descriptions limited to the most common generic codes, not exhaustive.</string>
+    <string name="dtc_freeze_frame_title">Freeze frame (at the time of the fault)</string>
+    <string name="dtc_readiness_title">Readiness monitors</string>
+    <string name="dtc_history_title">History on this vehicle</string>
+    <string name="dtc_probe_headers_description">One-off diagnostic (finding 3): captures the frame format with CAN headers enabled, to prepare multi-ECU support. No effect on normal operation.</string>
+    <string name="dtc_probe_headers_button">Capture the headers-on format</string>
+    <string name="dtc_section_not_read">Not read</string>
+    <string name="dtc_section_none">None</string>
+    <string name="dtc_readiness_complete">Complete</string>
+    <string name="dtc_readiness_incomplete">Incomplete</string>
+    <string name="dtc_history_seen_range">Seen from %1$s to %2$s</string>
+    <string name="dtc_history_active">Active</string>
+    <string name="dtc_history_not_found">Not found</string>
+
+    <!-- ProbeScreen -->
+    <string name="probe_title">DPF scan (experimental, read-only)</string>
+    <string name="probe_intro">Queries UDS identifiers (ReadDataByIdentifier, 0x22) one by one across a given range and records WHAT THIS SCAN RETURNS: no writes, no clearing, no actuator command or forced regeneration. CAN headers disabled (ATH0): without a target address below, there\'s no way to know which ECU answered if several respond to the broadcast. Stays in the default diagnostic session: some existing identifiers may still come back as an error if they require an extended session that this tool deliberately doesn\'t request. The meaning of a positive response is left to work out afterwards, nothing is decoded automatically here.</string>
+    <string name="probe_not_connected">Connect to the probe from the Dashboard to start a scan.</string>
+    <string name="probe_start_did_label">Start DID (hex)</string>
+    <string name="probe_end_did_label">End DID (hex)</string>
+    <string name="probe_target_header_label">Target address (hex, optional — e.g. 7E0)</string>
+    <string name="probe_broadcast_note">Empty = broadcast (default behavior, may mix up several ECUs). A target address only makes sense on CAN.</string>
+    <string name="probe_current_did">Current DID: %1$s (%2$d/%3$d)</string>
+    <string name="probe_stop_button">Stop the scan</string>
+    <string name="probe_start_button">Start the scan</string>
+    <string name="probe_outcome_done">Last scan: completed (%1$d/%2$d).</string>
+    <string name="probe_outcome_interrupted">Last scan: interrupted (%1$d/%2$d).</string>
+    <string name="probe_outcome_error">Last scan: stopped on error (%1$d/%2$d).</string>
+    <string name="probe_positives_title">Positive responses (%1$d)</string>
+    <string name="probe_saved_title">Saved scans (%1$d)</string>
+
+    <!-- GraphScreen -->
+    <string name="graph_title">Graph</string>
+    <string name="graph_not_connected">Connect to the probe from the Dashboard to plot a graph.</string>
+    <string name="graph_reconnecting_note">Reconnecting, the graph will resume automatically.</string>
+    <string name="graph_choose_param">Choose a parameter above to see its graph.</string>
+    <string name="graph_collecting">Collecting data...</string>
+    <string name="graph_current_value">Current: %1$s</string>
+    <string name="graph_picker_placeholder">Choose a parameter</string>
+    <string name="graph_picker_label">Parameter</string>
+
+    <!-- AutoTestScreen -->
+    <string name="smoketest_title">Automatic smoke test</string>
+    <string name="smoketest_intro">Runs through a series of reads and two short writes (10s of recording, a small UDS scan) against the connected probe, with no manual steps in between. Complements the in-car checklist, doesn\'t replace it: nothing here replaces actually turning off the ignition or the screen for real.</string>
+    <string name="smoketest_not_connected">Connect to the probe from the Dashboard to run the smoke test.</string>
+    <string name="smoketest_stop_button">Stop</string>
+    <string name="smoketest_run_button">Run the smoke test</string>
+    <string name="smoketest_rerun_button">Rerun the smoke test</string>
+
+    <!-- ObdViewModel: error/status messages shown in the UI (not EventLog entries, those stay hardcoded, a technical log not a translated surface) -->
+    <string name="error_wifi_invalid_address">Invalid IP address or port (port must be between 1 and 65535).</string>
+    <string name="error_wifi_no_network">No WiFi network detected after 4s (timeout). Check that the phone is connected to the probe\'s WiFi.</string>
+    <string name="error_connection_failed_fallback">Connection failed</string>
+    <string name="error_zombie_connection">No response from the probe for %1$ds</string>
+    <string name="error_read_failed_fallback">Read failed</string>
+    <string name="error_connection_lost">Connection to the probe lost</string>
+    <string name="error_dtc_read_failed_fallback">DTC read failed</string>
+    <string name="error_header_probe_reading">Reading...</string>
+    <string name="error_header_probe_failed">Failed: %1$s</string>
+    <string name="error_probe_range_invalid">Invalid range (hexadecimal, 0000-FFFF, start ≤ end).</string>
+    <string name="error_probe_target_invalid">Invalid target address: exactly 3 hexadecimal digits (e.g. 7E0), or leave it empty.</string>
+    <string name="error_probe_target_not_can">Address targeting isn\'t supported outside CAN (detected protocol: %1$s).</string>
+    <string name="error_probe_file_create">Couldn\'t create the scan file: %1$s</string>
+    <string name="error_probe_file_open">Couldn\'t open the scan file: %1$s</string>
+    <string name="error_probe_file_init">Couldn\'t initialize the scan file: %1$s</string>
+    <string name="error_probe_write_failed">Scan write failed, stopped.</string>
+    <string name="error_recording_file_create">Couldn\'t create the recording: %1$s</string>
+    <string name="error_recording_file_open">Couldn\'t open the recording: %1$s</string>
+    <string name="error_recording_file_init">Couldn\'t initialize the recording: %1$s</string>
+    <string name="error_recording_write_failed">Recording write failed, stopped.</string>
+    <string name="error_smoke_test_failed_fallback">Automatic smoke test failed</string>
+
+    <!-- ObdViewModel: automatic smoke test steps and details -->
+    <string name="smoketest_step_mil">MIL status (PID01)</string>
+    <string name="smoketest_step_dynamic_value">A dynamic value</string>
+    <string name="smoketest_step_vin">VIN</string>
+    <string name="smoketest_step_dtc">Trouble codes</string>
+    <string name="smoketest_step_readiness">Readiness monitors</string>
+    <string name="smoketest_step_recording">Short recording (10s)</string>
+    <string name="smoketest_step_probe">Short UDS scan (3 DIDs)</string>
+    <string name="smoketest_detail_mil_on">MIL on, %1$d code(s) reported</string>
+    <string name="smoketest_detail_mil_off">MIL off, %1$d code(s) reported</string>
+    <string name="smoketest_generic_failure">failure</string>
+    <string name="smoketest_no_dynamic_pid">No supported dynamic PID reported</string>
+    <string name="smoketest_dynamic_value_result">%1$s = %2$s</string>
+    <string name="smoketest_dynamic_value_unusable">%1$s: no usable response</string>
+    <string name="smoketest_vin_not_read">Not read (normal on non-CAN, or VIN not supported)</string>
+    <string name="smoketest_dtc_summary">%1$d stored, %2$d pending</string>
+    <string name="smoketest_readiness_count">%1$d monitor(s) reported</string>
+    <string name="smoketest_readiness_unreadable">PID01 unreadable for monitors</string>
+    <string name="smoketest_connection_changed">Connection changed during the test</string>
+    <string name="smoketest_recording_not_started">The recording didn\'t start</string>
+    <string name="smoketest_recording_samples">%1$d sample(s) written during the test</string>
+    <string name="smoketest_recording_zero_samples">No samples written during the test (see the recording error)</string>
+    <string name="smoketest_probe_not_started">The scan didn\'t start</string>
+    <string name="smoketest_probe_ok">Scan mechanism working (3 DIDs read)</string>
+    <string name="smoketest_probe_interrupted">Interrupted before completion</string>
+
+    <!-- RecordingService: notification channel and foreground notification -->
+    <string name="notification_channel_recording">OBD2 Recording</string>
+    <string name="notification_recording_content">Recording in progress</string>
+</resources>

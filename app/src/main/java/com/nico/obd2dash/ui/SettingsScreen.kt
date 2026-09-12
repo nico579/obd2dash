@@ -20,11 +20,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionMode
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
+import com.nico.obd2dash.R
 
 /**
  * Réglages de connexion : adresse Wi-Fi, transport, appareil Bluetooth. Séparé du
@@ -56,10 +58,9 @@ fun SettingsScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Réglages de connexion", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineSmall)
         Text(
-            "La connexion se fait automatiquement au lancement et se retente seule tant " +
-                "qu'elle échoue. Change ici l'adresse, le transport ou l'appareil Bluetooth visés.",
+            stringResource(R.string.settings_intro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -85,14 +86,14 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = state.host,
                 onValueChange = onHostChange,
-                label = { Text("IP de la sonde") },
+                label = { Text(stringResource(R.string.settings_wifi_host_label)) },
                 enabled = !connecting,
                 modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
                 value = state.port,
                 onValueChange = onPortChange,
-                label = { Text("Port") },
+                label = { Text(stringResource(R.string.settings_wifi_port_label)) },
                 enabled = !connecting,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -101,15 +102,12 @@ fun SettingsScreen(
                 enabled = !connecting,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (connecting) "Connexion..." else "Se connecter maintenant")
+                Text(stringResource(if (connecting) R.string.settings_wifi_connecting else R.string.settings_wifi_connect_now))
             }
         } else {
             LaunchedEffect(state.connectionMode) { onRefreshBluetoothDevices() }
             Text(
-                "Sélectionne un appareil déjà appairé dans les réglages Bluetooth du " +
-                    "téléphone. Non vérifié sur un vrai adaptateur ELM327 Bluetooth (seul " +
-                    "du Wi-Fi a été testé à ce jour) : le protocole est identique, mais " +
-                    "cette voie de connexion elle-même ne l'est pas.",
+                stringResource(R.string.settings_bluetooth_intro),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -118,11 +116,11 @@ fun SettingsScreen(
                 enabled = !connecting,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Actualiser les appareils appairés")
+                Text(stringResource(R.string.settings_bluetooth_refresh_button))
             }
             if (state.bondedBluetoothDevices.isEmpty()) {
                 Text(
-                    "Aucun appareil appairé (ou Bluetooth désactivé, ou permission refusée).",
+                    stringResource(R.string.settings_bluetooth_no_devices),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -138,7 +136,7 @@ fun SettingsScreen(
         }
 
         if (state.connectionState == ConnectionState.CONNECTED) {
-            Text("Connecté.", color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.settings_connected_label), color = MaterialTheme.colorScheme.primary)
         }
         state.errorMessage?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -153,10 +151,9 @@ fun SettingsScreen(
         // (voir DashboardScreen.primaryDefs) est lui affiché sur le Dashboard, l'écran
         // qu'on garde ouvert en conduisant, pas ici (voir ObdUiState.bigGaugePids).
         HorizontalDivider()
-        Text("Valeurs affichées en gros sur le Dashboard", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.settings_big_gauges_title), style = MaterialTheme.typography.titleMedium)
         Text(
-            "Choisis jusqu'à 6 paramètres (${state.bigGaugePids.size}/6 sélectionnés). " +
-                "Les autres paramètres supportés restent affichés en plus petit.",
+            stringResource(R.string.settings_big_gauges_description, state.bigGaugePids.size),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -183,9 +180,9 @@ fun SettingsScreen(
         // (voir EventLog), au même titre que les réglages de connexion sur cet écran.
         if (state.logs.isNotEmpty()) {
             HorizontalDivider()
-            Text("Journal (${state.logs.size})", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_log_title, state.logs.size), style = MaterialTheme.typography.titleMedium)
             Text(
-                "Démarrage, connexions, coupures, activation d'une fonction, plantage. Un fichier par lancement de l'application.",
+                stringResource(R.string.settings_log_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -228,6 +225,6 @@ private fun BluetoothDeviceRow(device: BluetoothDevice, enabled: Boolean, onClic
             Text(name, style = MaterialTheme.typography.bodyMedium)
             Text(device.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Button(onClick = onClick, enabled = enabled) { Text("Connecter") }
+        Button(onClick = onClick, enabled = enabled) { Text(stringResource(R.string.settings_bluetooth_connect_button)) }
     }
 }

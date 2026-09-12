@@ -10,9 +10,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.annotation.StringRes
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -39,11 +44,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -118,11 +126,13 @@ class MainActivity : ComponentActivity() {
                     Scaffold(
                         topBar = {
                             TopAppBar(
-                                title = { Text(if (showSettings) "Réglages" else "OBD2 Dash") },
+                                title = {
+                                    Text(stringResource(if (showSettings) R.string.topbar_title_settings else R.string.app_name))
+                                },
                                 navigationIcon = {
                                     if (showSettings) {
                                         IconButton(onClick = { showSettings = false }) {
-                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.topbar_back))
                                         }
                                     }
                                 },
@@ -130,7 +140,7 @@ class MainActivity : ComponentActivity() {
                                     ConnectionIndicator(state.connectionState)
                                     if (!showSettings) {
                                         IconButton(onClick = { showSettings = true }) {
-                                            Icon(Icons.Filled.Settings, contentDescription = "Réglages de connexion")
+                                            Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.topbar_settings_icon))
                                         }
                                     }
                                 }
@@ -146,31 +156,31 @@ class MainActivity : ComponentActivity() {
                                     selected = screen == Screen.DASHBOARD,
                                     onClick = { screen = Screen.DASHBOARD; showSettings = false },
                                     icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-                                    label = { Text("Dashboard") }
+                                    label = { Text(stringResource(R.string.nav_dashboard)) }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.DTC,
                                     onClick = { screen = Screen.DTC; showSettings = false },
                                     icon = { Icon(Icons.Filled.Warning, contentDescription = null) },
-                                    label = { Text("DTC") }
+                                    label = { Text(stringResource(R.string.nav_dtc)) }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.PROBE,
                                     onClick = { screen = Screen.PROBE; showSettings = false },
                                     icon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                                    label = { Text("Sondage") }
+                                    label = { Text(stringResource(R.string.nav_probe)) }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.GRAPH,
                                     onClick = { screen = Screen.GRAPH; showSettings = false },
                                     icon = { Icon(painterResource(R.drawable.ic_chart), contentDescription = null) },
-                                    label = { Text("Graphique") }
+                                    label = { Text(stringResource(R.string.nav_graph)) }
                                 )
                                 NavigationBarItem(
                                     selected = screen == Screen.AUTO_TEST,
                                     onClick = { screen = Screen.AUTO_TEST; showSettings = false },
                                     icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                    label = { Text("Smoke test") }
+                                    label = { Text(stringResource(R.string.nav_smoke_test)) }
                                 )
                             }
                         }
@@ -185,7 +195,7 @@ class MainActivity : ComponentActivity() {
                                 onModeChange = { viewModel.setConnectionMode(it) },
                                 onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
                                 onSetBigGaugePid = { pid, selected -> viewModel.setBigGaugePidSelected(pid, selected) },
-                                onShareLog = { path -> shareCsvFile(path, "Partager le journal", mimeType = "text/plain") },
+                                onShareLog = { path -> shareCsvFile(path, R.string.share_log_title, mimeType = "text/plain") },
                                 onDeleteLog = { path -> viewModel.deleteLog(path) },
                                 modifier = Modifier.padding(padding)
                             )
@@ -203,7 +213,7 @@ class MainActivity : ComponentActivity() {
                                         viewModel.startRecording()
                                     }
                                 },
-                                onShareRecording = { path -> shareCsvFile(path, "Partager l'enregistrement") },
+                                onShareRecording = { path -> shareCsvFile(path, R.string.share_recording_title) },
                                 onDeleteRecording = { path -> viewModel.deleteRecording(path) },
                                 modifier = Modifier.padding(padding)
                             )
@@ -219,7 +229,7 @@ class MainActivity : ComponentActivity() {
                                     viewModel.startFapScan(startDid, endDid, targetHeader)
                                 },
                                 onStopScan = { viewModel.stopFapScan() },
-                                onShareProbe = { path -> shareCsvFile(path, "Partager le sondage") },
+                                onShareProbe = { path -> shareCsvFile(path, R.string.share_probe_title) },
                                 onDeleteProbe = { path -> viewModel.deleteProbe(path) },
                                 modifier = Modifier.padding(padding)
                             )
@@ -242,14 +252,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Partage Android standard (sharesheet) : identique pour un enregistrement, un sondage ou un journal (mimeType "text/plain" pour ce dernier, ce n'est pas un tableau). */
-    private fun shareCsvFile(path: String, chooserTitle: String, mimeType: String = "text/csv") {
+    private fun shareCsvFile(path: String, @StringRes chooserTitleRes: Int, mimeType: String = "text/csv") {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", File(path))
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivity(Intent.createChooser(shareIntent, chooserTitle))
+        startActivity(Intent.createChooser(shareIntent, getString(chooserTitleRes)))
     }
 }
 
@@ -259,21 +269,45 @@ class MainActivity : ComponentActivity() {
  * littérales plutôt que les jetons du thème Material (primary/error...) : vert/rouge est
  * une convention universelle de feu tricolore demandée telle quelle, indépendante de la
  * palette générée par le thème (qui n'est pas forcément vert/rouge par défaut).
+ *
+ * CONNECTING/RECONNECTING clignotent (convention voyant de bord : clignotant = en cours,
+ * fixe = état stabilisé) ; c'est désormais le seul signal de connexion en cours, le
+ * Dashboard n'affiche plus son propre bloc "occupé" séparé (voir DashboardScreen, qui
+ * masquait la liste des enregistrements pendant une reconnexion).
+ *
+ * Juste le voyant, sans libellé à côté (le texte dupliquait ce que dit déjà la couleur et
+ * encombrait la barre du haut) : le libellé survit comme contentDescription pour
+ * l'accessibilité (lecteur d'écran), simplement plus affiché visuellement.
  */
 @Composable
 private fun ConnectionIndicator(state: ConnectionState) {
     val (color, label) = when (state) {
-        ConnectionState.CONNECTED -> Color(0xFF2E7D32) to "Connecté"
-        ConnectionState.CONNECTING -> Color(0xFFF9A825) to "Connexion..."
-        ConnectionState.RECONNECTING -> Color(0xFFF9A825) to "Reconnexion..."
-        ConnectionState.ERROR -> Color(0xFFC62828) to "Erreur"
-        ConnectionState.DISCONNECTED -> Color(0xFF9E9E9E) to "Déconnecté"
+        ConnectionState.CONNECTED -> Color(0xFF2E7D32) to stringResource(R.string.connection_status_connected)
+        ConnectionState.CONNECTING -> Color(0xFFF9A825) to stringResource(R.string.connection_status_connecting)
+        ConnectionState.RECONNECTING -> Color(0xFFF9A825) to stringResource(R.string.connection_status_reconnecting)
+        ConnectionState.ERROR -> Color(0xFFC62828) to stringResource(R.string.connection_status_error)
+        ConnectionState.DISCONNECTED -> Color(0xFF9E9E9E) to stringResource(R.string.connection_status_disconnected)
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(end = 16.dp)
-    ) {
-        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(color))
-        Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 6.dp))
-    }
+    val blinking = state == ConnectionState.CONNECTING || state == ConnectionState.RECONNECTING
+    val infiniteTransition = rememberInfiniteTransition(label = "connectionIndicatorBlink")
+    val blinkAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.2f,
+        animationSpec = infiniteRepeatable(animation = tween(600), repeatMode = RepeatMode.Reverse),
+        label = "connectionIndicatorAlpha"
+    )
+    Box(
+        modifier = Modifier
+            .padding(end = 16.dp)
+            .size(10.dp)
+            .clip(CircleShape)
+            // alpha AVANT background : un modifier n'affecte que ce qui vient après lui
+            // dans la chaîne (plus "interne"), donc alpha().background() rend le fond
+            // semi-transparent, alors que background().alpha() n'a aucun effet visible
+            // (alpha n'enveloppe plus rien, c'est le dernier modifier de la chaîne) —
+            // exactement le bug constaté sur le téléphone : la couleur restait fixe.
+            .alpha(if (blinking) blinkAlpha else 1f)
+            .background(color)
+            .semantics { contentDescription = label }
+    )
 }

@@ -35,11 +35,11 @@ class RecordingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Enregistrement OBD2", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel_recording), NotificationManager.IMPORTANCE_LOW)
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("OBD2 Dash")
-            .setContentText("Enregistrement en cours")
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(getString(R.string.notification_recording_content))
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .build()

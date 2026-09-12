@@ -31,16 +31,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionMode
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.GaugeValue
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
+import com.nico.obd2dash.R
 import com.nico.obd2dash.RecordingFile
 import com.nico.obd2dash.VALUE_UNAVAILABLE_AFTER_MS
 import kotlinx.coroutines.delay
-import java.util.Locale
 
 // Au-delà de ce délai sans nouvelle lecture, une valeur est affichée atténuée (une pause
 // de polling pendant un refresh DTC dure normalement moins longtemps que ça). Au-delà de
@@ -81,23 +82,25 @@ fun DashboardScreen(
             // mis, par exemple). Changer d'adresse, de transport ou d'appareil Bluetooth se
             // fait depuis Réglages (icône engrenage), pas depuis cet écran.
             when (state.connectionState) {
-                ConnectionState.CONNECTING -> {
+                ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> {
+                    // Un seul texte pour les deux : "Reconnexion" présumait à tort qu'une
+                    // connexion avait déjà réussi une fois cette session (attemptAutoConnect
+                    // marque isAutoRetry=true dès le tout premier essai au lancement, donc le
+                    // tout premier échec bascule déjà en RECONNECTING, pas seulement après une
+                    // coupure réelle, voir ObdViewModel.attemptAutoConnect) : rien ne permet de
+                    // distinguer honnêtement les deux cas dans ce texte, donc autant ne pas
+                    // affirmer une reconnexion qui n'a peut-être jamais eu lieu.
+                    //
                     CircularProgressIndicator(modifier = Modifier.size(32.dp))
-                    Text("Connexion...", style = MaterialTheme.typography.bodyMedium)
-                }
-                ConnectionState.RECONNECTING -> {
-                    // Coupure transitoire (voir ObdViewModel.handleConnectionLost) : la
-                    // boucle reprend seule, rien d'alarmant à montrer ("ne pas afficher
-                    // d'erreur si rien n'est disponible, il faut juste boucler et attendre").
+                    Text(stringResource(R.string.dashboard_waiting_connection), style = MaterialTheme.typography.bodyMedium)
                     // Un enregistrement/graphique en cours n'est PAS arrêté ici : il reprendra
                     // automatiquement (voir finishConnecting/resumeRecordingLoop), donc le
-                    // signaler plutôt que de faire croire à un arrêt.
-                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
-                    Text("Reconnexion en cours...", style = MaterialTheme.typography.bodyMedium)
+                    // signaler plutôt que de faire croire à un arrêt (vrai dans les deux états :
+                    // CONNECTING est aussi la phase active de chaque nouvel essai après une
+                    // coupure, pas seulement RECONNECTING qui n'est que l'attente entre deux).
                     if (state.isRecording) {
                         Text(
-                            "Enregistrement en pause, reprendra automatiquement " +
-                                "(${state.recordingSamples} échantillons déjà enregistrés).",
+                            stringResource(R.string.dashboard_recording_paused, state.recordingSamples),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -105,12 +108,14 @@ fun DashboardScreen(
                 }
                 else -> {
                     Text(
-                        "En attente de la sonde" +
-                            (if (state.connectionMode == ConnectionMode.WIFI) " Wi-Fi" else " Bluetooth") + "...",
+                        stringResource(
+                            R.string.dashboard_waiting_probe,
+                            if (state.connectionMode == ConnectionMode.WIFI) "Wi-Fi" else "Bluetooth"
+                        ),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        "Nouvel essai automatique toutes les 5 secondes.",
+                        stringResource(R.string.dashboard_auto_retry_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -161,7 +166,7 @@ fun DashboardScreen(
 
             HorizontalDivider()
             Button(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
-                Text("Déconnecter")
+                Text(stringResource(R.string.dashboard_disconnect_button))
             }
         }
 
@@ -176,9 +181,9 @@ fun DashboardScreen(
             Button(onClick = onToggleRecording, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     if (state.isRecording) {
-                        "Arrêter l'enregistrement (${state.recordingSamples} échantillons)"
+                        stringResource(R.string.dashboard_stop_recording, state.recordingSamples)
                     } else {
-                        "Démarrer l'enregistrement"
+                        stringResource(R.string.dashboard_start_recording)
                     }
                 )
             }
@@ -195,7 +200,7 @@ fun DashboardScreen(
         // et partageables même sans être branché à une sonde.
         if (state.recordings.isNotEmpty()) {
             HorizontalDivider()
-            Text("Enregistrements (${state.recordings.size})", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.dashboard_recordings_title, state.recordings.size), style = MaterialTheme.typography.titleMedium)
             for (recording in state.recordings) {
                 RecordingRow(
                     recording,
@@ -220,19 +225,19 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelet
         Column {
             Text(recording.date, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "%.1f Ko".format(Locale.FRANCE, recording.sizeBytes / 1024.0),
+                stringResource(R.string.common_file_size_kb, recording.sizeBytes / 1024.0),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onShare) {
-                Text("Partager")
+                Text(stringResource(R.string.common_share))
             }
             IconButton(onClick = { confirmingDelete = true }) {
                 Icon(
                     Icons.Filled.Delete,
-                    contentDescription = "Supprimer ${recording.name}",
+                    contentDescription = stringResource(R.string.common_delete_content_description, recording.name),
                     tint = MaterialTheme.colorScheme.error
                 )
             }
@@ -242,18 +247,18 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelet
     if (confirmingDelete) {
         AlertDialog(
             onDismissRequest = { confirmingDelete = false },
-            title = { Text("Supprimer ce fichier ?") },
-            text = { Text("${recording.name} sera définitivement supprimé, sans confirmation possible après coup.") },
+            title = { Text(stringResource(R.string.common_delete_confirm_title)) },
+            text = { Text(stringResource(R.string.common_delete_confirm_message, recording.name)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmingDelete = false
                     onDelete()
                 }) {
-                    Text("Supprimer", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmingDelete = false }) { Text("Annuler") }
+                TextButton(onClick = { confirmingDelete = false }) { Text(stringResource(R.string.common_cancel)) }
             }
         )
     }

@@ -18,6 +18,7 @@ import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.Locale
 import java.util.UUID
 
 /** Où joindre l'adaptateur ELM327 : Wi-Fi (socket TCP) ou Bluetooth (RFCOMM/SPP). */
@@ -476,7 +477,7 @@ class Elm327Client(private val target: ConnectionTarget) {
         }
         val digit1 = (b1 shr 4) and 0b11
         val digit2 = b1 and 0b1111
-        return "%s%d%X%02X".format(letter, digit1, digit2, b2)
+        return "%s%d%X%02X".format(Locale.FRANCE, letter, digit1, digit2, b2)
     }
 
     private val continuousMonitors = listOf("Misfire", "Système carburant", "Composants")

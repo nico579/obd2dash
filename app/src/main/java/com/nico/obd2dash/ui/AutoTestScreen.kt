@@ -22,11 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.AutoTestCheck
 import com.nico.obd2dash.AutoTestStatus
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.ObdUiState
+import com.nico.obd2dash.R
 
 /**
  * Smoke test automatique (voir ObdViewModel.runAutoTest) : exécute contre le véhicule
@@ -49,29 +51,26 @@ fun AutoTestScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Smoke test automatique", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.smoketest_title), style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Enchaîne des lectures et deux écritures courtes (10 s d'enregistrement, un " +
-                "petit sondage UDS) contre la sonde connectée, sans manipulation entre les " +
-                "étapes. Complète la checklist « en voiture », ne la remplace pas : rien ici " +
-                "ne remplace couper le contact ou éteindre l'écran pour de vrai.",
+            stringResource(R.string.smoketest_intro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         if (state.connectionState != ConnectionState.CONNECTED) {
             Text(
-                "Connecte-toi à la sonde depuis le Dashboard pour lancer le smoke test.",
+                stringResource(R.string.smoketest_not_connected),
                 style = MaterialTheme.typography.bodyMedium
             )
         } else {
             if (state.isAutoTesting) {
                 Button(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
-                    Text("Arrêter")
+                    Text(stringResource(R.string.smoketest_stop_button))
                 }
             } else {
                 Button(onClick = onRun, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (state.autoTestChecks.isEmpty()) "Lancer le smoke test" else "Relancer le smoke test")
+                    Text(stringResource(if (state.autoTestChecks.isEmpty()) R.string.smoketest_run_button else R.string.smoketest_rerun_button))
                 }
             }
         }

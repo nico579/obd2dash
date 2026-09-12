@@ -20,11 +20,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.DtcDictionary
 import com.nico.obd2dash.DtcHistoryEntry
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
+import com.nico.obd2dash.R
 import com.nico.obd2dash.ReadinessMonitor
 import com.nico.obd2dash.VinDecoder
 import com.nico.obd2dash.buildDiagnosticReport
@@ -50,16 +52,18 @@ fun DtcScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Codes défaut", style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.dtc_title), style = MaterialTheme.typography.headlineSmall)
             AssistChip(
                 onClick = {},
                 label = {
                     Text(
-                        when (state.milOn) {
-                            true -> "MIL allumé"
-                            false -> "MIL éteint"
-                            null -> "MIL non lu"
-                        }
+                        stringResource(
+                            when (state.milOn) {
+                                true -> R.string.dtc_mil_on
+                                false -> R.string.dtc_mil_off
+                                null -> R.string.dtc_mil_unknown
+                            }
+                        )
                     )
                 },
                 colors = AssistChipDefaults.assistChipColors(
@@ -79,10 +83,10 @@ fun DtcScreen(
             val vinInfo = state.vin?.let { VinDecoder.decode(it) }
             Text(
                 listOfNotNull(
-                    state.vin?.let { "VIN $it" },
-                    state.protocol?.let { "Protocole $it" },
+                    state.vin?.let { stringResource(R.string.dtc_vin_label, it) },
+                    state.protocol?.let { stringResource(R.string.dtc_protocol_label, it) },
                     vinInfo?.manufacturer ?: vinInfo?.region,
-                    vinInfo?.modelYear?.let { "année-modèle $it" }
+                    vinInfo?.modelYear?.let { stringResource(R.string.dtc_model_year_label, it) }
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -90,40 +94,42 @@ fun DtcScreen(
         }
 
         Button(onClick = onRefresh, enabled = !state.dtcLoading, modifier = Modifier.fillMaxWidth()) {
-            Text(if (state.dtcLoading) "Lecture..." else "Rafraîchir")
+            Text(stringResource(if (state.dtcLoading) R.string.dtc_loading else R.string.dtc_refresh_button))
         }
 
         val context = LocalContext.current
+        val exportSubject = stringResource(R.string.dtc_export_subject)
+        val shareChooserTitle = stringResource(R.string.dtc_share_chooser_title)
         Button(
             onClick = {
                 // Sharesheet Android standard : l'utilisateur choisit où envoyer le texte
                 // (mail, fichiers, messagerie...), rien de spécifique à gérer côté app.
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "OBD2 Dash - export diagnostic")
+                    putExtra(Intent.EXTRA_SUBJECT, exportSubject)
                     putExtra(Intent.EXTRA_TEXT, buildDiagnosticReport(state))
                 }
-                context.startActivity(Intent.createChooser(shareIntent, "Partager le diagnostic"))
+                context.startActivity(Intent.createChooser(shareIntent, shareChooserTitle))
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Partager (pour analyse sur PC)")
+            Text(stringResource(R.string.dtc_share_button))
         }
 
         state.dtcError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
-        DtcSection(title = "Stockés (${state.storedDtcs?.size ?: "?"})", codes = state.storedDtcs)
-        DtcSection(title = "En attente (${state.pendingDtcs?.size ?: "?"})", codes = state.pendingDtcs)
+        DtcSection(title = stringResource(R.string.dtc_stored_title, state.storedDtcs?.size?.toString() ?: "?"), codes = state.storedDtcs)
+        DtcSection(title = stringResource(R.string.dtc_pending_title, state.pendingDtcs?.size?.toString() ?: "?"), codes = state.pendingDtcs)
 
         Text(
-            "Descriptions limitées aux codes génériques les plus courants, non exhaustif.",
+            stringResource(R.string.dtc_description_disclaimer),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         if (state.freezeFrame.isNotEmpty()) {
             HorizontalDivider()
-            Text("Freeze frame (au moment du défaut)", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.dtc_freeze_frame_title), style = MaterialTheme.typography.titleMedium)
             for (def in PidCatalog.defs) {
                 val value = state.freezeFrame[def.pid] ?: continue
                 Row(
@@ -138,7 +144,7 @@ fun DtcScreen(
 
         if (state.readiness.isNotEmpty()) {
             HorizontalDivider()
-            Text("Moniteurs de préparation", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.dtc_readiness_title), style = MaterialTheme.typography.titleMedium)
             for (monitor in state.readiness) {
                 ReadinessRow(monitor)
             }
@@ -146,7 +152,7 @@ fun DtcScreen(
 
         if (state.dtcHistory.isNotEmpty()) {
             HorizontalDivider()
-            Text("Historique sur ce véhicule", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.dtc_history_title), style = MaterialTheme.typography.titleMedium)
             for (entry in state.dtcHistory) {
                 HistoryRow(entry)
             }
@@ -154,14 +160,12 @@ fun DtcScreen(
 
         HorizontalDivider()
         Text(
-            "Diagnostic ponctuel (finding 3) : capture le format des trames avec les " +
-                "headers CAN activés, pour préparer la prise en charge multi-calculateur. " +
-                "Sans effet sur le fonctionnement normal.",
+            stringResource(R.string.dtc_probe_headers_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Button(onClick = onProbeHeaders, modifier = Modifier.fillMaxWidth()) {
-            Text("Capturer le format headers-on")
+            Text(stringResource(R.string.dtc_probe_headers_button))
         }
         state.headerProbeResult?.let {
             Text(it, style = MaterialTheme.typography.bodySmall)
@@ -175,12 +179,12 @@ private fun DtcSection(title: String, codes: List<String>?) {
         Text(title, style = MaterialTheme.typography.titleMedium)
         if (codes == null) {
             Text(
-                "Non lu",
+                stringResource(R.string.dtc_section_not_read),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else if (codes.isEmpty()) {
-            Text("Aucun", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.dtc_section_none), style = MaterialTheme.typography.bodyMedium)
         } else {
             for (code in codes) {
                 Column {
@@ -200,7 +204,7 @@ private fun ReadinessRow(monitor: ReadinessMonitor) {
     ) {
         Text(monitor.name, style = MaterialTheme.typography.bodyMedium)
         Text(
-            if (monitor.ready) "Complet" else "Incomplet",
+            stringResource(if (monitor.ready) R.string.dtc_readiness_complete else R.string.dtc_readiness_incomplete),
             style = MaterialTheme.typography.bodyMedium,
             color = if (monitor.ready) {
                 MaterialTheme.colorScheme.primary
@@ -221,7 +225,7 @@ private fun HistoryRow(entry: DtcHistoryEntry) {
         Column {
             Text(entry.code, style = MaterialTheme.typography.bodyLarge)
             Text(
-                "Vu du ${entry.firstSeen} au ${entry.lastSeen}",
+                stringResource(R.string.dtc_history_seen_range, entry.firstSeen, entry.lastSeen),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -230,7 +234,7 @@ private fun HistoryRow(entry: DtcHistoryEntry) {
             // "Résolu" affirmait une panne réparée ; la seule preuve disponible est son
             // absence de la dernière liste de DTC stockés lue avec succès (même correction
             // que buildDiagnosticReport, voir audit, terminologie historique).
-            if (entry.active) "Actif" else "Non retrouvé",
+            stringResource(if (entry.active) R.string.dtc_history_active else R.string.dtc_history_not_found),
             style = MaterialTheme.typography.bodySmall,
             color = if (entry.active) {
                 MaterialTheme.colorScheme.error

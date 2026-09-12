@@ -10,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -290,6 +291,12 @@ internal fun csvEscape(value: String): String = "\"" + value.replace("\"", "\"\"
 internal fun csvRow(fields: List<String>): String = fields.joinToString(CSV_DELIMITER) { csvEscape(it) }
 
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
+
+    // Pas de stringResource() ici : ce ViewModel n'est pas @Composable. getApplication()
+    // reste un vrai Context Android, donc getString() classique fonctionne (même résolution
+    // par ressources que côté UI, juste l'API pré-Compose).
+    private fun getString(@StringRes res: Int): String = getApplication<Application>().getString(res)
+    private fun getString(@StringRes res: Int, vararg args: Any): String = getApplication<Application>().getString(res, *args)
 
     private val prefs = application.getSharedPreferences("obd2dash", Context.MODE_PRIVATE)
 
@@ -578,7 +585,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     connectionState = if (isAutoRetry) ConnectionState.RECONNECTING else ConnectionState.ERROR,
-                    errorMessage = "Adresse IP ou port invalide (port entre 1 et 65535)."
+                    errorMessage = getString(R.string.error_wifi_invalid_address)
                 )
             }
             return
@@ -611,8 +618,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     _state.update {
                         it.copy(
                             connectionState = if (isAutoRetry) ConnectionState.RECONNECTING else ConnectionState.ERROR,
-                            errorMessage = "Aucun réseau WiFi détecté après 4s (timeout). " +
-                                "Vérifie que le téléphone est bien connecté au WiFi de la sonde."
+                            errorMessage = getString(R.string.error_wifi_no_network)
                         )
                     }
                     return@finishConnecting false
@@ -807,7 +813,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     connectionState = if (isAutoRetry) ConnectionState.RECONNECTING else ConnectionState.ERROR,
-                    errorMessage = e.message ?: "Connexion échouée"
+                    errorMessage = e.message ?: getString(R.string.error_connection_failed_fallback)
                 )
             }
         }
@@ -935,7 +941,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                 s.copy(values = s.values + newValues, graphHistory = history)
                             }
                         } else if (System.currentTimeMillis() - lastSuccessAtMs > ZOMBIE_CONNECTION_TIMEOUT_MS) {
-                            handleConnectionLost(c, "Plus aucune réponse de la sonde depuis ${ZOMBIE_CONNECTION_TIMEOUT_MS / 1000}s")
+                            handleConnectionLost(c, getString(R.string.error_zombie_connection, ZOMBIE_CONNECTION_TIMEOUT_MS / 1000))
                             return@launch
                         }
 
@@ -990,7 +996,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        handleConnectionLost(c, e.message ?: "Lecture échouée")
+                        handleConnectionLost(c, e.message ?: getString(R.string.error_read_failed_fallback))
                         return@launch
                     }
                 }
@@ -1002,7 +1008,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // sendRaw en échec dans un refresh DTC). Une annulation volontaire (déconnexion,
             // nouvelle connexion) lève CancellationException au prochain delay() ci-dessus et
             // ne redescend jamais jusqu'ici.
-            handleConnectionLost(c, "Connexion perdue avec la sonde")
+            handleConnectionLost(c, getString(R.string.error_connection_lost))
         }
     }
 
@@ -1127,10 +1133,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // l'état CONNECTED avec un enregistrement fantôme derrière une simple erreur
                 // locale.
                 if (!c.isConnected) {
-                    handleConnectionLost(c, e.message ?: "Lecture DTC échouée")
+                    handleConnectionLost(c, e.message ?: getString(R.string.error_dtc_read_failed_fallback))
                     return@launch
                 }
-                _state.update { it.copy(dtcLoading = false, dtcError = e.message ?: "Lecture DTC échouée") }
+                _state.update { it.copy(dtcLoading = false, dtcError = e.message ?: getString(R.string.error_dtc_read_failed_fallback)) }
             } finally {
                 dtcOperationCount--
             }
@@ -1153,7 +1159,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // (dtcJob partagé). Son "finally" ne s'exécute jamais (coroutine annulée avant),
             // donc dtcLoading resterait bloqué à true (bouton Rafraîchir désactivé pour de
             // bon) si on ne le remettait pas ici.
-            _state.update { it.copy(headerProbeResult = "Lecture...", dtcLoading = false) }
+            _state.update { it.copy(headerProbeResult = getString(R.string.error_header_probe_reading), dtcLoading = false) }
             try {
                 // Voir le commentaire équivalent dans refreshDtcs (A8/B2) : attendre que les
                 // jobs précédents (dtcJob ET autoTestJob) aient fini leur propre restauration
@@ -1170,10 +1176,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 throw e
             } catch (e: Exception) {
                 if (!c.isConnected) {
-                    handleConnectionLost(c, e.message ?: "Lecture échouée")
+                    handleConnectionLost(c, e.message ?: getString(R.string.error_read_failed_fallback))
                     return@launch
                 }
-                _state.update { it.copy(headerProbeResult = "Échec: ${e.message}") }
+                _state.update { it.copy(headerProbeResult = getString(R.string.error_header_probe_failed, e.message.toString())) }
             } finally {
                 dtcOperationCount--
             }
@@ -1201,7 +1207,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val startDid = startDidText.trim().removePrefix("0x").removePrefix("0X").toIntOrNull(16)
         val endDid = endDidText.trim().removePrefix("0x").removePrefix("0X").toIntOrNull(16)
         if (startDid == null || endDid == null || startDid !in 0..0xFFFF || endDid !in 0..0xFFFF || startDid > endDid) {
-            _state.update { it.copy(fapScanError = "Plage invalide (hexadécimal, 0000-FFFF, début ≤ fin).") }
+            _state.update { it.copy(fapScanError = getString(R.string.error_probe_range_invalid)) }
             return
         }
         EventLog.log("Démarrage du sondage DID %04X-%04X".format(startDid, endDid))
@@ -1219,13 +1225,13 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // qui ne s'applique pas comme demandé.
             if (targetHeader.length != 3 || targetHeader.toIntOrNull(16) == null) {
                 _state.update {
-                    it.copy(fapScanError = "Adresse cible invalide : exactement 3 chiffres hexadécimaux (ex: 7E0), ou la laisser vide.")
+                    it.copy(fapScanError = getString(R.string.error_probe_target_invalid))
                 }
                 return
             }
             if (!c.isCanProtocol) {
                 _state.update {
-                    it.copy(fapScanError = "Ciblage d'adresse non pris en charge hors CAN (protocole détecté : ${c.detectedProtocol ?: "non-CAN"}).")
+                    it.copy(fapScanError = getString(R.string.error_probe_target_not_can, c.detectedProtocol ?: "non-CAN"))
                 }
                 return
             }
@@ -1243,13 +1249,13 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val probeFile = try {
             uniqueFile(dir, baseName)
         } catch (e: Exception) {
-            _state.update { it.copy(fapScanError = "Impossible de créer le fichier de sondage : ${e.message}") }
+            _state.update { it.copy(fapScanError = getString(R.string.error_probe_file_create, e.message.toString())) }
             return
         }
         val writer = try {
             probeFile.bufferedWriter()
         } catch (e: Exception) {
-            _state.update { it.copy(fapScanError = "Impossible d'ouvrir le fichier de sondage : ${e.message}") }
+            _state.update { it.copy(fapScanError = getString(R.string.error_probe_file_open, e.message.toString())) }
             return
         }
         try {
@@ -1262,7 +1268,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // relevé par l'audit B4) plutôt que de laisser un descripteur de fichier ouvert
             // sans jamais plus être référencé nulle part.
             runCatching { writer.close() }
-            _state.update { it.copy(fapScanError = "Impossible d'initialiser le fichier de sondage : ${e.message}") }
+            _state.update { it.copy(fapScanError = getString(R.string.error_probe_file_init, e.message.toString())) }
             return
         }
         probeWriter = writer
@@ -1340,7 +1346,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                 // le fichier partiel déjà sur le disque.
                                 _state.update {
                                     it.copy(
-                                        fapScanError = "Écriture du sondage échouée, arrêté.",
+                                        fapScanError = getString(R.string.error_probe_write_failed),
                                         fapScanOutcome = FapScanOutcome.ERREUR
                                     )
                                 }
@@ -1381,8 +1387,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // Distinct de l'INTERROMPU par défaut que poserait stopFapScanAndGetPrevious
                 // ci-dessous (via handleConnectionLost) : une vraie exception de transport
                 // n'est pas une interruption volontaire (voir audit, "Résultats d'outils").
-                _state.update { it.copy(fapScanError = e.message ?: "Lecture échouée", fapScanOutcome = FapScanOutcome.ERREUR) }
-                handleConnectionLost(c, e.message ?: "Lecture échouée")
+                _state.update { it.copy(fapScanError = e.message ?: getString(R.string.error_read_failed_fallback), fapScanOutcome = FapScanOutcome.ERREUR) }
+                handleConnectionLost(c, e.message ?: getString(R.string.error_read_failed_fallback))
                 return@launch
             } finally {
                 dtcOperationCount--
@@ -1454,13 +1460,13 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val file = try {
             uniqueFile(dir, baseName)
         } catch (e: Exception) {
-            _state.update { it.copy(recordingError = "Impossible de créer l'enregistrement : ${e.message}") }
+            _state.update { it.copy(recordingError = getString(R.string.error_recording_file_create, e.message.toString())) }
             return
         }
         val writer = try {
             file.bufferedWriter()
         } catch (e: Exception) {
-            _state.update { it.copy(recordingError = "Impossible d'ouvrir l'enregistrement : ${e.message}") }
+            _state.update { it.copy(recordingError = getString(R.string.error_recording_file_open, e.message.toString())) }
             return
         }
         try {
@@ -1473,7 +1479,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // relevé par l'audit B4) plutôt que de laisser un descripteur de fichier ouvert
             // sans jamais plus être référencé nulle part.
             runCatching { writer.close() }
-            _state.update { it.copy(recordingError = "Impossible d'initialiser l'enregistrement : ${e.message}") }
+            _state.update { it.copy(recordingError = getString(R.string.error_recording_file_init, e.message.toString())) }
             return
         }
 
@@ -1583,7 +1589,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     // Erreur disque réelle (plein, permission révoquée), pas une coupure
                     // réseau : celle-ci ne touche jamais recordingWriter (voir
                     // pauseRecordingForReconnect), donc un vrai arrêt ici reste justifié.
-                    _state.update { it.copy(recordingError = "Écriture de l'enregistrement échouée, arrêté.") }
+                    _state.update { it.copy(recordingError = getString(R.string.error_recording_write_failed)) }
                     stopRecording()
                     break
                 }
@@ -1634,13 +1640,13 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val previousJob = stopFapScanAndGetPrevious()
 
         val names = listOf(
-            "Statut MIL (PID01)",
-            "Une valeur dynamique",
-            "VIN",
-            "Codes défaut",
-            "Moniteurs de préparation",
-            "Enregistrement court (10s)",
-            "Sondage UDS court (3 DID)"
+            getString(R.string.smoketest_step_mil),
+            getString(R.string.smoketest_step_dynamic_value),
+            getString(R.string.smoketest_step_vin),
+            getString(R.string.smoketest_step_dtc),
+            getString(R.string.smoketest_step_readiness),
+            getString(R.string.smoketest_step_recording),
+            getString(R.string.smoketest_step_probe)
         )
         _state.update {
             it.copy(
@@ -1673,11 +1679,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     setCheck(0, AutoTestStatus.EN_COURS)
                     try {
                         val (mil, count) = c.readMilStatus()
-                        setCheck(0, AutoTestStatus.OK, "MIL ${if (mil) "allumé" else "éteint"}, $count code(s) annoncé(s)")
+                        setCheck(0, AutoTestStatus.OK, getString(if (mil) R.string.smoketest_detail_mil_on else R.string.smoketest_detail_mil_off, count))
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        setCheck(0, AutoTestStatus.ECHEC, e.message ?: "échec")
+                        setCheck(0, AutoTestStatus.ECHEC, e.message ?: getString(R.string.smoketest_generic_failure))
                     }
 
                     setCheck(1, AutoTestStatus.EN_COURS)
@@ -1685,19 +1691,19 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         it.pid in _state.value.supportedPids && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS
                     }
                     if (dynamicDef == null) {
-                        setCheck(1, AutoTestStatus.ATTENTION, "Aucun PID dynamique annoncé supporté")
+                        setCheck(1, AutoTestStatus.ATTENTION, getString(R.string.smoketest_no_dynamic_pid))
                     } else {
                         try {
                             val bytes = c.readPidBytes(dynamicDef.pid)
                             if (bytes != null && bytes.size >= dynamicDef.expectedBytes) {
-                                setCheck(1, AutoTestStatus.OK, "${dynamicDef.label} = ${dynamicDef.decode(bytes)}")
+                                setCheck(1, AutoTestStatus.OK, getString(R.string.smoketest_dynamic_value_result, dynamicDef.label, dynamicDef.decode(bytes)))
                             } else {
-                                setCheck(1, AutoTestStatus.ECHEC, "${dynamicDef.label} : pas de réponse exploitable")
+                                setCheck(1, AutoTestStatus.ECHEC, getString(R.string.smoketest_dynamic_value_unusable, dynamicDef.label))
                             }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            setCheck(1, AutoTestStatus.ECHEC, e.message ?: "échec")
+                            setCheck(1, AutoTestStatus.ECHEC, e.message ?: getString(R.string.smoketest_generic_failure))
                         }
                     }
 
@@ -1707,37 +1713,37 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         if (vin != null) {
                             setCheck(2, AutoTestStatus.OK, vin)
                         } else {
-                            setCheck(2, AutoTestStatus.ATTENTION, "Non lu (normal en non-CAN, ou VIN non supporté)")
+                            setCheck(2, AutoTestStatus.ATTENTION, getString(R.string.smoketest_vin_not_read))
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        setCheck(2, AutoTestStatus.ECHEC, e.message ?: "échec")
+                        setCheck(2, AutoTestStatus.ECHEC, e.message ?: getString(R.string.smoketest_generic_failure))
                     }
 
                     setCheck(3, AutoTestStatus.EN_COURS)
                     try {
                         val stored = c.readStoredDtcs()
                         val pending = c.readPendingDtcs()
-                        setCheck(3, AutoTestStatus.OK, "${stored.size} stocké(s), ${pending.size} en attente")
+                        setCheck(3, AutoTestStatus.OK, getString(R.string.smoketest_dtc_summary, stored.size, pending.size))
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        setCheck(3, AutoTestStatus.ECHEC, e.message ?: "échec")
+                        setCheck(3, AutoTestStatus.ECHEC, e.message ?: getString(R.string.smoketest_generic_failure))
                     }
 
                     setCheck(4, AutoTestStatus.EN_COURS)
                     try {
                         val readiness = c.readReadiness()
                         if (readiness != null) {
-                            setCheck(4, AutoTestStatus.OK, "${readiness.size} moniteur(s) annoncé(s)")
+                            setCheck(4, AutoTestStatus.OK, getString(R.string.smoketest_readiness_count, readiness.size))
                         } else {
-                            setCheck(4, AutoTestStatus.ATTENTION, "PID01 illisible pour les moniteurs")
+                            setCheck(4, AutoTestStatus.ATTENTION, getString(R.string.smoketest_readiness_unreadable))
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        setCheck(4, AutoTestStatus.ECHEC, e.message ?: "échec")
+                        setCheck(4, AutoTestStatus.ECHEC, e.message ?: getString(R.string.smoketest_generic_failure))
                     }
                 } finally {
                     dtcOperationCount--
@@ -1745,7 +1751,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
                 setCheck(5, AutoTestStatus.EN_COURS)
                 if (client !== c) {
-                    setCheck(5, AutoTestStatus.ECHEC, "Connexion changée en cours de test")
+                    setCheck(5, AutoTestStatus.ECHEC, getString(R.string.smoketest_connection_changed))
                 } else {
                     // Ne prend la propriété de l'enregistrement que s'il en démarre un
                     // lui-même (voir B1) : un enregistrement manuel déjà en cours doit
@@ -1759,7 +1765,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         autoTestOwnsRecording = _state.value.isRecording
                     }
                     if (!_state.value.isRecording) {
-                        setCheck(5, AutoTestStatus.ECHEC, _state.value.recordingError ?: "L'enregistrement n'a pas démarré")
+                        setCheck(5, AutoTestStatus.ECHEC, _state.value.recordingError ?: getString(R.string.smoketest_recording_not_started))
                     } else {
                         val samplesBefore = _state.value.recordingSamples
                         delay(10_000)
@@ -1769,33 +1775,33 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                             autoTestOwnsRecording = false
                         }
                         if (samplesDuring >= 1) {
-                            setCheck(5, AutoTestStatus.OK, "$samplesDuring échantillon(s) écrit(s) pendant le test")
+                            setCheck(5, AutoTestStatus.OK, getString(R.string.smoketest_recording_samples, samplesDuring))
                         } else {
-                            setCheck(5, AutoTestStatus.ECHEC, "Aucun échantillon écrit pendant le test (voir l'erreur d'enregistrement)")
+                            setCheck(5, AutoTestStatus.ECHEC, getString(R.string.smoketest_recording_zero_samples))
                         }
                     }
                 }
 
                 setCheck(6, AutoTestStatus.EN_COURS)
                 if (client !== c) {
-                    setCheck(6, AutoTestStatus.ECHEC, "Connexion changée en cours de test")
+                    setCheck(6, AutoTestStatus.ECHEC, getString(R.string.smoketest_connection_changed))
                 } else {
                     startFapScan("1140", "1142")
                     if (!_state.value.isFapScanning) {
-                        setCheck(6, AutoTestStatus.ECHEC, _state.value.fapScanError ?: "Le sondage n'a pas démarré")
+                        setCheck(6, AutoTestStatus.ECHEC, _state.value.fapScanError ?: getString(R.string.smoketest_probe_not_started))
                     } else {
                         _state.first { !it.isFapScanning }
                         when (_state.value.fapScanOutcome) {
-                            FapScanOutcome.TERMINE -> setCheck(6, AutoTestStatus.OK, "Mécanisme de sondage fonctionnel (3 DID lus)")
-                            FapScanOutcome.ERREUR -> setCheck(6, AutoTestStatus.ECHEC, _state.value.fapScanError ?: "échec")
-                            FapScanOutcome.INTERROMPU, null -> setCheck(6, AutoTestStatus.ATTENTION, "Interrompu avant la fin")
+                            FapScanOutcome.TERMINE -> setCheck(6, AutoTestStatus.OK, getString(R.string.smoketest_probe_ok))
+                            FapScanOutcome.ERREUR -> setCheck(6, AutoTestStatus.ECHEC, _state.value.fapScanError ?: getString(R.string.smoketest_generic_failure))
+                            FapScanOutcome.INTERROMPU, null -> setCheck(6, AutoTestStatus.ATTENTION, getString(R.string.smoketest_probe_interrupted))
                         }
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                handleConnectionLost(c, e.message ?: "Échec du smoke test automatique")
+                handleConnectionLost(c, e.message ?: getString(R.string.error_smoke_test_failed_fallback))
             } finally {
                 _state.update { it.copy(isAutoTesting = false) }
             }

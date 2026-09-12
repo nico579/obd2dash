@@ -20,10 +20,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.FapScanOutcome
 import com.nico.obd2dash.ObdUiState
+import com.nico.obd2dash.R
 
 /**
  * Sondage en lecture seule d'identifiants UDS (voir ObdViewModel.startFapScan) : aucun DID
@@ -51,24 +53,16 @@ fun ProbeScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Sondage FAP (expérimental, lecture seule)", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.probe_title), style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Interroge un par un les identifiants UDS (ReadDataByIdentifier, 0x22) d'une " +
-                "plage donnée et note ce que RÉPOND CE SONDAGE : aucune écriture, aucun " +
-                "effacement, aucune commande d'actionneur ou de régénération forcée. Headers " +
-                "CAN désactivés (ATH0) : sans adresse cible ci-dessous, impossible de savoir " +
-                "quel calculateur a répondu si plusieurs répondent à la diffusion. Reste en " +
-                "session diagnostique par défaut : certains identifiants existants peuvent " +
-                "malgré tout revenir en erreur s'ils nécessitent une session étendue que cet " +
-                "outil ne demande volontairement pas. Le sens d'une réponse positive reste à " +
-                "établir après coup, rien n'est décodé automatiquement ici.",
+            stringResource(R.string.probe_intro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         if (state.connectionState != ConnectionState.CONNECTED) {
             Text(
-                "Connecte-toi à la sonde depuis le Dashboard pour lancer un sondage.",
+                stringResource(R.string.probe_not_connected),
                 style = MaterialTheme.typography.bodyMedium
             )
         } else {
@@ -79,14 +73,14 @@ fun ProbeScreen(
                 OutlinedTextField(
                     value = startDid,
                     onValueChange = { startDid = it },
-                    label = { Text("DID début (hex)") },
+                    label = { Text(stringResource(R.string.probe_start_did_label)) },
                     enabled = !state.isFapScanning,
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
                     value = endDid,
                     onValueChange = { endDid = it },
-                    label = { Text("DID fin (hex)") },
+                    label = { Text(stringResource(R.string.probe_end_did_label)) },
                     enabled = !state.isFapScanning,
                     modifier = Modifier.weight(1f)
                 )
@@ -94,13 +88,12 @@ fun ProbeScreen(
             OutlinedTextField(
                 value = targetHeader,
                 onValueChange = { targetHeader = it },
-                label = { Text("Adresse cible (hex, optionnel — ex: 7E0)") },
+                label = { Text(stringResource(R.string.probe_target_header_label)) },
                 enabled = !state.isFapScanning,
                 modifier = Modifier.fillMaxWidth()
             )
             Text(
-                "Vide = diffusion (comportement par défaut, peut mélanger plusieurs " +
-                    "calculateurs). Une adresse cible n'a de sens qu'en CAN.",
+                stringResource(R.string.probe_broadcast_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -115,19 +108,23 @@ fun ProbeScreen(
                 }
                 LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                 Text(
-                    "DID courant : ${state.fapScanCurrentDid?.let { "%04X".format(it) } ?: "--"} " +
-                        "(${state.fapScanDone}/${state.fapScanTotal})",
+                    stringResource(
+                        R.string.probe_current_did,
+                        state.fapScanCurrentDid?.let { "%04X".format(it) } ?: "--",
+                        state.fapScanDone,
+                        state.fapScanTotal
+                    ),
                     style = MaterialTheme.typography.bodySmall
                 )
                 Button(onClick = onStopScan, modifier = Modifier.fillMaxWidth()) {
-                    Text("Arrêter le sondage")
+                    Text(stringResource(R.string.probe_stop_button))
                 }
             } else {
                 Button(
                     onClick = { onStartScan(startDid, endDid, targetHeader) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Démarrer le sondage")
+                    Text(stringResource(R.string.probe_start_button))
                 }
             }
         }
@@ -139,11 +136,15 @@ fun ProbeScreen(
         if (!state.isFapScanning) {
             state.fapScanOutcome?.let {
                 Text(
-                    when (it) {
-                        FapScanOutcome.TERMINE -> "Dernier sondage : terminé (${state.fapScanDone}/${state.fapScanTotal})."
-                        FapScanOutcome.INTERROMPU -> "Dernier sondage : interrompu (${state.fapScanDone}/${state.fapScanTotal})."
-                        FapScanOutcome.ERREUR -> "Dernier sondage : arrêté en erreur (${state.fapScanDone}/${state.fapScanTotal})."
-                    },
+                    stringResource(
+                        when (it) {
+                            FapScanOutcome.TERMINE -> R.string.probe_outcome_done
+                            FapScanOutcome.INTERROMPU -> R.string.probe_outcome_interrupted
+                            FapScanOutcome.ERREUR -> R.string.probe_outcome_error
+                        },
+                        state.fapScanDone,
+                        state.fapScanTotal
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -153,7 +154,7 @@ fun ProbeScreen(
         if (state.fapScanPositives.isNotEmpty()) {
             HorizontalDivider()
             Text(
-                "Réponses positives (${state.fapScanPositives.size})",
+                stringResource(R.string.probe_positives_title, state.fapScanPositives.size),
                 style = MaterialTheme.typography.titleMedium
             )
             for (positive in state.fapScanPositives) {
@@ -166,7 +167,7 @@ fun ProbeScreen(
         // enregistrements du Dashboard).
         if (state.probes.isNotEmpty()) {
             HorizontalDivider()
-            Text("Sondages enregistrés (${state.probes.size})", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.probe_saved_title, state.probes.size), style = MaterialTheme.typography.titleMedium)
             for (probe in state.probes) {
                 RecordingRow(
                     probe,

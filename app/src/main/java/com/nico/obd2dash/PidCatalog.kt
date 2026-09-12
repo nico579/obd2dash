@@ -65,12 +65,14 @@ object PidCatalog {
     // configuré en français, mais pas sur un runner CI en C/en-US (constaté : 5 tests
     // PidCatalogTest en échec sur GitHub Actions alors qu'ils passaient en local). Même
     // convention déjà appliquée à chaque SimpleDateFormat de ce projet (voir
-    // ObdViewModel/EventLog) : ce fichier était la seule exception avant ce correctif.
+    // ObdViewModel/EventLog). DashboardScreen.kt et GraphScreen.kt avaient le même défaut
+    // et sont corrigés dans le même correctif ; Elm327Client.decodeDtc() aussi (audit du
+    // 2026-09-12, corrigé séparément).
     val defs: List<Def> = listOf(
         Def(0x0C, "Régime moteur", 2) { b -> "%.0f rpm".format(Locale.FRANCE, ((b[0] * 256) + b[1]) / 4.0) },
         Def(0x0D, "Vitesse", 1) { b -> "${b[0]} km/h" },
         Def(0x05, "Température moteur", 1) { b -> "${b[0] - 40} °C" },
-        Def(0x04, "Charge moteur", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x04, "Charge moteur", 1) { b -> percentOf255(b[0]) },
         Def(0x10, "Débit d'air (MAF)", 2) { b ->
             val raw = (b[0] * 256) + b[1]
             val max = mafMaxGramsPerSec
@@ -84,8 +86,8 @@ object PidCatalog {
             val kpa = if (max != null) b[0] * max / 255.0 else b[0].toDouble()
             "%.1f kPa".format(Locale.FRANCE, kpa)
         },
-        Def(0x11, "Position papillon", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
-        Def(0x2F, "Niveau carburant", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x11, "Position papillon", 1) { b -> percentOf255(b[0]) },
+        Def(0x2F, "Niveau carburant", 1) { b -> percentOf255(b[0]) },
         Def(0x46, "Température ambiante", 1) { b -> "${b[0] - 40} °C" },
         Def(0x1F, "Temps depuis démarrage", 2) { b -> "${(b[0] * 256) + b[1]} s" },
 
@@ -95,12 +97,12 @@ object PidCatalog {
         // véhicule en particulier. Regroupé par thème, pas par ordre de PID.
 
         // Régulation carburant (essence à boucle fermée, souvent absent sur diesel)
-        Def(0x06, "Correction carburant CT (banc 1)", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
-        Def(0x07, "Correction carburant LT (banc 1)", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
-        Def(0x08, "Correction carburant CT (banc 2)", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
-        Def(0x09, "Correction carburant LT (banc 2)", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
+        Def(0x06, "Correction carburant CT (banc 1)", 1) { b -> signedTrimPercent(b[0]) },
+        Def(0x07, "Correction carburant LT (banc 1)", 1) { b -> signedTrimPercent(b[0]) },
+        Def(0x08, "Correction carburant CT (banc 2)", 1) { b -> signedTrimPercent(b[0]) },
+        Def(0x09, "Correction carburant LT (banc 2)", 1) { b -> signedTrimPercent(b[0]) },
         Def(0x0A, "Pression carburant", 1) { b -> "${b[0] * 3} kPa" },
-        Def(0x52, "Taux éthanol carburant", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] * 100.0 / 255.0) },
+        Def(0x52, "Taux éthanol carburant", 1) { b -> percentOf255(b[0]) },
         Def(0x5E, "Débit carburant moteur", 2) { b -> "%.2f L/h".format(Locale.FRANCE, ((b[0] * 256) + b[1]) / 20.0) },
 
         // Sondes O2 classiques (jusqu'à 4 : 2 bancs x 2 sondes). Octet trim = 0xFF si non
@@ -127,11 +129,11 @@ object PidCatalog {
         // Diesel / injection directe
         Def(0x22, "Pression rail / dépression collecteur", 2) { b -> "%.1f kPa".format(Locale.FRANCE, ((b[0] * 256) + b[1]) * 0.079) },
         Def(0x23, "Pression rail carburant (direct/diesel)", 2) { b -> "${((b[0] * 256) + b[1]) * 10} kPa" },
-        Def(0x2C, "EGR commandé", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
-        Def(0x2D, "EGR erreur", 1) { b -> "%.1f %%".format(Locale.FRANCE, (b[0] - 128) * 100.0 / 128.0) },
+        Def(0x2C, "EGR commandé", 1) { b -> percentOf255(b[0]) },
+        Def(0x2D, "EGR erreur", 1) { b -> signedTrimPercent(b[0]) },
 
         // EVAP (essence)
-        Def(0x2E, "Purge EVAP commandée", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x2E, "Purge EVAP commandée", 1) { b -> percentOf255(b[0]) },
         Def(0x32, "Pression vapeur EVAP", 2) { b ->
             val raw = (b[0] shl 8) or b[1]
             val signed = if (raw >= 32768) raw - 65536 else raw
@@ -146,18 +148,25 @@ object PidCatalog {
         Def(0x5C, "Température huile moteur", 1) { b -> "${b[0] - 40} °C" },
 
         // Pédale / papillon (positions relatives et redondantes)
-        Def(0x45, "Position papillon relative", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
-        Def(0x49, "Position pédale accélérateur D", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
-        Def(0x4A, "Position pédale accélérateur E", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
-        Def(0x4C, "Commande actionneur papillon", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
-        Def(0x5A, "Position pédale relative", 1) { b -> "%.1f %%".format(Locale.FRANCE, b[0] / 2.55) },
+        Def(0x45, "Position papillon relative", 1) { b -> percentOf255(b[0]) },
+        Def(0x49, "Position pédale accélérateur D", 1) { b -> percentOf255(b[0]) },
+        Def(0x4A, "Position pédale accélérateur E", 1) { b -> percentOf255(b[0]) },
+        Def(0x4C, "Commande actionneur papillon", 1) { b -> percentOf255(b[0]) },
+        Def(0x5A, "Position pédale relative", 1) { b -> percentOf255(b[0]) },
     )
+
+    /** Conversion SAE J1979 standard d'un octet brut (0-255) en pourcentage 0-100%. */
+    private fun percentOf255(raw: Int): String = "%.1f %%".format(Locale.FRANCE, raw / 2.55)
+
+    /** Valeur signée centrée sur 128 (SAE, trims carburant/EGR) : 0-255 -> -100%..+100%. */
+    private fun signedTrimPercent(raw: Int): String =
+        "%.1f %%".format(Locale.FRANCE, (raw - 128) * 100.0 / 128.0)
 
     /** Sonde O2 classique : tension (toujours présente) + trim court-terme (0xFF = absent). */
     private fun formatO2(b: List<Int>): String {
         val voltage = "%.3f V".format(Locale.FRANCE, b[0] / 200.0)
         if (b[1] == 0xFF) return voltage
-        return voltage + " · " + "%.1f %%".format(Locale.FRANCE, (b[1] - 128) * 100.0 / 128.0)
+        return voltage + " · " + signedTrimPercent(b[1])
     }
 }
 

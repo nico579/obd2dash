@@ -36,8 +36,9 @@ class PidCatalogTest {
 
     @Test
     fun `PID0B sans contexte PID4F garde la formule standard 1 pour 1`() {
-        // Séparateur décimal français (locale par défaut du JVM/Android, cf. csvRow dans
-        // ObdViewModelTest) : les formules PidCatalog n'imposent pas de Locale explicite.
+        // Séparateur décimal français : les formules PidCatalog imposent Locale.FRANCE
+        // explicitement (cf. commentaire ligne 62 de PidCatalog.kt), donc résultat stable
+        // quelle que soit la locale par défaut de la JVM qui exécute le test.
         assertEquals("127,0 kPa", def(0x0B).decode(listOf(127)))
     }
 

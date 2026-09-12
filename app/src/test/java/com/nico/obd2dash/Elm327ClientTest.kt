@@ -1,6 +1,7 @@
 package com.nico.obd2dash
 
 import java.io.IOException
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -31,6 +32,23 @@ class Elm327ClientTest {
     @Test
     fun `decodeDtc P0300 rates d'allumage`() {
         assertEquals("P0300", client.decodeDtc(0x03, 0x00))
+    }
+
+    @Test
+    fun `decodeDtc chiffres ASCII meme sous une locale a chiffres non-latins`() {
+        // Meme classe de bug que le correctif Locale.FRANCE de PidCatalog/DashboardScreen/
+        // GraphScreen (audit du 12 septembre 2026) : "%d" sans Locale explicite rend le
+        // chiffre dans le systeme numerique de la locale par defaut de la JVM (ex. chiffres
+        // arabo-indiens sous "ar"), ce qui corromprait ici le code DTC lui-meme (pas
+        // seulement un affichage), cassant le lookup exact dans DtcDictionary et la
+        // persistance CSV.
+        val previous = Locale.getDefault()
+        Locale.setDefault(Locale.forLanguageTag("ar"))
+        try {
+            assertEquals("P0100", client.decodeDtc(0x01, 0x00))
+        } finally {
+            Locale.setDefault(previous)
+        }
     }
 
     // --- parseDtcResponse (CAN) : capture reelle de l'audit, avant le fix lisait "P0100" ---
