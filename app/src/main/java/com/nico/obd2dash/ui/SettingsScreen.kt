@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionMode
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.ObdUiState
+import com.nico.obd2dash.PidCatalog
 
 /**
  * Réglages de connexion : adresse Wi-Fi, transport, appareil Bluetooth. Séparé du
@@ -40,6 +42,7 @@ fun SettingsScreen(
     onPortChange: (String) -> Unit,
     onModeChange: (ConnectionMode) -> Unit,
     onRefreshBluetoothDevices: () -> Unit,
+    onSetBigGaugePid: (pid: Int, selected: Boolean) -> Unit,
     onShareLog: (String) -> Unit,
     onDeleteLog: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -144,6 +147,35 @@ fun SettingsScreen(
         // aussi ici pour qui ne serait pas déjà sur le Dashboard au moment de l'échec.
         state.recordingError?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+
+        // Menu de configuration, pas un réglage de connexion : le panneau qui en résulte
+        // (voir DashboardScreen.primaryDefs) est lui affiché sur le Dashboard, l'écran
+        // qu'on garde ouvert en conduisant, pas ici (voir ObdUiState.bigGaugePids).
+        HorizontalDivider()
+        Text("Valeurs affichées en gros sur le Dashboard", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Choisis jusqu'à 6 paramètres (${state.bigGaugePids.size}/6 sélectionnés). " +
+                "Les autres paramètres supportés restent affichés en plus petit.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        for (def in PidCatalog.defs) {
+            val checked = def.pid in state.bigGaugePids
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = checked,
+                    onCheckedChange = { onSetBigGaugePid(def.pid, it) },
+                    // Cases non cochées désactivées une fois le maximum atteint (voir
+                    // ObdViewModel.MAX_BIG_GAUGE_PIDS), plutôt qu'un message d'erreur après
+                    // coup : la limite reste visible avant même d'essayer de la dépasser.
+                    enabled = checked || state.bigGaugePids.size < 6
+                )
+                Text(def.label, style = MaterialTheme.typography.bodyMedium)
+            }
         }
 
         // Ici plutôt que sur le Dashboard : un journal d'événements n'est pas une donnée du

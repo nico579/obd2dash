@@ -184,6 +184,7 @@ class MainActivity : ComponentActivity() {
                                 onPortChange = { viewModel.updatePort(it) },
                                 onModeChange = { viewModel.setConnectionMode(it) },
                                 onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
+                                onSetBigGaugePid = { pid, selected -> viewModel.setBigGaugePidSelected(pid, selected) },
                                 onShareLog = { path -> shareCsvFile(path, "Partager le journal", mimeType = "text/plain") },
                                 onDeleteLog = { path -> viewModel.deleteLog(path) },
                                 modifier = Modifier.padding(padding)

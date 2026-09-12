@@ -26,6 +26,7 @@ import com.nico.obd2dash.DtcHistoryEntry
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.ReadinessMonitor
+import com.nico.obd2dash.VinDecoder
 import com.nico.obd2dash.buildDiagnosticReport
 
 @Composable
@@ -72,10 +73,16 @@ fun DtcScreen(
         }
 
         if (state.vin != null || state.protocol != null) {
+            // Décodage local du VIN (constructeur + année-modèle), pas propre à une
+            // marque (voir VinDecoder) : constructeur en priorité, région seule si ce WMI
+            // précis n'est pas dans la table.
+            val vinInfo = state.vin?.let { VinDecoder.decode(it) }
             Text(
                 listOfNotNull(
                     state.vin?.let { "VIN $it" },
-                    state.protocol?.let { "Protocole $it" }
+                    state.protocol?.let { "Protocole $it" },
+                    vinInfo?.manufacturer ?: vinInfo?.region,
+                    vinInfo?.modelYear?.let { "année-modèle $it" }
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

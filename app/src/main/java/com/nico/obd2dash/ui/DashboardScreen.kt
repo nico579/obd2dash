@@ -125,8 +125,10 @@ fun DashboardScreen(
                 }
             }
         } else {
-            val primaryDefs = PidCatalog.defs.filter { it.pid in PidCatalog.PRIMARY_PIDS && it.pid in state.supportedPids }
-            val secondaryDefs = PidCatalog.defs.filter { it.pid !in PidCatalog.PRIMARY_PIDS && it.pid in state.supportedPids }
+            // bigGaugePids : choix de l'utilisateur depuis Réglages (voir ObdUiState),
+            // PRIMARY_PIDS par défaut tant que rien n'est personnalisé.
+            val primaryDefs = PidCatalog.defs.filter { it.pid in state.bigGaugePids && it.pid in state.supportedPids }
+            val secondaryDefs = PidCatalog.defs.filter { it.pid !in state.bigGaugePids && it.pid in state.supportedPids }
 
             for (def in primaryDefs) {
                 GaugeRow(def.label, state.values[def.pid], nowMs, def.pid in PidCatalog.CONTEXT_ONLY_PIDS)

@@ -13,7 +13,11 @@ object PidCatalog {
     // au lieu de planter sur un accès hors limites ou de deviner une valeur fausse.
     data class Def(val pid: Int, val label: String, val expectedBytes: Int, val decode: (List<Int>) -> String)
 
-    /** RPM, vitesse, température moteur : affichés en priorité, en plus grand. */
+    /**
+     * RPM, vitesse, température moteur : réglage par défaut de ObdUiState.bigGaugePids
+     * (affichage en gros sur le Dashboard) tant que l'utilisateur n'a rien personnalisé
+     * depuis Réglages. Voir ObdViewModel.loadBigGaugePids/setBigGaugePidSelected.
+     */
     val PRIMARY_PIDS = setOf(0x0C, 0x0D, 0x05)
 
     // PID4F/PID50 sont des maxima annoncés par le véhicule, constants pour toute la session

@@ -87,6 +87,12 @@ data class ObdUiState(
     val bondedBluetoothDevices: List<BluetoothDevice> = emptyList(),
     val supportedPids: Set<Int> = emptySet(),
     val values: Map<Int, GaugeValue> = emptyMap(),
+    // Paramètres affichés en gros sur le Dashboard (voir GaugeRow), choisis par
+    // l'utilisateur depuis Réglages (jusqu'à MAX_BIG_GAUGE_PIDS) plutôt que le triplet
+    // RPM/vitesse/température fixe d'avant : persisté comme host/port, pour retrouver le
+    // même panneau d'un lancement à l'autre sans redemander à chaque fois. Défaut =
+    // PidCatalog.PRIMARY_PIDS (comportement inchangé tant que rien n'a été personnalisé).
+    val bigGaugePids: Set<Int> = PidCatalog.PRIMARY_PIDS,
     // PID actuellement suivi par l'écran Graphique, et son historique (voir GraphPoint).
     // Repartent à zéro à chaque nouvelle connexion (comme le reste de l'état) : un
     // historique qui continuerait après une coupure/reconnexion afficherait une tendance
@@ -174,6 +180,13 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
         }
     )
     sb.appendLine("VIN : ${state.vin ?: "inconnu"}")
+    // Décodage local, pas propre à une marque (voir VinDecoder) : utile pour qui relit ce
+    // rapport plus tard (partage, forum) sans avoir le véhicule sous les yeux.
+    state.vin?.let { vin ->
+        val info = VinDecoder.decode(vin)
+        val details = listOfNotNull(info.manufacturer ?: info.region, info.modelYear?.let { "année-modèle $it" })
+        if (details.isNotEmpty()) sb.appendLine("Décodage VIN : " + details.joinToString(", "))
+    }
     sb.appendLine("Protocole : ${state.protocol ?: "inconnu"}")
     sb.appendLine(
         "MIL : " + when (state.milOn) {
@@ -285,7 +298,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             host = prefs.getString(KEY_HOST, null) ?: "192.168.0.10",
             port = prefs.getString(KEY_PORT, null) ?: "35000",
             connectionMode = savedConnectionMode(),
-            bluetoothDeviceName = prefs.getString(KEY_BLUETOOTH_NAME, null)
+            bluetoothDeviceName = prefs.getString(KEY_BLUETOOTH_NAME, null),
+            bigGaugePids = loadBigGaugePids()
         )
     )
     val state: StateFlow<ObdUiState> = _state
@@ -296,6 +310,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var dtcJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var vehicleId: String = DtcHistoryStore.UNKNOWN_VEHICLE
+    // Voir VinDecoder.fileTag : préfixe des fichiers d'enregistrement/sondage (voir
+    // startRecording/startFapScan), pour s'y retrouver entre plusieurs véhicules utilisant
+    // la même appli. Recalculé au même moment que vehicleId ci-dessus, jamais laissé
+    // périmer d'une connexion précédente.
+    private var vehicleFileTag: String = VinDecoder.fileTag(null)
     private val historyStore = DtcHistoryStore(application)
 
     private var recordingJob: Job? = null
@@ -345,6 +364,32 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private fun savedConnectionMode(): ConnectionMode =
         runCatching { ConnectionMode.valueOf(prefs.getString(KEY_CONNECTION_MODE, null) ?: "") }
             .getOrDefault(ConnectionMode.WIFI)
+
+    private fun loadBigGaugePids(): Set<Int> =
+        prefs.getString(KEY_BIG_GAUGE_PIDS, null)
+            ?.split(",")
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?.toSet()
+            ?: PidCatalog.PRIMARY_PIDS
+
+    /**
+     * Coche/décoche un paramètre pour l'affichage en gros (voir ObdUiState.bigGaugePids),
+     * persisté immédiatement comme host/port. Refuse silencieusement d'ajouter un
+     * septième paramètre plutôt que de dépasser MAX_BIG_GAUGE_PIDS : l'UI (Réglages)
+     * désactive déjà les cases non cochées une fois le maximum atteint, ce garde-fou
+     * n'est là qu'en repli.
+     */
+    fun setBigGaugePidSelected(pid: Int, selected: Boolean) {
+        val current = _state.value.bigGaugePids
+        val updated = when {
+            !selected -> current - pid
+            pid in current || current.size < MAX_BIG_GAUGE_PIDS -> current + pid
+            else -> current
+        }
+        if (updated == current) return
+        prefs.edit().putString(KEY_BIG_GAUGE_PIDS, updated.joinToString(",")).apply()
+        _state.update { it.copy(bigGaugePids = updated) }
+    }
 
     private fun attemptAutoConnect() {
         when (savedConnectionMode()) {
@@ -626,6 +671,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 port = it.port,
                 connectionMode = mode,
                 bluetoothDeviceName = bluetoothName ?: it.bluetoothDeviceName,
+                bigGaugePids = it.bigGaugePids,
                 recordings = it.recordings,
                 probes = it.probes,
                 logs = it.logs,
@@ -672,6 +718,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // inattendu et readVin() renvoie null normalement, sans lever.
             val vin = c.readVin()
             vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
+            vehicleFileTag = VinDecoder.fileTag(vin)
             // Sans VIN, l'historique de CETTE connexion ne doit rien hériter d'une
             // précédente session sans VIN, potentiellement un autre véhicule (voir A6bis
             // / audit "Deux véhicules et historique") : jamais persisté pour ce cas, voir
@@ -1192,7 +1239,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val previousJob = stopFapScanAndGetPrevious()
 
         val dir = File(getApplication<Application>().filesDir, "probes").apply { mkdirs() }
-        val baseName = "fap_scan_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
+        val baseName = "fap_scan_${vehicleFileTag}_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
         val probeFile = try {
             uniqueFile(dir, baseName)
         } catch (e: Exception) {
@@ -1403,7 +1450,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         if (columns.isEmpty()) return
 
         val dir = File(getApplication<Application>().filesDir, "recordings").apply { mkdirs() }
-        val baseName = "obd_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
+        val baseName = "obd_${vehicleFileTag}_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
         val file = try {
             uniqueFile(dir, baseName)
         } catch (e: Exception) {
@@ -1838,6 +1885,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 port = it.port,
                 connectionMode = it.connectionMode,
                 bluetoothDeviceName = it.bluetoothDeviceName,
+                bigGaugePids = it.bigGaugePids,
                 recordings = it.recordings,
                 probes = it.probes,
                 logs = it.logs
@@ -1865,6 +1913,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_CONNECTION_MODE = "conn_mode"
         private const val KEY_BLUETOOTH_ADDRESS = "conn_bt_address"
         private const val KEY_BLUETOOTH_NAME = "conn_bt_name"
+        private const val KEY_BIG_GAUGE_PIDS = "big_gauge_pids"
+        // Assez pour un coup d'œil rapide en conduisant (voir GaugeRow, ObdUiState.
+        // bigGaugePids) sans réduire chaque valeur à une taille illisible sur le
+        // téléphone si l'utilisateur en choisissait beaucoup plus.
+        private const val MAX_BIG_GAUGE_PIDS = 6
         // ~600 o/échantillon (~40 colonnes max) : à 5s, une session de 2h fait autour de
         // 850 Ko. Assez fin pour une analyse de tendance, sans accumuler des Mo inutiles.
         private const val RECORDING_INTERVAL_MS = 5_000L
