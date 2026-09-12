@@ -614,7 +614,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     userRequestedDisconnect = false
                     connectJob?.cancel()
                     prefs.edit().putString(KEY_CONNECTION_MODE, ConnectionMode.BLUETOOTH.name).apply()
-                    _state.update { it.copy(connectionMode = mode, connectionState = ConnectionState.DISCONNECTED) }
+                    _state.update { it.copy(connectionMode = mode, connectionState = ConnectionState.DISCONNECTED, errorMessage = null) }
                 }
             }
         }

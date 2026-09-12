@@ -32,8 +32,6 @@
     <!-- DashboardScreen -->
     <string name="dashboard_waiting_connection">Waiting for connection</string>
     <string name="dashboard_recording_paused">Recording paused, will resume automatically (%1$d samples already recorded).</string>
-    <string name="dashboard_waiting_probe">Waiting for the %1$s probe...</string>
-    <string name="dashboard_auto_retry_note">Automatic retry every 5 seconds.</string>
     <string name="dashboard_disconnect_button">Disconnect</string>
     <string name="dashboard_stop_recording">Stop recording (%1$d samples)</string>
     <string name="dashboard_start_recording">Start recording</string>

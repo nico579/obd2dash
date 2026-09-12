@@ -32,8 +32,6 @@
     <!-- DashboardScreen -->
     <string name="dashboard_waiting_connection">Attente de connexion</string>
     <string name="dashboard_recording_paused">Enregistrement en pause, reprendra automatiquement (%1$d échantillons déjà enregistrés).</string>
-    <string name="dashboard_waiting_probe">En attente de la sonde %1$s...</string>
-    <string name="dashboard_auto_retry_note">Nouvel essai automatique toutes les 5 secondes.</string>
     <string name="dashboard_disconnect_button">Déconnecter</string>
     <string name="dashboard_stop_recording">Arrêter l\'enregistrement (%1$d échantillons)</string>
     <string name="dashboard_start_recording">Démarrer l\'enregistrement</string>

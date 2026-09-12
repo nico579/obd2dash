@@ -103,53 +103,35 @@ fun DashboardScreen(
                 )
             }
 
-            when (state.connectionState) {
-                ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> {
-                    // Un seul texte pour les deux : "Reconnexion" présumait à tort qu'une
-                    // connexion avait déjà réussi une fois cette session (attemptAutoConnect
-                    // marque isAutoRetry=true dès le tout premier essai au lancement, donc le
-                    // tout premier échec bascule déjà en RECONNECTING, pas seulement après une
-                    // coupure réelle, voir ObdViewModel.attemptAutoConnect) : rien ne permet de
-                    // distinguer honnêtement les deux cas dans ce texte, donc autant ne pas
-                    // affirmer une reconnexion qui n'a peut-être jamais eu lieu.
-                    //
-                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
-                    Text(stringResource(R.string.dashboard_waiting_connection), style = MaterialTheme.typography.bodyMedium)
-                    // Un enregistrement/graphique en cours n'est PAS arrêté ici : il reprendra
-                    // automatiquement (voir finishConnecting/resumeRecordingLoop), donc le
-                    // signaler plutôt que de faire croire à un arrêt (vrai dans les deux états :
-                    // CONNECTING est aussi la phase active de chaque nouvel essai après une
-                    // coupure, pas seulement RECONNECTING qui n'est que l'attente entre deux).
-                    if (state.isRecording) {
-                        Text(
-                            stringResource(R.string.dashboard_recording_paused, state.recordingSamples),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                else -> {
-                    Text(
-                        stringResource(
-                            R.string.dashboard_waiting_probe,
-                            if (state.connectionMode == ConnectionMode.WIFI) "Wi-Fi" else "Bluetooth"
-                        ),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        stringResource(R.string.dashboard_auto_retry_note),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    // Erreur affichée seulement ici (état ERROR, provoqué uniquement par une
-                    // action explicite dans Réglages) : une tentative automatique qui échoue
-                    // passe par RECONNECTING ci-dessus, jamais par ERROR, précisément pour ne
-                    // rien afficher de ce genre pendant une simple attente.
-                    if (state.connectionState == ConnectionState.ERROR) {
-                        state.errorMessage?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+            // Un seul rond qui tourne et un seul texte pour les quatre états non-CONNECTED
+            // (demande explicite) : CONNECTING/RECONNECTING/DISCONNECTED/ERROR sont tous des
+            // variantes de la même attente du point de vue de l'utilisateur, rien ne justifie
+            // un rond qui tourne pour les uns et un texte sans rond pour les autres. "Attente
+            // de connexion", pas "Reconnexion" : ce dernier présumait à tort qu'une connexion
+            // avait déjà réussi une fois cette session (attemptAutoConnect marque
+            // isAutoRetry=true dès le tout premier essai au lancement, donc le tout premier
+            // échec bascule déjà en RECONNECTING, pas seulement après une coupure réelle).
+            CircularProgressIndicator(modifier = Modifier.size(32.dp))
+            Text(stringResource(R.string.dashboard_waiting_connection), style = MaterialTheme.typography.bodyMedium)
+            // Un enregistrement/graphique en cours n'est PAS arrêté ici : il reprendra
+            // automatiquement (voir finishConnecting/resumeRecordingLoop), donc le signaler
+            // plutôt que de faire croire à un arrêt, quel que soit l'état non-CONNECTED précis.
+            if (state.isRecording) {
+                Text(
+                    stringResource(R.string.dashboard_recording_paused, state.recordingSamples),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            // Erreur affichée seulement ici (état ERROR, provoqué uniquement par une action
+            // explicite : basculer de transport depuis ce même écran alors que la nouvelle
+            // cible est injoignable) : une tentative automatique qui échoue passe par
+            // RECONNECTING, jamais par ERROR, précisément pour ne rien afficher de ce genre
+            // pendant une simple attente (voir ObdViewModel, "ça sert à rien" sur ce même
+            // message vu s'afficher pendant l'attente normale avant ce correctif).
+            if (state.connectionState == ConnectionState.ERROR) {
+                state.errorMessage?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
         } else {
