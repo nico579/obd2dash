@@ -20,6 +20,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -63,6 +64,7 @@ import com.nico.obd2dash.ui.AutoTestScreen
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.DtcScreen
 import com.nico.obd2dash.ui.GraphScreen
+import com.nico.obd2dash.ui.Obd2DashTheme
 import com.nico.obd2dash.ui.ProbeScreen
 import com.nico.obd2dash.ui.SettingsScreen
 import java.io.File
@@ -113,8 +115,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier) {
+            Obd2DashTheme {
+                Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
                     var screen by remember { mutableStateOf(Screen.DASHBOARD) }
                     var showSettings by remember { mutableStateOf(false) }
                     val state by viewModel.state.collectAsState()
@@ -157,6 +159,7 @@ class MainActivity : ComponentActivity() {
                     BackHandler(enabled = showSettings) { showSettings = false }
 
                     Scaffold(
+                        containerColor = Color.Transparent,
                         topBar = {
                             TopAppBar(
                                 title = {
