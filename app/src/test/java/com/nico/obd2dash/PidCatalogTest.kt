@@ -109,4 +109,12 @@ class PidCatalogTest {
     fun `extractLeadingNumber sans aucun nombre rend null`() {
         assertNull(extractLeadingNumber("--"))
     }
+
+    @Test
+    fun `dataLength suit SAE J1979 y compris PID50 sur 4 octets`() {
+        assertEquals(2, PidCatalog.dataLength(0x0C))
+        assertEquals(4, PidCatalog.dataLength(0x24))
+        assertEquals(4, PidCatalog.dataLength(0x50))
+        assertNull(PidCatalog.dataLength(0x03))
+    }
 }

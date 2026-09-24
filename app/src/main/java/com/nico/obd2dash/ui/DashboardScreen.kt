@@ -41,7 +41,7 @@ import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.R
 import com.nico.obd2dash.RecordingFile
-import com.nico.obd2dash.VALUE_UNAVAILABLE_AFTER_MS
+import com.nico.obd2dash.isUnavailable
 import kotlinx.coroutines.delay
 
 // Au-delà de ce délai sans nouvelle lecture, une valeur est affichée atténuée (une pause
@@ -50,6 +50,10 @@ import kotlinx.coroutines.delay
 // large pour ne pas clignoter pendant une pause normale, elle est masquée : trop vieille
 // pour être présentée comme l'état actuel du véhicule.
 private const val STALE_AFTER_MS = 3_000L
+// PidCatalog.SLOW_PIDS, relus toutes les SLOW_PID_INTERVAL_MS seulement (voir
+// ObdViewModel.startPolling) : atténués au-delà de ce délai, pas de STALE_AFTER_MS, sinon
+// une température parfaitement à jour s'affichait grisée la plupart du temps.
+private const val SLOW_STALE_AFTER_MS = 12_000L
 
 @Composable
 fun DashboardScreen(
@@ -139,7 +143,7 @@ fun DashboardScreen(
             val secondaryDefs = PidCatalog.defs.filter { it.pid !in state.bigGaugePids && it.pid in state.supportedPids }
 
             for (def in primaryDefs) {
-                GaugeRow(def.label, state.values[def.pid], nowMs, def.pid in PidCatalog.CONTEXT_ONLY_PIDS)
+                GaugeRow(def.label, def.pid, state.values[def.pid], nowMs)
             }
 
             if (secondaryDefs.isNotEmpty()) {
@@ -156,7 +160,7 @@ fun DashboardScreen(
                     ) {
                         for (def in row) {
                             Box(modifier = Modifier.weight(1f)) {
-                                SmallGauge(def.label, state.values[def.pid], nowMs, def.pid in PidCatalog.CONTEXT_ONLY_PIDS)
+                                SmallGauge(def.label, def.pid, state.values[def.pid], nowMs)
                             }
                         }
                         if (row.size == 1) {
@@ -279,7 +283,7 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelet
 /**
  * Texte à afficher, et s'il faut le présenter atténué (probablement périmé).
  *
- * [neverStale] : PidCatalog.CONTEXT_ONLY_PIDS (PID4F/PID50) sont lus une seule fois à la
+ * PidCatalog.CONTEXT_ONLY_PIDS (PID4F/PID50) sont lus une seule fois à la
  * connexion, jamais réinterrogés (voir ObdViewModel.startPolling) : leur âge dépasse
  * mécaniquement VALUE_UNAVAILABLE_AFTER_MS après les 10 premières secondes de CHAQUE
  * session, sans que la valeur soit fausse pour autant. Leur appliquer la même règle
@@ -290,20 +294,21 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelet
  * audit B5), plutôt que d'y dupliquer un calcul de péremption qui pourrait diverger avec
  * le temps.
  */
-internal fun staleness(value: GaugeValue?, nowMs: Long, neverStale: Boolean = false): Pair<String, Boolean> {
+internal fun staleness(pid: Int, value: GaugeValue?, nowMs: Long): Pair<String, Boolean> {
     if (value == null) return "--" to false
-    if (neverStale) return value.text to false
+    if (pid in PidCatalog.CONTEXT_ONLY_PIDS) return value.text to false
     val age = nowMs - value.updatedAtMs
+    val staleAfter = if (pid in PidCatalog.SLOW_PIDS) SLOW_STALE_AFTER_MS else STALE_AFTER_MS
     return when {
-        age > VALUE_UNAVAILABLE_AFTER_MS -> "--" to false
-        age > STALE_AFTER_MS -> value.text to true
+        isUnavailable(pid, value, nowMs) -> "--" to false
+        age > staleAfter -> value.text to true
         else -> value.text to false
     }
 }
 
 @Composable
-private fun GaugeRow(label: String, value: GaugeValue?, nowMs: Long, neverStale: Boolean = false) {
-    val (text, stale) = staleness(value, nowMs, neverStale)
+private fun GaugeRow(label: String, pid: Int, value: GaugeValue?, nowMs: Long) {
+    val (text, stale) = staleness(pid, value, nowMs)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelLarge)
         Text(
@@ -315,8 +320,8 @@ private fun GaugeRow(label: String, value: GaugeValue?, nowMs: Long, neverStale:
 }
 
 @Composable
-private fun SmallGauge(label: String, value: GaugeValue?, nowMs: Long, neverStale: Boolean = false) {
-    val (text, stale) = staleness(value, nowMs, neverStale)
+private fun SmallGauge(label: String, pid: Int, value: GaugeValue?, nowMs: Long) {
+    val (text, stale) = staleness(pid, value, nowMs)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 2)
         Text(

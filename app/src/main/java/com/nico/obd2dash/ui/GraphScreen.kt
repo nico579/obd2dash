@@ -137,7 +137,7 @@ fun GraphScreen(
                     // lui, une valeur figée depuis une coupure ou une pause diagnostique
                     // s'affichait "Actuel" indéfiniment, alors que le Dashboard masquait déjà
                     // cette même valeur après VALUE_UNAVAILABLE_AFTER_MS.
-                    val (text, _) = staleness(state.values[selectedDef.pid], nowMs)
+                    val (text, _) = staleness(selectedDef.pid, state.values[selectedDef.pid], nowMs)
                     Text(stringResource(R.string.graph_current_value, text), style = MaterialTheme.typography.bodyMedium)
                 }
             }

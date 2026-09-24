@@ -269,6 +269,90 @@ class Elm327ClientTest {
         assertEquals(UdsDidResult.NoResponse, client.parseUdsResponse("62114EA", 0x114E))
     }
 
+    // --- Plusieurs calculateurs sur une même requête (audit du 24/09) ---
+
+    @Test
+    fun `parseMilStatus combine le voyant et les codes de chaque calculateur`() {
+        // Boite de vitesses d'abord (voyant eteint, 0 code), moteur ensuite (voyant
+        // allume, 1 code) : seule la premiere ligne etait lue avant ce correctif.
+        assertEquals(true to 1, client.parseMilStatus("4101000400E0\r4101810007E5"))
+    }
+
+    @Test
+    fun `parseMilStatus un seul calculateur voyant eteint un code stocke`() {
+        assertEquals(false to 1, client.parseMilStatus("4101010007E5"))
+    }
+
+    @Test
+    fun `parseMilStatus sans reponse exploitable leve`() {
+        assertThrows(IOException::class.java) { client.parseMilStatus("NO DATA") }
+    }
+
+    @Test
+    fun `parseDtcResponses une reponse vide d'un calculateur ne masque pas les codes d'un autre`() {
+        assertEquals(listOf("P0087"), client.parseDtcResponses("4300\r43010087", "43", isCan = true))
+    }
+
+    @Test
+    fun `parseDtcResponses reunit sans doublon les codes de plusieurs calculateurs`() {
+        assertEquals(
+            listOf("P0087", "P0299"),
+            client.parseDtcResponses("43010087\r430200870299", "43", isCan = true)
+        )
+    }
+
+    @Test
+    fun `parseDtcResponses aucune reponse attendue leve plutot que zero defaut`() {
+        assertThrows(IOException::class.java) { client.parseDtcResponses("NO DATA", "43", isCan = true) }
+    }
+
+    @Test
+    fun `responsePayloads collision multi-trame leve`() {
+        // Deux flux multi-trame melanges : l'ordre 0,1,0 n'est pas un flux ISO-TP unique.
+        assertThrows(IOException::class.java) {
+            client.responsePayloads("00E\r0:4906014153\r0:4906014153\r1:31323334353637", "4906")
+        }
+    }
+
+    // --- Requetes groupees (plusieurs PID mode 01) ---
+
+    @Test
+    fun `parseMultiPidResponse une seule trame`() {
+        val result = client.parseMultiPidResponse("410C0BB80D00", setOf(0x0C, 0x0D))
+        assertEquals(listOf(0x0B, 0xB8), result[0x0C])
+        assertEquals(listOf(0x00), result[0x0D])
+    }
+
+    @Test
+    fun `parseMultiPidResponse multi-trame avec remplissage`() {
+        // 12 octets : 41 | 0C 0B B8 | 0D 00 | 05 5A | 11 33 | 04 40
+        val response = "00C\r0:410C0BB80D00\r1:055A11330440AA"
+        val result = client.parseMultiPidResponse(response, setOf(0x0C, 0x0D, 0x05, 0x11, 0x04))
+        assertEquals(listOf(0x0B, 0xB8), result[0x0C])
+        assertEquals(listOf(0x00), result[0x0D])
+        assertEquals(listOf(0x5A), result[0x05])
+        assertEquals(listOf(0x33), result[0x11])
+        assertEquals(listOf(0x40), result[0x04])
+    }
+
+    @Test
+    fun `parseMultiPidResponse PID absent de la reponse reste absent`() {
+        val result = client.parseMultiPidResponse("410D00", setOf(0x0C, 0x0D))
+        assertNull(result[0x0C])
+        assertEquals(listOf(0x00), result[0x0D])
+    }
+
+    @Test
+    fun `parseMultiPidResponse PID non demande arrete le decodage au lieu de deviner`() {
+        val result = client.parseMultiPidResponse("410D0099AABB", setOf(0x0D))
+        assertEquals(mapOf(0x0D to listOf(0x00)), result)
+    }
+
+    @Test
+    fun `parseMultiPidResponse donnee tronquee rejetee`() {
+        assertEquals(emptyMap<Int, List<Int>>(), client.parseMultiPidResponse("410C0B", setOf(0x0C)))
+    }
+
     // --- nrcDescription ---
 
     @Test

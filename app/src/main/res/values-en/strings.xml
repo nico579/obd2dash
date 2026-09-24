@@ -69,6 +69,7 @@
     <string name="dtc_pending_title">Pending (%1$s)</string>
     <string name="dtc_description_disclaimer">Descriptions limited to the most common generic codes, not exhaustive.</string>
     <string name="dtc_freeze_frame_title">Freeze frame (at the time of the fault)</string>
+    <string name="dtc_freeze_frame_trigger">Triggering code: %1$s</string>
     <string name="dtc_readiness_title">Readiness monitors</string>
     <string name="dtc_history_title">History on this vehicle</string>
     <string name="dtc_probe_headers_description">One-off diagnostic (finding 3): captures the frame format with CAN headers enabled, to prepare multi-ECU support. No effect on normal operation.</string>
@@ -87,8 +88,8 @@
     <string name="probe_not_connected">Connect to the probe from the Dashboard to start a scan.</string>
     <string name="probe_start_did_label">Start DID (hex)</string>
     <string name="probe_end_did_label">End DID (hex)</string>
-    <string name="probe_target_header_label">Target address (hex, optional — e.g. 7E0)</string>
-    <string name="probe_broadcast_note">Empty = broadcast (default behavior, may mix up several ECUs). A target address only makes sense on CAN.</string>
+    <string name="probe_target_header_label">Target address (hex, 7E0 = engine ECU)</string>
+    <string name="probe_broadcast_note">Empty = broadcast: ECUs usually do not send their negative responses (NRC) there, so \"no response\" does not prove a DID is missing. A target address only makes sense on CAN.</string>
     <string name="probe_current_did">Current DID: %1$s (%2$d/%3$d)</string>
     <string name="probe_stop_button">Stop the scan</string>
     <string name="probe_start_button">Start the scan</string>

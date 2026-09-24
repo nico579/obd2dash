@@ -44,7 +44,11 @@ fun ProbeScreen(
 ) {
     var startDid by remember { mutableStateOf("1140") }
     var endDid by remember { mutableStateOf("11FF") }
-    var targetHeader by remember { mutableStateOf("") }
+    // 7E0 (calculateur moteur) par défaut plutôt que la diffusion : en diffusion, les
+    // calculateurs UDS ne renvoient généralement pas leurs refus (NRC 0x11/0x12/0x31,
+    // ISO 14229), si bien qu'un sondage entier revenait "aucune réponse" sans rien
+    // apprendre (fap_scan_SEAT-000000_20260924_172101.csv, 192 DID).
+    var targetHeader by remember { mutableStateOf("7E0") }
 
     Column(
         modifier = modifier

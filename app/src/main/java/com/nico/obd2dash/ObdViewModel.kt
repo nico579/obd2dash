@@ -18,7 +18,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -72,6 +74,25 @@ internal const val GRAPH_HISTORY_MAX_POINTS = 200
 // nouvelle (voir A1 : 954 lignes identiques observées faute de ce contrôle).
 internal const val VALUE_UNAVAILABLE_AFTER_MS = 10_000L
 
+// PidCatalog.SLOW_PIDS ne sont relus que toutes les SLOW_PID_INTERVAL_MS (voir
+// startPolling) : leur appliquer le seuil des mesures rapides les faisait passer pour
+// périmées une fois sur deux avec un adaptateur Bluetooth (cycle de 2-3s, capture
+// obd_SEAT-000000_20260924_172323.csv : lignes "partiel", températures vides).
+internal const val SLOW_VALUE_UNAVAILABLE_AFTER_MS = 20_000L
+
+/** Âge au-delà duquel la valeur de [pid] n'est plus présentée comme actuelle (voir ci-dessus). */
+internal fun unavailableAfterMs(pid: Int): Long =
+    if (pid in PidCatalog.SLOW_PIDS) SLOW_VALUE_UNAVAILABLE_AFTER_MS else VALUE_UNAVAILABLE_AFTER_MS
+
+/**
+ * Valeur de [pid] trop vieille pour être présentée comme l'état actuel du véhicule, à
+ * [nowMs]. CONTEXT_ONLY_PIDS jamais : lus une seule fois à la connexion par design (voir
+ * startPolling), leur âge dépasse ce seuil dès les premières secondes de CHAQUE session
+ * sans que la valeur soit fausse.
+ */
+internal fun isUnavailable(pid: Int, value: GaugeValue, nowMs: Long): Boolean =
+    pid !in PidCatalog.CONTEXT_ONLY_PIDS && nowMs - value.updatedAtMs > unavailableAfterMs(pid)
+
 data class ObdUiState(
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
     val errorMessage: String? = null,
@@ -110,6 +131,8 @@ data class ObdUiState(
     val pendingDtcs: List<String>? = null,
     val readiness: List<ReadinessMonitor> = emptyList(),
     val freezeFrame: Map<Int, String> = emptyMap(),
+    // Code qui a déclenché le freeze frame (mode 02 PID 02) : null si non lu ou non fourni.
+    val freezeFrameDtc: String? = null,
     val dtcHistory: List<DtcHistoryEntry> = emptyList(),
     val dtcLoading: Boolean = false,
     val dtcError: String? = null,
@@ -228,6 +251,7 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
     if (state.freezeFrame.isNotEmpty()) {
         sb.appendLine()
         sb.appendLine("--- Freeze frame (au moment du défaut) ---")
+        state.freezeFrameDtc?.let { sb.appendLine("Code déclencheur : $it") }
         for (def in PidCatalog.defs) {
             state.freezeFrame[def.pid]?.let { sb.appendLine("${def.label} : $it") }
         }
@@ -267,7 +291,7 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
                 // secondes de CHAQUE session sans que la valeur soit fausse (constaté sur
                 // capture réelle : "Ratio/tension O2 max annoncés" marqué périmé alors que
                 // PID4F n'a jamais changé depuis la connexion).
-                val suffix = if (def.pid !in PidCatalog.CONTEXT_ONLY_PIDS && nowMs - it.updatedAtMs > VALUE_UNAVAILABLE_AFTER_MS) {
+                val suffix = if (isUnavailable(def.pid, it, nowMs)) {
                     " (périmé)"
                 } else {
                     ""
@@ -613,6 +637,18 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     userRequestedDisconnect = false
                     connectJob?.cancel()
+                    // Ferme aussi une session Wi-Fi en cours : passer l'état à DISCONNECTED
+                    // sans ça laissait le polling, le client et l'enregistrement tourner en
+                    // arrière-plan sur l'ancien transport, derrière un écran "déconnecté".
+                    // L'enregistrement est mis en pause (pas arrêté, voir
+                    // pauseRecordingForReconnect) : il reprendra à la prochaine connexion.
+                    pauseRecordingForReconnect()
+                    pollJob?.cancel()
+                    stopAutoTest()
+                    stopFapScan()
+                    unregisterNetworkCallback()
+                    client?.let { old -> viewModelScope.launch(Dispatchers.IO) { old.disconnect() } }
+                    client = null
                     prefs.edit().putString(KEY_CONNECTION_MODE, ConnectionMode.BLUETOOTH.name).apply()
                     _state.update { it.copy(connectionMode = mode, connectionState = ConnectionState.DISCONNECTED, errorMessage = null) }
                 }
@@ -627,7 +663,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun connect(host: String, portText: String, isAutoRetry: Boolean = false) {
-        if (_state.value.connectionState == ConnectionState.CONNECTING) return
+        // Seule la boucle automatique s'efface devant une tentative en cours : une demande
+        // explicite (bouton Wi-Fi/Bluetooth, Réglages) la remplace (connectJob?.cancel()
+        // plus bas). Refuser ici perdait l'appui en silence, sans même persister le choix,
+        // environ une fois sur deux sans adaptateur Wi-Fi présent (chaque essai Wi-Fi
+        // automatique reste ~4s en CONNECTING sur ~9s de cycle).
+        if (isAutoRetry && _state.value.connectionState == ConnectionState.CONNECTING) return
         userRequestedDisconnect = false
 
         val port = portText.toIntOrNull()
@@ -682,11 +723,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Connexion Bluetooth (RFCOMM/SPP) : voir Elm327Client et ConnectionTarget.Bluetooth.
      * [device] doit être déjà appairé (voir bondedBluetoothDevices) ; cette fonction ne
-     * fait aucune découverte, seulement la connexion socket. Non vérifié sur un vrai
-     * adaptateur Bluetooth, voir le commentaire de classe d'Elm327Client.
+     * fait aucune découverte, seulement la connexion socket. Vérifié sur un vrai
+     * adaptateur Bluetooth le 24/09, voir le commentaire de classe d'Elm327Client.
      */
     fun connectBluetooth(device: BluetoothDevice, isAutoRetry: Boolean = false) {
-        if (_state.value.connectionState == ConnectionState.CONNECTING) return
+        // Voir connect() : une demande explicite remplace une tentative en cours.
+        if (isAutoRetry && _state.value.connectionState == ConnectionState.CONNECTING) return
         userRequestedDisconnect = false
 
         if (!isAutoRetry) EventLog.log("Connexion Bluetooth demandée (${bluetoothDeviceName(device)})")
@@ -769,6 +811,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun finishConnecting(c: Elm327Client, isAutoRetry: Boolean, doConnect: suspend () -> Boolean) {
         try {
             if (!doConnect()) return
+            // Une demande explicite peut remplacer cette tentative pendant doConnect() (voir
+            // connect()) : un appel Java bloquant (Socket.connect) ne voit pas l'annulation,
+            // il faut la vérifier avant de publier ce client à la place de celui du nouveau job.
+            currentCoroutineContext().ensureActive()
             client = c
 
             val supported = c.discoverSupportedPids()
@@ -826,6 +872,22 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
+            // Optimisations de lecture propres à CET adaptateur/véhicule (voir
+            // Elm327Client.supportsResponseCount/supportsMultiPid), vérifiées une fois ici
+            // plutôt que supposées : un clone qui ne les comprend pas garde simplement le
+            // comportement historique (une requête par PID, attente complète).
+            c.detectResponseCountSupport()
+            c.detectMultiPidSupport(
+                PidCatalog.defs
+                    .filter { it.pid in supported && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
+                    .take(3)
+                    .map { it.pid }
+            )
+            EventLog.log(
+                "Optimisations de lecture : réponse unique ${if (c.supportsResponseCount) "oui" else "non"}, " +
+                    "groupage ${if (c.supportsMultiPid) "oui" else "non"}"
+            )
+
             if (!c.isConnected) {
                 error("Connexion perdue pendant l'établissement de la session")
             }
@@ -860,6 +922,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // arrive avant, personne d'autre ne connaît ce client pour le refermer (voir
             // A7). Idempotent et sans risque si c a déjà été publié et fermé ailleurs.
             c.disconnect()
+            if (client === c) client = null
             throw e
         } catch (e: Exception) {
             c.disconnect()
@@ -935,7 +998,6 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val slowPids = PidCatalog.defs.filter { it.pid in supported && it.pid in PidCatalog.SLOW_PIDS }
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
-            var cycle = 0
             // Filet de sécurité contre une sonde "zombie" : constaté sur capture réelle
             // (obd_20260911_201421.csv) qu'un clone ELM327 peut cesser de répondre à TOUT
             // PID sans jamais lever d'exception ni fermer le socket (readPidBytes renvoie
@@ -944,6 +1006,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // déclenché malgré 30s+ de valeurs figées. Remis à zéro à chaque lecture réussie
             // ET pendant une pause diagnostique légitime (refresh DTC, sondage FAP : ça peut
             // durer plusieurs secondes sans qu'aucun PID ne soit lu, ce n'est pas une panne).
+            // Un adaptateur complètement muet (lecture bloquée) est, lui, coupé par le chien
+            // de garde d'Elm327Client.sendRaw, ce filet n'étant évalué qu'en fin de cycle.
             var lastSuccessAtMs = System.currentTimeMillis()
             // 0 (pas System.currentTimeMillis()) : un premier releve MIL arrive des le
             // premier cycle eligible plutot que d'attendre un plein MIL_CHECK_INTERVAL_MS,
@@ -951,34 +1015,73 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // colonne MIL renseignee des le debut (voir capturer les defauts pendant
             // l'enregistrement, ci-dessous).
             var lastMilCheckAtMs = 0L
+            // Même logique pour les PID lents : lus dès le premier cycle.
+            var lastSlowPollAtMs = 0L
+            // Durée des cycles complets, journalisée périodiquement (voir EventLog) : seul
+            // moyen de comparer objectivement deux adaptateurs (Wi-Fi/Bluetooth) ou l'effet
+            // des optimisations de lecture sur un vrai véhicule.
+            var cycleSamples = 0
+            var cycleTotalMs = 0L
+            var lastCycleLogAtMs = 0L
             while (c.isConnected) {
                 if (dtcOperationInProgress) {
                     lastSuccessAtMs = System.currentTimeMillis()
                 } else {
                     try {
-                        // Les températures (SLOW_PIDS) ne sont ajoutées qu'une fraction des
-                        // cycles : assez souvent pour ne jamais paraître périmées à l'affichage
-                        // (bien en dessous de VALUE_UNAVAILABLE_AFTER_MS), trop lentes pour
-                        // justifier le même rythme que le RPM/la vitesse (voir audit, "Contexte
-                        // standard et fréquence").
-                        val toPoll = if (cycle % SLOW_PID_EVERY_N_CYCLES == 0) fastPids + slowPids else fastPids
+                        val cycleStartMs = System.currentTimeMillis()
+                        // Les PID lents (SLOW_PIDS) sont relus à intervalle de TEMPS, pas tous
+                        // les N cycles : la durée d'un cycle dépend de l'adaptateur (2-3s en
+                        // Bluetooth le 24/09), si bien que "tous les 5 cycles" dépassait le
+                        // seuil de péremption et vidait les températures une ligne sur deux.
+                        val includeSlow = cycleStartMs - lastSlowPollAtMs >= SLOW_PID_INTERVAL_MS
+                        if (includeSlow) lastSlowPollAtMs = cycleStartMs
+                        val toPoll = if (includeSlow) fastPids + slowPids else fastPids
                         val newValues = mutableMapOf<Int, GaugeValue>()
-                        for (def in toPoll) {
-                            // Revérifié à chaque PID, pas seulement au début du cycle : un
-                            // cycle déjà engagé (plusieurs PID à lire d'affilée) pourrait
-                            // sinon continuer d'interroger la sonde avec les hypothèses
-                            // normales pendant qu'une opération de diagnostic vient de
-                            // changer la configuration de la sonde (ex: ATH1 en cours).
+                        // Requêtes groupées (jusqu'à 6 PID) quand le véhicule l'accepte (voir
+                        // Elm327Client.supportsMultiPid, vérifié à la connexion) : un aller-
+                        // retour au lieu de six. Un PID absent de la réponse groupée est relu
+                        // seul juste après, pour ne jamais perdre une valeur à cause du
+                        // groupement lui-même.
+                        val batches = if (c.supportsMultiPid) {
+                            toPoll.chunked(Elm327Client.MAX_PIDS_PER_REQUEST)
+                        } else {
+                            toPoll.map { listOf(it) }
+                        }
+                        for (batch in batches) {
+                            // Revérifié avant chaque requête, pas seulement au début du cycle :
+                            // un cycle déjà engagé pourrait sinon continuer d'interroger la
+                            // sonde avec les hypothèses normales pendant qu'une opération de
+                            // diagnostic vient de changer sa configuration (ex: ATH1 en cours).
                             if (dtcOperationInProgress) break
-                            val bytes = c.readPidBytes(def.pid)
-                            if (bytes != null && bytes.size >= def.expectedBytes) {
-                                // Horodaté au retour de CETTE lecture, pas au début du cycle
-                                // (voir A1) : un cycle de plusieurs dizaines de PID peut durer
-                                // plus d'une seconde, la première valeur lue ne doit pas hériter
-                                // de l'âge de la dernière.
-                                runCatching { def.decode(bytes) }.getOrNull()?.let {
-                                    newValues[def.pid] = GaugeValue(it, System.currentTimeMillis())
+                            val grouped = if (batch.size > 1) readGroupedOrEmpty(c, batch.map { it.pid }) else emptyMap()
+                            for (def in batch) {
+                                if (dtcOperationInProgress) break
+                                val bytes = grouped[def.pid] ?: c.readPidBytes(def.pid)
+                                if (bytes != null && bytes.size >= def.expectedBytes) {
+                                    // Horodaté au retour de CETTE lecture, pas au début du cycle
+                                    // (voir A1) : un cycle de plusieurs dizaines de PID peut durer
+                                    // plus d'une seconde, la première valeur lue ne doit pas hériter
+                                    // de l'âge de la dernière.
+                                    runCatching { def.decode(bytes) }.getOrNull()?.let {
+                                        newValues[def.pid] = GaugeValue(it, System.currentTimeMillis())
+                                    }
                                 }
+                            }
+                        }
+                        if (!dtcOperationInProgress) {
+                            val nowMs = System.currentTimeMillis()
+                            cycleSamples++
+                            cycleTotalMs += nowMs - cycleStartMs
+                            if (cycleSamples >= CYCLE_LOG_MIN_SAMPLES && nowMs - lastCycleLogAtMs >= CYCLE_LOG_INTERVAL_MS) {
+                                EventLog.log(
+                                    "Cycle de lecture moyen : ${cycleTotalMs / cycleSamples} ms sur $cycleSamples cycles " +
+                                        "(${fastPids.size} PID rapides + ${slowPids.size} lents, " +
+                                        "groupage ${if (c.supportsMultiPid) "oui" else "non"}, " +
+                                        "réponse unique ${if (c.supportsResponseCount) "oui" else "non"})"
+                                )
+                                lastCycleLogAtMs = nowMs
+                                cycleSamples = 0
+                                cycleTotalMs = 0L
                             }
                         }
                         // Fusionne plutôt que remplace : une lecture ratée ponctuelle garde
@@ -1016,19 +1119,28 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                             lastMilCheckAtMs = System.currentTimeMillis()
                             try {
                                 val (mil, count) = c.readMilStatus()
-                                if (_state.value.milOn != true && mil) {
-                                    // Transition éteint/non lu -> allumé : va chercher les codes
-                                    // réels (readStoredDtcs, "03"), pas seulement ce compteur.
-                                    // Volontairement PAS aussi complet qu'un refreshDtcs() (pas
-                                    // de pending/readiness/freeze frame ici) : le but est
-                                    // d'identifier VITE ce qui vient d'apparaître pendant le
-                                    // trajet, pas de reproduire l'écran DTC en arrière-plan.
+                                val previous = _state.value
+                                val milTurnedOn = previous.milOn != true && mil
+                                // Nombre de codes changé (ou premier relevé de la session sans
+                                // liste déjà lue) : un code stocké SANS voyant (cas réel de
+                                // P0087 le 24/09, voyant éteint) n'apparaissait jusqu'ici qu'en
+                                // rafraîchissant l'écran DTC à la main.
+                                val countChanged = count != previous.dtcCount &&
+                                    (previous.dtcCount != null || previous.storedDtcs == null)
+                                if (milTurnedOn || countChanged) {
+                                    // Va chercher les codes réels (readStoredDtcs, "03"), pas
+                                    // seulement ce compteur. Volontairement PAS aussi complet
+                                    // qu'un refreshDtcs() (pas de pending/readiness/freeze frame
+                                    // ici) : le but est d'identifier VITE ce qui vient d'apparaître
+                                    // pendant le trajet, pas de reproduire l'écran DTC en
+                                    // arrière-plan.
                                     val stored = c.readStoredDtcs()
                                     val history = historyStore.record(vehicleId, stored)
-                                    EventLog.log(
-                                        "Voyant moteur (MIL) allumé pendant le trajet : " +
-                                            stored.joinToString(", ").ifEmpty { "$count code(s) annoncé(s), détail illisible" }
-                                    )
+                                    val detail = stored.joinToString(", ").ifEmpty { "$count code(s) annoncé(s), détail illisible" }
+                                    when {
+                                        milTurnedOn -> EventLog.log("Voyant moteur (MIL) allumé pendant le trajet : $detail")
+                                        previous.dtcCount != null -> EventLog.log("Nombre de codes stockés passé de ${previous.dtcCount} à $count : ${stored.joinToString(", ").ifEmpty { "aucun" }}")
+                                    }
                                     _state.update {
                                         it.copy(
                                             milOn = mil,
@@ -1058,7 +1170,6 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         return@launch
                     }
                 }
-                cycle++
                 delay(300)
             }
             // Atteint uniquement si c.isConnected est devenu faux SANS exception (voir A2) :
@@ -1069,6 +1180,22 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             handleConnectionLost(c, getString(R.string.error_connection_lost))
         }
     }
+
+    /**
+     * Requête groupée du polling (voir Elm327Client.readPidsBytes) : une réponse illisible
+     * (collision entre calculateurs, trame manquante) n'est PAS une perte de connexion, les
+     * PID concernés sont simplement relus un par un par l'appelant. Seule une vraie erreur
+     * de transport (socket déjà fermé par sendRaw) remonte.
+     */
+    private suspend fun readGroupedOrEmpty(c: Elm327Client, pids: List<Int>): Map<Int, List<Int>> =
+        try {
+            c.readPidsBytes(pids)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (!c.isConnected) throw e
+            emptyMap()
+        }
 
     /**
      * Connexion perdue pendant le polling (coupure WiFi de la sonde, contact coupé, micro
@@ -1153,6 +1280,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 val pending = c.readPendingDtcs()
                 val readiness = c.readReadiness() ?: emptyList()
 
+                // Pas de runCatching : readFreezeFrameDtc ne lève que sur erreur de
+                // transport (réponse inattendue = null), traitée comme les autres lectures.
+                val freezeFrameDtc = if (stored.isNotEmpty()) c.readFreezeFrameDtc() else null
                 val freezeFrame = if (stored.isNotEmpty()) {
                     val supported = _state.value.supportedPids
                     val values = mutableMapOf<Int, String>()
@@ -1177,6 +1307,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         pendingDtcs = pending,
                         readiness = readiness,
                         freezeFrame = freezeFrame,
+                        freezeFrameDtc = freezeFrameDtc,
                         dtcHistory = history,
                         dtcLoading = false,
                         dtcLastSuccessAtMs = System.currentTimeMillis()
@@ -1586,9 +1717,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     // seuil dès les 10 premières secondes de CHAQUE enregistrement sans
                     // que la valeur soit fausse (constaté sur capture réelle : colonne
                     // "Ratio/tension O2 max annoncés" vide dans tout l'enregistrement).
-                    if (value != null &&
-                        (def.pid in PidCatalog.CONTEXT_ONLY_PIDS || now - value.updatedAtMs <= VALUE_UNAVAILABLE_AFTER_MS)
-                    ) {
+                    if (value != null && !isUnavailable(def.pid, value, now)) {
                         value.text
                     } else {
                         ""
@@ -1991,13 +2120,15 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // surveillance qui reste utile même vérifiée toutes les 30s (voir la colonne MIL
         // du CSV, ObdViewModel.startPolling/resumeRecordingLoop).
         private const val MIL_CHECK_INTERVAL_MS = 30_000L
-        // 5 cycles : le délai entre deux cycles n'est QUE le delay(300) ci-dessus, pas le
-        // temps du cycle complet (voir audit) : chaque PID lu dans ce cycle ajoute son
-        // propre aller-retour réseau, largement variable selon la sonde/le transport. Reste
-        // néanmoins bien sous VALUE_UNAVAILABLE_AFTER_MS (10s) et STALE_AFTER_MS côté
-        // Dashboard (3s) en pratique, donc jamais visible comme périmée, pour un cinquième
-        // des requêtes qu'au rythme normal (voir PidCatalog.SLOW_PIDS).
-        private const val SLOW_PID_EVERY_N_CYCLES = 5
+        // Intervalle de relecture des PidCatalog.SLOW_PIDS, en temps et non en nombre de
+        // cycles (voir startPolling) : un cycle dure de quelques centaines de ms à 2-3s selon
+        // l'adaptateur. 5s + un cycle reste sous SLOW_VALUE_UNAVAILABLE_AFTER_MS (20s) et
+        // SLOW_STALE_AFTER_MS côté Dashboard (12s) même avec un adaptateur lent.
+        private const val SLOW_PID_INTERVAL_MS = 5_000L
+        // Journal de la durée moyenne des cycles de lecture (voir startPolling) : une
+        // première mesure dès 20 cycles, puis une toutes les 5 minutes au plus.
+        private const val CYCLE_LOG_MIN_SAMPLES = 20
+        private const val CYCLE_LOG_INTERVAL_MS = 5 * 60_000L
         // Une tentative échouée peut déjà prendre ~9s (4s de recherche Wi-Fi + 5s de
         // connexion socket, voir requestWifiNetwork/Elm327Client.connect) : ce délai
         // s'ajoute entre deux tentatives, pour ne pas marteler en continu tant que le

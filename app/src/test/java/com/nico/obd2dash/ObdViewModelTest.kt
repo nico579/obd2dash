@@ -95,4 +95,46 @@ class ObdViewModelTest {
     fun `csvEscape double les guillemets internes`() {
         assertEquals("\"a\"\"b\"", csvEscape("a\"b"))
     }
+
+    // --- Seuils de peremption par PID (captures Bluetooth du 24/09) ---
+
+    @Test
+    fun `une temperature relue lentement n'est pas perimee au seuil des mesures rapides`() {
+        val now = 100_000L
+        val value = GaugeValue("48 °C", updatedAtMs = now - 12_000L)
+        assertFalse(isUnavailable(0x05, value, now)) // PID lent : seuil 20s
+        assertTrue(isUnavailable(0x0C, value, now)) // PID rapide : seuil 10s
+    }
+
+    @Test
+    fun `une temperature vraiment ancienne reste signalee perimee`() {
+        val now = 100_000L
+        assertTrue(isUnavailable(0x05, GaugeValue("48 °C", updatedAtMs = now - 25_000L), now))
+    }
+
+    @Test
+    fun `buildDiagnosticReport indique le code declencheur du freeze frame`() {
+        val state = ObdUiState(freezeFrame = mapOf(0x0C to "1305 rpm"), freezeFrameDtc = "P0087")
+        assertTrue(buildDiagnosticReport(state).contains("Code déclencheur : P0087"))
+    }
+
+    // --- DtcDictionary ---
+
+    @Test
+    fun `DtcDictionary connait P0087`() {
+        assertEquals("Pression rampe/système carburant trop basse", DtcDictionary.describe("P0087"))
+    }
+
+    @Test
+    fun `DtcDictionary classe un code inconnu d'apres sa structure`() {
+        assertEquals(DtcDictionary.DtcOrigin.GENERIC, DtcDictionary.classify("P0999"))
+        assertEquals(DtcDictionary.DtcOrigin.GENERIC, DtcDictionary.classify("P2FFF"))
+        assertEquals(DtcDictionary.DtcOrigin.MANUFACTURER, DtcDictionary.classify("P1234"))
+        assertEquals(DtcDictionary.DtcOrigin.MANUFACTURER, DtcDictionary.classify("P3000"))
+        assertEquals(DtcDictionary.DtcOrigin.GENERIC, DtcDictionary.classify("P3400"))
+        assertEquals(DtcDictionary.DtcOrigin.MANUFACTURER, DtcDictionary.classify("U1100"))
+        assertEquals(DtcDictionary.DtcOrigin.GENERIC, DtcDictionary.classify("U0100"))
+        assertEquals(null, DtcDictionary.classify("X0100"))
+        assertTrue(DtcDictionary.describe("P1234").contains("constructeur"))
+    }
 }

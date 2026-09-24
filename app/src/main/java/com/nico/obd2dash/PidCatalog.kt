@@ -36,7 +36,12 @@ object PidCatalog {
     // par cycle. ObdViewModel.startPolling ne les relit qu'à une fraction de la fréquence
     // normale, jamais assez espacée pour paraître périmées (voir VALUE_UNAVAILABLE_AFTER_MS
     // et STALE_AFTER_MS côté Dashboard).
-    val SLOW_PIDS = setOf(0x05, 0x0F, 0x46, 0x5C)
+    //
+    // Même traitement pour les compteurs de diagnostic et la pression atmosphérique
+    // (PID21/30/31/33) : ils ne changent qu'au kilomètre, au cycle moteur, ou avec
+    // l'altitude. Les relire à chaque cycle coûtait 4 requêtes sur ~20, alors qu'un cycle
+    // complet dure déjà 2-3s avec un adaptateur Bluetooth (captures du 24/09).
+    val SLOW_PIDS = setOf(0x05, 0x0F, 0x46, 0x5C, 0x21, 0x30, 0x31, 0x33)
 
     // Échelles réelles du PID24 (ratio/tension max), annoncées par PID4F pour LE VÉHICULE
     // CONNECTÉ. Ce ne sont pas des constantes universelles : SAE J1979-DA (table B60) exige
@@ -154,6 +159,17 @@ object PidCatalog {
         Def(0x4C, "Commande actionneur papillon", 1) { b -> percentOf255(b[0]) },
         Def(0x5A, "Position pédale relative", 1) { b -> percentOf255(b[0]) },
     )
+
+    /**
+     * Nombre d'octets de données d'un PID dans une réponse mode 01 (SAE J1979), null si
+     * inconnu. Sert à découper une réponse groupée (voir Elm327Client.parseMultiPidResponse),
+     * où rien d'autre ne sépare un PID du suivant. expectedBytes (octets LUS par la
+     * formule) vaut cette longueur pour tous les PID du catalogue sauf PID50, qui en
+     * transporte 4 (A = débit max, B-D réservés) alors que seul A est décodé.
+     */
+    fun dataLength(pid: Int): Int? = if (pid == 0x50) 4 else defsByPid[pid]?.expectedBytes
+
+    private val defsByPid: Map<Int, Def> by lazy { defs.associateBy { it.pid } }
 
     /** Conversion SAE J1979 standard d'un octet brut (0-255) en pourcentage 0-100%. */
     private fun percentOf255(raw: Int): String = "%.1f %%".format(Locale.FRANCE, raw / 2.55)

@@ -130,6 +130,9 @@ fun DtcScreen(
         if (state.freezeFrame.isNotEmpty()) {
             HorizontalDivider()
             Text(stringResource(R.string.dtc_freeze_frame_title), style = MaterialTheme.typography.titleMedium)
+            state.freezeFrameDtc?.let {
+                Text(stringResource(R.string.dtc_freeze_frame_trigger, it), style = MaterialTheme.typography.bodyMedium)
+            }
             for (def in PidCatalog.defs) {
                 val value = state.freezeFrame[def.pid] ?: continue
                 Row(

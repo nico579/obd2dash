@@ -69,6 +69,7 @@
     <string name="dtc_pending_title">En attente (%1$s)</string>
     <string name="dtc_description_disclaimer">Descriptions limitées aux codes génériques les plus courants, non exhaustif.</string>
     <string name="dtc_freeze_frame_title">Freeze frame (au moment du défaut)</string>
+    <string name="dtc_freeze_frame_trigger">Code déclencheur : %1$s</string>
     <string name="dtc_readiness_title">Moniteurs de préparation</string>
     <string name="dtc_history_title">Historique sur ce véhicule</string>
     <string name="dtc_probe_headers_description">Diagnostic ponctuel (finding 3) : capture le format des trames avec les headers CAN activés, pour préparer la prise en charge multi-calculateur. Sans effet sur le fonctionnement normal.</string>
@@ -87,8 +88,8 @@
     <string name="probe_not_connected">Connecte-toi à la sonde depuis le Dashboard pour lancer un sondage.</string>
     <string name="probe_start_did_label">DID début (hex)</string>
     <string name="probe_end_did_label">DID fin (hex)</string>
-    <string name="probe_target_header_label">Adresse cible (hex, optionnel — ex: 7E0)</string>
-    <string name="probe_broadcast_note">Vide = diffusion (comportement par défaut, peut mélanger plusieurs calculateurs). Une adresse cible n\'a de sens qu\'en CAN.</string>
+    <string name="probe_target_header_label">Adresse cible (hex, 7E0 = calculateur moteur)</string>
+    <string name="probe_broadcast_note">Vide = diffusion : les calculateurs n\'y renvoient généralement pas leurs refus (NRC), un « aucune réponse » n\'y prouve donc pas qu\'un DID est absent. Une adresse cible n\'a de sens qu\'en CAN.</string>
     <string name="probe_current_did">DID courant : %1$s (%2$d/%3$d)</string>
     <string name="probe_stop_button">Arrêter le sondage</string>
     <string name="probe_start_button">Démarrer le sondage</string>

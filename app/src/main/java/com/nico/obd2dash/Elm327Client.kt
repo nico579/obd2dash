@@ -20,6 +20,8 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Où joindre l'adaptateur ELM327 : Wi-Fi (socket TCP) ou Bluetooth (RFCOMM/SPP). */
 sealed class ConnectionTarget {
@@ -34,13 +36,12 @@ sealed class ConnectionTarget {
  * chaque réponse par '>'. Seule l'ouverture du flux ci-dessous diffère par transport ;
  * sendRaw() et tout ce qui suit ne connaissent que out/reader, pas le transport sous-jacent.
  *
- * Non vérifié sur un vrai adaptateur Bluetooth (voir ConnectionTarget.Bluetooth) : le seul
- * matériel testé à ce jour est un ELM327 Wi-Fi. En particulier, `Socket.soTimeout` borne
- * une lecture Wi-Fi bloquée à 3s de façon garantie par l'OS ; `BluetoothSocket` n'a pas
- * d'équivalent direct, donc une lecture Bluetooth sur un adaptateur qui ne répond jamais
- * peut bloquer indéfiniment ce thread (Dispatchers.IO en a beaucoup, ça ne gèle pas le
- * reste de l'app, mais l'opération concernée resterait "en cours" jusqu'à reconnexion
- * manuelle). Documenté ici plutôt que masqué par un correctif non vérifiable.
+ * Vérifié sur un ELM327 Wi-Fi et, depuis le 24 septembre 2026, sur un ELM327 Bluetooth
+ * (captures obd_SEAT-000000_20260924_*.csv). `Socket.soTimeout` borne une lecture Wi-Fi
+ * bloquée à 3s de façon garantie par l'OS ; `BluetoothSocket` n'a pas d'équivalent direct :
+ * sans le chien de garde de [sendRaw] (voir READ_INACTIVITY_TIMEOUT_MS), une lecture
+ * Bluetooth sur un adaptateur appairé mais muet bloquait indéfiniment le polling, et avec
+ * lui le filet anti-zombie d'ObdViewModel qui n'est évalué qu'en fin de cycle.
  */
 class Elm327Client(private val target: ConnectionTarget) {
 
@@ -64,6 +65,32 @@ class Elm327Client(private val target: ConnectionTarget) {
     var isCanProtocol: Boolean = true
         private set
     var detectedProtocol: String? = null
+        private set
+
+    // Délai d'inactivité du chien de garde de sendRaw : large tant que la recherche de
+    // protocole (ATSP0) n'est pas terminée, l'ELM327 pouvant rester silencieux plusieurs
+    // secondes après "SEARCHING..." (initialisations K-Line successives), puis ramené à
+    // READ_INACTIVITY_TIMEOUT_MS par detectProtocol().
+    @Volatile private var inactivityTimeoutMs = PROTOCOL_SEARCH_TIMEOUT_MS
+
+    /**
+     * true si l'adaptateur accepte le chiffre "nombre de réponses attendues" en fin de
+     * requête mode 01 (ex: "010C1", ELM327 v1.3+, voir ELM327DS.pdf "Setting the number of
+     * responses") : il rend alors la main dès la première réponse au lieu d'attendre son
+     * délai ATST au cas où un autre calculateur répondrait aussi (~100-200 ms par requête,
+     * cf. scan FAP du 24/09 : ~265 ms par DID sans réponse). Détecté une fois par connexion
+     * (voir [detectResponseCountSupport]), faux par défaut : un clone qui ne le comprend
+     * pas répond "?" et garde le comportement historique.
+     */
+    var supportsResponseCount: Boolean = false
+        private set
+
+    /**
+     * true si le calculateur répond correctement à une requête mode 01 groupant plusieurs
+     * PID (jusqu'à 6 en CAN, ISO 15765-4), vérifié à la connexion par
+     * [detectMultiPidSupport]. Faux par défaut et hors CAN.
+     */
+    var supportsMultiPid: Boolean = false
         private set
 
     suspend fun connect(network: Network? = null) = withContext(Dispatchers.IO) {
@@ -97,13 +124,25 @@ class Elm327Client(private val target: ConnectionTarget) {
                     // ce qu'il réponde de lui-même, potentiellement jamais).
                     bluetoothSocket = sock
                     coroutineScope {
+                        // Ferme aussi le socket si CETTE coroutine est annulée pendant
+                        // connect() (ex: l'utilisateur choisit un autre transport pendant la
+                        // tentative, voir ObdViewModel.connect) : annuler le watchdog seul ne
+                        // débloquait pas l'appel Java, qui continuait jusqu'à son propre
+                        // délai système en occupant l'adaptateur. `finished` évite de fermer
+                        // un socket qui vient de se connecter normalement (le watchdog est
+                        // alors annulé lui aussi, et passe par le même finally).
+                        val finished = AtomicBoolean(false)
                         val watchdog = launch {
-                            delay(BLUETOOTH_CONNECT_TIMEOUT_MS)
-                            runCatching { sock.close() }
+                            try {
+                                delay(BLUETOOTH_CONNECT_TIMEOUT_MS)
+                            } finally {
+                                if (!finished.get()) runCatching { sock.close() }
+                            }
                         }
                         try {
                             sock.connect()
                         } finally {
+                            finished.set(true)
                             watchdog.cancel()
                         }
                     }
@@ -155,7 +194,17 @@ class Elm327Client(private val target: ConnectionTarget) {
             isCanProtocol = true
             detectedProtocol = null
         }
+        inactivityTimeoutMs = READ_INACTIVITY_TIMEOUT_MS
     }
+
+    /** Ferme les sockets sans toucher aux champs : débloque une lecture en cours sur un autre thread (voir [sendRaw]). */
+    private fun closeTransport() {
+        runCatching { socket?.close() }
+        runCatching { bluetoothSocket?.close() }
+    }
+
+    private fun timeoutMessage(command: String) =
+        "Adaptateur muet depuis ${inactivityTimeoutMs / 1000}s (commande $command)"
 
     fun disconnect() {
         // Fermer le socket EN PREMIER interrompt immédiatement une lecture ou une connexion
@@ -189,6 +238,16 @@ class Elm327Client(private val target: ConnectionTarget) {
         // adaptateur qui ne répond jamais à la demande de connexion RFCOMM bloquerait ce
         // thread indéfiniment (voir audit B8).
         private const val BLUETOOTH_CONNECT_TIMEOUT_MS = 10_000L
+        // Silence maximal toléré au milieu d'une réponse, une fois le protocole trouvé : une
+        // réponse OBD normale arrive en moins d'une seconde, même en Bluetooth (captures du
+        // 24/09 : ~120-270 ms par requête). Plus long que soTimeout (3s) côté Wi-Fi, qui
+        // reste donc le premier à se déclencher sur ce transport.
+        private const val READ_INACTIVITY_TIMEOUT_MS = 6_000L
+        private const val PROTOCOL_SEARCH_TIMEOUT_MS = 20_000L
+        private const val WATCHDOG_TICK_MS = 250L
+        /** Maximum de PID par requête mode 01 groupée (SAE J1979 / ISO 15765-4). */
+        const val MAX_PIDS_PER_REQUEST = 6
+        private val FRAME_REGEX = Regex("^([0-9A-Fa-f]):(.+)$")
     }
 
     /** Envoie une commande brute et retourne la réponse (sans le '>' final). */
@@ -197,23 +256,56 @@ class Elm327Client(private val target: ConnectionTarget) {
             val o = out ?: error("Non connecté")
             val r = reader ?: error("Non connecté")
 
+            // Chien de garde d'inactivité (voir READ_INACTIVITY_TIMEOUT_MS) : remis à zéro à
+            // chaque caractère reçu, pour ne jamais couper une réponse lente mais vivante
+            // ("SEARCHING..." pendant la recherche de protocole, VIN multi-trame). Fermer le
+            // transport depuis un autre thread est le seul moyen de débloquer r.read() sur
+            // un BluetoothSocket (pas de soTimeout), et reste sans effet côté Wi-Fi où
+            // soTimeout (3s) se déclenche de toute façon avant.
+            val lastActivityAtMs = AtomicLong(System.currentTimeMillis())
+            val timedOut = AtomicBoolean(false)
             try {
-                o.write("$command\r".toByteArray())
-                o.flush()
+                coroutineScope {
+                    val watchdog = launch {
+                        while (true) {
+                            delay(WATCHDOG_TICK_MS)
+                            if (System.currentTimeMillis() - lastActivityAtMs.get() > inactivityTimeoutMs) {
+                                timedOut.set(true)
+                                closeTransport()
+                                break
+                            }
+                        }
+                    }
+                    try {
+                        o.write("$command\r".toByteArray())
+                        o.flush()
 
-                val sb = StringBuilder()
-                while (true) {
-                    val c = r.read()
-                    // Une fin de flux avant '>' signifie que la connexion a été coupée
-                    // (sonde éteinte, WiFi perdu) : ce n'est pas une réponse normale, il
-                    // ne faut pas la traiter comme telle sous peine de la confondre plus
-                    // tard avec un résultat de lecture valide (ex: "0 défaut").
-                    if (c == -1) throw IOException("Connexion perdue (fin de flux avant '>')")
-                    val ch = c.toChar()
-                    if (ch == '>') break
-                    sb.append(ch)
+                        val sb = StringBuilder()
+                        while (true) {
+                            val c = try {
+                                r.read()
+                            } catch (e: IOException) {
+                                if (timedOut.get()) throw IOException(timeoutMessage(command), e)
+                                throw e
+                            }
+                            // Une fin de flux avant '>' signifie que la connexion a été coupée
+                            // (sonde éteinte, WiFi perdu) : ce n'est pas une réponse normale, il
+                            // ne faut pas la traiter comme telle sous peine de la confondre plus
+                            // tard avec un résultat de lecture valide (ex: "0 défaut").
+                            if (c == -1) {
+                                if (timedOut.get()) throw IOException(timeoutMessage(command))
+                                throw IOException("Connexion perdue (fin de flux avant '>')")
+                            }
+                            lastActivityAtMs.set(System.currentTimeMillis())
+                            val ch = c.toChar()
+                            if (ch == '>') break
+                            sb.append(ch)
+                        }
+                        sb.toString().trim()
+                    } finally {
+                        watchdog.cancel()
+                    }
                 }
-                sb.toString().trim()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -253,7 +345,7 @@ class Elm327Client(private val target: ConnectionTarget) {
      */
     internal fun reassembleHex(response: String, expectedPrefix: String): String {
         val lines = response.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }
-        val frameRegex = Regex("^([0-9A-Fa-f]):(.+)$")
+        val frameRegex = FRAME_REGEX
         val frames = mutableListOf<String>()
         var expectedIndex = 0
         // Longueur ISO-TP totale annoncée par l'ELM327 avant la première trame d'une
@@ -327,9 +419,75 @@ class Elm327Client(private val target: ConnectionTarget) {
     suspend fun readPidBytes(pid: Int): List<Int>? {
         val pidHex = "%02X".format(pid)
         val expectedPrefix = "41$pidHex"
-        val response = sendRaw("01$pidHex")
+        // Chiffre "1 réponse attendue" seulement si l'adaptateur l'a accepté à la connexion
+        // (voir supportsResponseCount) : sans lui, la réponse arrive identique mais après le
+        // délai d'attente d'éventuels autres calculateurs.
+        val suffix = if (supportsResponseCount) "1" else ""
+        val response = sendRaw("01$pidHex$suffix")
         val hexstr = reassembleHex(response, expectedPrefix)
         return parseHexPayload(hexstr, expectedPrefix)
+    }
+
+    /**
+     * Lit plusieurs PID mode 01 en une seule requête (au plus [MAX_PIDS_PER_REQUEST], CAN
+     * uniquement, voir [supportsMultiPid]) et renvoie les octets de chacun. Un PID absent
+     * de la réponse (non supporté par le calculateur qui a répondu, réponse d'un autre
+     * calculateur, trame illisible) est simplement absent de la map : c'est à l'appelant
+     * de le relire individuellement s'il y tient (voir ObdViewModel.startPolling).
+     */
+    suspend fun readPidsBytes(pids: List<Int>): Map<Int, List<Int>> {
+        require(pids.size in 1..MAX_PIDS_PER_REQUEST) { "1 à $MAX_PIDS_PER_REQUEST PID par requête" }
+        val response = sendRaw("01" + pids.joinToString("") { "%02X".format(it) })
+        return parseMultiPidResponse(response, pids.toSet())
+    }
+
+    /**
+     * Décode la réponse à une requête mode 01 groupée : "41" suivi, pour chaque PID
+     * supporté, de son numéro puis de ses octets (longueur fixe par PID, voir
+     * [PidCatalog.dataLength]). Plusieurs calculateurs peuvent répondre chacun sur sa
+     * propre ligne (headers désactivés) : toutes les lignes sont lues, la première valeur
+     * trouvée pour un PID l'emporte. Un PID de longueur inconnue arrête le décodage de
+     * CETTE réponse (impossible de savoir où commence le suivant) plutôt que de deviner.
+     * Fonction pure, testée indépendamment.
+     */
+    internal fun parseMultiPidResponse(response: String, requested: Set<Int>): Map<Int, List<Int>> {
+        val result = mutableMapOf<Int, List<Int>>()
+        for (payload in responsePayloads(response, "41")) {
+            var i = 2
+            while (i + 2 <= payload.length) {
+                val pid = payload.substring(i, i + 2).toIntOrNull(16) ?: break
+                if (pid !in requested) break
+                val len = PidCatalog.dataLength(pid) ?: break
+                val end = i + 2 + len * 2
+                if (end > payload.length) break
+                val bytes = payload.substring(i + 2, end).chunked(2).map { it.toIntOrNull(16) }
+                if (bytes.any { it == null }) break
+                result.putIfAbsent(pid, bytes.filterNotNull())
+                i = end
+            }
+        }
+        return result
+    }
+
+    /**
+     * Toutes les réponses exploitables commençant par [expectedPrefix] : chaque ligne
+     * hexadécimale d'une seule trame (un calculateur par ligne, headers désactivés), plus
+     * la réponse multi-trame recollée par [reassembleHex] s'il y en a une. Contrairement à
+     * reassembleHex seul, qui ne garde que la PREMIÈRE ligne, une réponse "rien à signaler"
+     * d'un calculateur (ex: boîte de vitesses, "4300") ne masque plus les codes d'un autre
+     * (voir audit du 24/09). Une réponse multi-trame illisible (collision entre deux
+     * calculateurs, trame manquante) lève plutôt que d'être ignorée en silence : les lignes
+     * restantes ne représenteraient alors qu'une partie des calculateurs.
+     */
+    internal fun responsePayloads(response: String, expectedPrefix: String): List<String> {
+        val prefix = expectedPrefix.uppercase()
+        val lines = response.split('\r', '\n').map { it.trim().uppercase() }.filter { it.isNotEmpty() }
+        val singles = lines.filter { line -> line.all { it in '0'..'9' || it in 'A'..'F' } && line.startsWith(prefix) }
+        val hasFrames = lines.any { FRAME_REGEX.matches(it) }
+        if (!hasFrames) return singles
+        val multi = reassembleHex(response, expectedPrefix).uppercase()
+        if (!multi.startsWith(prefix)) throw IOException("Réponse multi-trame illisible : ${response.replace('\r', ' ').trim()}")
+        return singles + multi
     }
 
     /**
@@ -386,9 +544,23 @@ class Elm327Client(private val target: ConnectionTarget) {
      * pas comme "MIL éteint, 0 défaut" (ça a été une source de faux négatif silencieux).
      */
     suspend fun readMilStatus(): Pair<Boolean, Int> {
-        val bytes = readPidBytes(0x01) ?: throw IOException("PID01 (statut MIL) illisible")
-        val a = bytes.getOrNull(0) ?: throw IOException("PID01 (statut MIL) tronqué")
-        return (a and 0x80 != 0) to (a and 0x7F)
+        // Jamais de chiffre "1 réponse" ici (voir readPidBytes) : chaque calculateur OBD
+        // rapporte SON voyant et SES codes, il faut toutes les réponses pour les combiner.
+        return parseMilStatus(sendRaw("0101"))
+    }
+
+    /**
+     * Combine les réponses PID01 de tous les calculateurs (une ligne chacun, headers
+     * désactivés) : voyant allumé si l'un d'eux le demande, nombre de codes = somme. Seule
+     * la première ligne était lue jusqu'ici, si bien qu'une boîte de vitesses répondant
+     * avant le moteur masquait son voyant. Fonction pure, testée indépendamment.
+     */
+    internal fun parseMilStatus(response: String): Pair<Boolean, Int> {
+        val statusBytes = responsePayloads(response, "4101").mapNotNull { payload ->
+            payload.substring(4).take(2).takeIf { it.length == 2 }?.toIntOrNull(16)
+        }
+        if (statusBytes.isEmpty()) throw IOException("PID01 (statut MIL) illisible")
+        return statusBytes.any { it and 0x80 != 0 } to statusBytes.sumOf { it and 0x7F }
     }
 
     suspend fun readStoredDtcs(): List<String> = readDtcs(mode = "03", expectedPrefix = "43")
@@ -396,13 +568,19 @@ class Elm327Client(private val target: ConnectionTarget) {
     suspend fun readPendingDtcs(): List<String> = readDtcs(mode = "07", expectedPrefix = "47")
 
     /** Décode les DTC d'un mode donné (03=stockés, 07=en attente). Voir [parseDtcResponse]. */
-    private suspend fun readDtcs(mode: String, expectedPrefix: String): List<String> {
-        val response = sendRaw(mode)
-        val hexstr = reassembleHex(response, expectedPrefix)
-        if (!hexstr.uppercase().startsWith(expectedPrefix)) {
+    private suspend fun readDtcs(mode: String, expectedPrefix: String): List<String> =
+        parseDtcResponses(sendRaw(mode), expectedPrefix, isCanProtocol)
+
+    /**
+     * Réunit les DTC de TOUS les calculateurs qui ont répondu (voir [responsePayloads]),
+     * sans doublon. Fonction pure, testée indépendamment.
+     */
+    internal fun parseDtcResponses(response: String, expectedPrefix: String, isCan: Boolean): List<String> {
+        val payloads = responsePayloads(response, expectedPrefix)
+        if (payloads.isEmpty()) {
             throw IOException("Réponse DTC inattendue: ${response.ifBlank { "(vide)" }}")
         }
-        return parseDtcResponse(hexstr, expectedPrefix, isCanProtocol)
+        return payloads.flatMap { parseDtcResponse(it, expectedPrefix, isCan) }.distinct()
     }
 
     /**
@@ -553,6 +731,46 @@ class Elm327Client(private val target: ConnectionTarget) {
         val response = sendRaw("02$pidHex$frameHex")
         val hexstr = reassembleHex(response, expectedPrefix)
         return parseHexPayload(hexstr, expectedPrefix)
+    }
+
+    /**
+     * Code défaut qui a déclenché la capture du freeze frame (mode 02, PID 02, trame 0) :
+     * sans lui, un freeze frame affiché à côté de plusieurs DTC ne dit pas auquel il se
+     * rapporte. null si non supporté, illisible, ou 0000 (aucune capture).
+     */
+    suspend fun readFreezeFrameDtc(frame: Int = 0): String? {
+        val bytes = readFreezeFrameBytes(0x02, frame) ?: return null
+        if (bytes.size < 2 || (bytes[0] == 0 && bytes[1] == 0)) return null
+        return decodeDtc(bytes[0], bytes[1])
+    }
+
+    /**
+     * Vérifie une fois par connexion si l'adaptateur accepte le chiffre "nombre de
+     * réponses" (voir [supportsResponseCount]) : "01001" doit rendre une réponse PID00
+     * normale. Un clone qui ne le comprend pas répond "?" (ou autre chose) et l'option
+     * reste désactivée. Ne lève jamais pour une simple réponse inattendue : seule une
+     * vraie erreur de transport remonte (le socket est alors déjà fermé, voir sendRaw).
+     */
+    suspend fun detectResponseCountSupport() {
+        supportsResponseCount = false
+        val bytes = parseHexPayload(reassembleHex(sendRaw("01001"), "4100"), "4100")
+        supportsResponseCount = bytes != null && bytes.size >= 4
+    }
+
+    /**
+     * Vérifie une fois par connexion qu'une requête mode 01 groupée (voir
+     * [supportsMultiPid]) rend bien chacun des PID demandés, sur [samplePids] (au moins
+     * deux PID supportés par le véhicule). CAN uniquement : ISO 15765-4 prévoit ce
+     * groupement, pas les protocoles K-Line/J1850.
+     */
+    suspend fun detectMultiPidSupport(samplePids: List<Int>) {
+        supportsMultiPid = false
+        if (!isCanProtocol || samplePids.size < 2) return
+        val sample = samplePids.take(MAX_PIDS_PER_REQUEST)
+        val result = runCatching { readPidsBytes(sample) }
+            .onFailure { if (it is CancellationException || !isConnected) throw it }
+            .getOrNull() ?: return
+        supportsMultiPid = sample.all { result[it] != null }
     }
 
     /**

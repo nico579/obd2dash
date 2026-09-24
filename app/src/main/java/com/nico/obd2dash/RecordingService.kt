@@ -4,7 +4,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 
@@ -48,15 +50,35 @@ class RecordingService : Service() {
         if (wakeLock == null) {
             val powerManager = getSystemService(PowerManager::class.java)
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
-                .apply { acquire(MAX_WAKE_LOCK_DURATION_MS) }
+                .apply {
+                    // Non compté : chaque renouvellement ci-dessous repousse l'échéance du
+                    // même verrou au lieu d'empiler des acquisitions à relâcher une par une.
+                    setReferenceCounted(false)
+                    acquire(WAKE_LOCK_DURATION_MS)
+                }
+            handler.postDelayed(renewWakeLock, WAKE_LOCK_RENEW_INTERVAL_MS)
         }
         return START_NOT_STICKY
+    }
+
+    // Renouvelé tant que le service vit (c.-à-d. tant que l'enregistrement dure) : un seul
+    // acquire(3h) laissait le processeur libre de se mettre en veille au-delà de 3h alors
+    // que l'enregistrement, lui, continuait. Garder une échéance courte (plutôt qu'un
+    // verrou sans limite) borne toujours la fuite si onDestroy() n'était jamais appelé.
+    private val handler = Handler(Looper.getMainLooper())
+    private val renewWakeLock: Runnable = object : Runnable {
+        override fun run() {
+            val lock = wakeLock ?: return
+            lock.acquire(WAKE_LOCK_DURATION_MS)
+            handler.postDelayed(this, WAKE_LOCK_RENEW_INTERVAL_MS)
+        }
     }
 
     override fun onDestroy() {
         // Libéré ici plutôt que dans ObdViewModel.stopRecording() : ce service peut être
         // arrêté par l'OS (mémoire faible) sans passer par un appel explicite de l'app,
         // onDestroy() reste le seul endroit garanti d'être appelé dans les deux cas.
+        handler.removeCallbacks(renewWakeLock)
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         super.onDestroy()
@@ -66,11 +88,10 @@ class RecordingService : Service() {
         private const val CHANNEL_ID = "recording"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "obd2dash:recording"
-        // Filet de sécurité, pas la durée attendue d'un enregistrement : ce service n'est
-        // démarré qu'une fois par session (voir ObdViewModel.startRecording), donc un
-        // enregistrement qui dépasserait cette durée sans jamais repasser par
-        // onStartCommand verrait sinon le wake lock expirer silencieusement bien avant
-        // l'arrêt réel, avec le même risque de mise en veille qu'en son absence.
-        private const val MAX_WAKE_LOCK_DURATION_MS = 3 * 60 * 60 * 1000L
+        // Échéance courte renouvelée périodiquement (voir renewWakeLock) plutôt qu'une
+        // seule longue échéance fixe : un enregistrement plus long que celle-ci perdait
+        // silencieusement son wake lock bien avant l'arrêt réel.
+        private const val WAKE_LOCK_DURATION_MS = 30 * 60 * 1000L
+        private const val WAKE_LOCK_RENEW_INTERVAL_MS = 10 * 60 * 1000L
     }
 }
