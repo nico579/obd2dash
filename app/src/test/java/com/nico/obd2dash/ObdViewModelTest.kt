@@ -137,4 +137,23 @@ class ObdViewModelTest {
         assertEquals(null, DtcDictionary.classify("X0100"))
         assertTrue(DtcDictionary.describe("P1234").contains("constructeur"))
     }
+
+    @Test
+    fun `buildDiagnosticReport identifie l'adaptateur et ses optimisations`() {
+        val state = ObdUiState(
+            adapterInfo = AdapterInfo("ELM327 v1.5", null, null, null),
+            supportsResponseCount = true,
+            supportsMultiPid = false
+        )
+        val report = buildDiagnosticReport(state)
+        assertTrue(report.contains("Adaptateur : ELM327 v1.5 · pas de puce STN"))
+        assertTrue(report.contains("Optimisations de lecture : réponse unique oui, groupage non"))
+    }
+
+    @Test
+    fun `buildDiagnosticReport sans connexion n'invente pas d'adaptateur`() {
+        val report = buildDiagnosticReport(ObdUiState())
+        assertTrue(report.contains("Adaptateur : non identifié"))
+        assertFalse(report.contains("Optimisations de lecture"))
+    }
 }
