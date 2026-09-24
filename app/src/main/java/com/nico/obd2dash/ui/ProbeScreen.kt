@@ -26,6 +26,7 @@ import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.FapScanOutcome
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.R
+import com.nico.obd2dash.UNVALIDATED_MANUFACTURER_PROBES_ENABLED
 
 /**
  * Sondage en lecture seule d'identifiants UDS (voir ObdViewModel.startFapScan) : aucun DID
@@ -69,6 +70,8 @@ fun ProbeScreen(
                 stringResource(R.string.probe_not_connected),
                 style = MaterialTheme.typography.bodyMedium
             )
+        } else if (!UNVALIDATED_MANUFACTURER_PROBES_ENABLED) {
+            Text(stringResource(R.string.probe_requires_validated_profile), style = MaterialTheme.typography.bodyMedium)
         } else {
             Row(
                 modifier = Modifier.fillMaxWidth(),

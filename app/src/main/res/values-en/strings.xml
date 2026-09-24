@@ -15,8 +15,8 @@
     <string name="share_recording_title">Share the recording</string>
     <string name="share_probe_title">Share the scan</string>
     <string name="connection_status_connected">Connected</string>
-    <string name="connection_status_connecting">Connecting...</string>
-    <string name="connection_status_reconnecting">Reconnecting...</string>
+    <string name="connection_status_connecting">Connecting…</string>
+    <string name="connection_status_reconnecting">Reconnecting…</string>
     <string name="connection_status_error">Error</string>
     <string name="connection_status_disconnected">Disconnected</string>
 
@@ -31,9 +31,23 @@
 
     <!-- DashboardScreen -->
     <string name="dashboard_waiting_connection">Waiting for connection</string>
-    <string name="dashboard_recording_paused">Recording paused, will resume automatically (%1$d samples already recorded).</string>
+    <string name="dashboard_adapter_only">Adapter connected</string>
+    <string name="dashboard_no_vehicle_response">No vehicle response confirmed. Check the ignition and connection, then reconnect using Settings.</string>
+    <string name="dashboard_vehicle_responding">Vehicle responding</string>
+    <string name="dashboard_no_standard_measurements">No usable standard OBD measurements on this connection. Manufacturer data is not yet supported for this vehicle.</string>
+    <string name="dashboard_partial_discovery">The parameter list is incomplete; only confirmed parameters are used.</string>
+    <string name="dashboard_recording_no_data">Recording paused: no measurements available on this connection.</string>
+    <string name="probe_requires_validated_profile">Probing disabled: no validated manufacturer read profile is available.</string>
+    <string name="graph_no_standard_measurements">No parameter is available to plot on this connection.</string>
+    <plurals name="dashboard_recording_paused">
+        <item quantity="one">Recording paused, will resume automatically (%1$d sample already recorded).</item>
+        <item quantity="other">Recording paused, will resume automatically (%1$d samples already recorded).</item>
+    </plurals>
     <string name="dashboard_disconnect_button">Disconnect</string>
-    <string name="dashboard_stop_recording">Stop recording (%1$d samples)</string>
+    <plurals name="dashboard_stop_recording">
+        <item quantity="one">Stop recording (%1$d sample)</item>
+        <item quantity="other">Stop recording (%1$d samples)</item>
+    </plurals>
     <string name="dashboard_start_recording">Start recording</string>
     <string name="dashboard_recordings_title">Recordings (%1$d)</string>
 
@@ -52,6 +66,65 @@
     <string name="settings_log_title">Log (%1$d)</string>
     <string name="settings_log_description">Startup, connections, drops, feature activation, crashes. One file per app launch.</string>
 
+    <!-- OfflineCanDtcPanel: local reading of a recorded response, by ECU -->
+    <string name="offline_can_title">Fault codes from a CAN capture</string>
+    <string name="offline_can_expanded">Expanded</string>
+    <string name="offline_can_collapsed">Collapsed</string>
+    <string name="offline_can_intro">Paste a single recorded mode 03 or 07 response with visible headers, no spaces or DLC field. Select the CAN format and mode stated in the log.</string>
+    <string name="offline_can_scope">Local analysis with no vehicle communication. The capture source and date are not verified; the result does not describe the current vehicle condition.</string>
+    <string name="offline_can_format_required">Choose the capture CAN format…</string>
+    <string name="offline_can_format_11">11-bit CAN</string>
+    <string name="offline_can_format_29">29-bit CAN</string>
+    <string name="offline_can_mode_required">Choose the capture mode…</string>
+    <string name="offline_can_mode_stored">Mode 03: stored fault codes</string>
+    <string name="offline_can_mode_pending">Mode 07: pending fault codes</string>
+    <string name="offline_can_capture_label">Recorded CAN response</string>
+    <string name="offline_can_input_limit">Characters: %1$d / %2$d</string>
+    <string name="offline_can_too_long">Paste rejected. Character limit: %1$d. The previous text is preserved; no analysis was started.</string>
+    <string name="offline_can_analyze">Analyze capture</string>
+    <string name="offline_can_result_title">Capture result</string>
+    <string name="offline_can_no_response">No usable ECU response in this text. The absence of fault codes is not established.</string>
+    <string name="offline_can_complete_no_codes">Complete responses: no codes in the responses from the ECUs present in this capture.</string>
+    <string name="offline_can_complete_codes">Complete responses: codes found per ECU are listed below.</string>
+    <string name="offline_can_partial">Partial capture: some responses cannot be used. The displayed codes are not a complete record.</string>
+    <string name="offline_can_invalid">Unusable capture. No conclusion about fault codes can be drawn.</string>
+    <string name="offline_can_global_too_large">The capture exceeds the accepted size limit.</string>
+    <string name="offline_can_unrecognized_line">Unrecognized format or exchange: the entire capture cannot be validated.</string>
+    <string name="offline_can_ecu">ECU %1$s</string>
+    <string name="offline_can_ecu_no_codes">No codes in this response</string>
+    <string name="offline_can_malformed_frame">Malformed frame or unsupported format.</string>
+    <string name="offline_can_invalid_sequence">Incomplete or inconsistent frame sequence.</string>
+    <string name="offline_can_unexpected_service">The response does not match the selected mode.</string>
+    <string name="offline_can_negative_response">Negative response: no usable fault code record.</string>
+    <string name="offline_can_malformed_payload">Malformed fault code data.</string>
+    <string name="offline_can_nrc">Negative response code: 0x%1$s</string>
+
+    <!-- OfflineProfilePanel: local text analysis, independent of the connection -->
+    <string name="offline_profile_protocol_unknown">Capture protocol: unspecified</string>
+    <string name="offline_profile_protocol_fast">Capture protocol: fast KWP</string>
+    <string name="offline_profile_protocol_slow">Capture protocol: slow KWP</string>
+    <string name="offline_profile_protocol_required">Identity extracted; specify the capture protocol to search for a profile.</string>
+    <string name="offline_profile_title">Capture analysis</string>
+    <string name="offline_profile_expanded">Expanded</string>
+    <string name="offline_profile_collapsed">Collapsed</string>
+    <string name="offline_profile_intro">Paste a recorded KWP response to request 2180 in Renault STD_A format. Include the entire hexadecimal frame, with its headers and checksum.</string>
+    <string name="offline_profile_scope">The result describes the pasted capture, independently of the connected vehicle. This analysis works offline and does not start any vehicle reads.</string>
+    <string name="offline_profile_frame_label">Complete hexadecimal frame</string>
+    <string name="offline_profile_input_limit">Characters: %1$d / %2$d</string>
+    <string name="offline_profile_too_long">Paste rejected. Character limit: %1$d. The capture must contain one complete frame.</string>
+    <string name="offline_profile_invalid_frame">Invalid frame or unsupported format. Check the complete 2180 response, its headers and checksum.</string>
+    <string name="offline_profile_analyze">Analyze capture</string>
+    <string name="offline_profile_result_title">Identity extracted from the capture</string>
+    <string name="offline_profile_addresses">ECU address: %1$s · tester address: %2$s</string>
+    <string name="offline_profile_diagnostic_version">Diagnostic version: %1$d (0x%2$02X)</string>
+    <string name="offline_profile_supplier">Supplier code: %1$s</string>
+    <string name="offline_profile_software_version">Software: %1$s · version: %2$s</string>
+    <string name="offline_profile_no_validated_profile">No validated measurement profile</string>
+    <plurals name="offline_profile_matched_profile">
+        <item quantity="one">Recognized profile: %1$s · %2$d read defined, none executed.</item>
+        <item quantity="other">Recognized profile: %1$s · %2$d reads defined, none executed.</item>
+    </plurals>
+
     <!-- DtcScreen -->
     <string name="dtc_title">Trouble codes</string>
     <string name="dtc_mil_on">MIL on</string>
@@ -60,7 +133,7 @@
     <string name="dtc_vin_label">VIN %1$s</string>
     <string name="dtc_protocol_label">Protocol %1$s</string>
     <string name="dtc_model_year_label">model year %1$s</string>
-    <string name="dtc_loading">Reading...</string>
+    <string name="dtc_loading">Reading…</string>
     <string name="dtc_refresh_button">Refresh</string>
     <string name="dtc_export_subject">OBD2 Dash - diagnostic export</string>
     <string name="dtc_share_chooser_title">Share the diagnostic</string>
@@ -104,7 +177,7 @@
     <string name="graph_not_connected">Connect to the probe from the Dashboard to plot a graph.</string>
     <string name="graph_reconnecting_note">Reconnecting, the graph will resume automatically.</string>
     <string name="graph_choose_param">Choose a parameter above to see its graph.</string>
-    <string name="graph_collecting">Collecting data...</string>
+    <string name="graph_collecting">Collecting data…</string>
     <string name="graph_current_value">Current: %1$s</string>
     <string name="graph_picker_placeholder">Choose a parameter</string>
     <string name="graph_picker_label">Parameter</string>
@@ -125,7 +198,7 @@
     <string name="error_read_failed_fallback">Read failed</string>
     <string name="error_connection_lost">Connection to the probe lost</string>
     <string name="error_dtc_read_failed_fallback">DTC read failed</string>
-    <string name="error_header_probe_reading">Reading...</string>
+    <string name="error_header_probe_reading">Reading…</string>
     <string name="error_header_probe_failed">Failed: %1$s</string>
     <string name="error_probe_range_invalid">Invalid range (hexadecimal, 0000-FFFF, start ≤ end).</string>
     <string name="error_probe_target_invalid">Invalid target address: exactly 3 hexadecimal digits (e.g. 7E0), or leave it empty.</string>
@@ -148,19 +221,31 @@
     <string name="smoketest_step_readiness">Readiness monitors</string>
     <string name="smoketest_step_recording">Short recording (10s)</string>
     <string name="smoketest_step_probe">Short UDS scan (3 DIDs)</string>
-    <string name="smoketest_detail_mil_on">MIL on, %1$d code(s) reported</string>
-    <string name="smoketest_detail_mil_off">MIL off, %1$d code(s) reported</string>
+    <plurals name="smoketest_detail_mil_on">
+        <item quantity="one">MIL on, %1$d code reported</item>
+        <item quantity="other">MIL on, %1$d codes reported</item>
+    </plurals>
+    <plurals name="smoketest_detail_mil_off">
+        <item quantity="one">MIL off, %1$d code reported</item>
+        <item quantity="other">MIL off, %1$d codes reported</item>
+    </plurals>
     <string name="smoketest_generic_failure">failure</string>
     <string name="smoketest_no_dynamic_pid">No supported dynamic PID reported</string>
     <string name="smoketest_dynamic_value_result">%1$s = %2$s</string>
     <string name="smoketest_dynamic_value_unusable">%1$s: no usable response</string>
     <string name="smoketest_vin_not_read">Not read (normal on non-CAN, or VIN not supported)</string>
-    <string name="smoketest_dtc_summary">%1$d stored, %2$d pending</string>
-    <string name="smoketest_readiness_count">%1$d monitor(s) reported</string>
+    <string name="smoketest_dtc_summary">Stored codes: %1$d · pending: %2$d</string>
+    <plurals name="smoketest_readiness_count">
+        <item quantity="one">%1$d monitor reported</item>
+        <item quantity="other">%1$d monitors reported</item>
+    </plurals>
     <string name="smoketest_readiness_unreadable">PID01 unreadable for monitors</string>
     <string name="smoketest_connection_changed">Connection changed during the test</string>
     <string name="smoketest_recording_not_started">The recording didn\'t start</string>
-    <string name="smoketest_recording_samples">%1$d sample(s) written during the test</string>
+    <plurals name="smoketest_recording_samples">
+        <item quantity="one">%1$d sample written during the test</item>
+        <item quantity="other">%1$d samples written during the test</item>
+    </plurals>
     <string name="smoketest_recording_zero_samples">No samples written during the test (see the recording error)</string>
     <string name="smoketest_probe_not_started">The scan didn\'t start</string>
     <string name="smoketest_probe_ok">Scan mechanism working (3 DIDs read)</string>

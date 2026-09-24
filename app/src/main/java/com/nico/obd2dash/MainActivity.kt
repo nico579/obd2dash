@@ -187,7 +187,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 actions = {
-                                    ConnectionIndicator(state.connectionState)
+                                    ConnectionIndicator(state.connectionState, state.dataAvailability)
                                     if (!showSettings) {
                                         IconButton(onClick = { showSettings = true }) {
                                             Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.topbar_settings_icon))
@@ -357,7 +357,7 @@ private fun applyWakeOverLockScreenFlags(window: Window, active: Boolean) {
  * l'accessibilité (lecteur d'écran), simplement plus affiché visuellement.
  */
 @Composable
-private fun ConnectionIndicator(state: ConnectionState) {
+private fun ConnectionIndicator(state: ConnectionState, availability: ObdDataAvailability) {
     // Connecté réutilise directement le turquoise fonctionnel de l'appli (colorScheme.primary,
     // déjà utilisé par Wi-Fi/Bluetooth/Partager) plutôt qu'un vert isolé : un seul "cette
     // couleur = actif/bon" dans toute l'appli, qui s'assombrit aussi cohéremment la nuit avec
@@ -366,7 +366,11 @@ private fun ConnectionIndicator(state: ConnectionState) {
     // l'ancien amber n'était pas en cause, plutôt son mélange avec le fond via le clignotement
     // en alpha juste en dessous, mais la teinte plus propre aide dans les deux cas).
     val (color, label) = when (state) {
-        ConnectionState.CONNECTED -> MaterialTheme.colorScheme.primary to stringResource(R.string.connection_status_connected)
+        ConnectionState.CONNECTED -> when (availability) {
+            ObdDataAvailability.NO_VEHICLE_RESPONSE -> Color(0xFFE0A12D) to stringResource(R.string.dashboard_adapter_only)
+            ObdDataAvailability.NO_STANDARD_MEASUREMENTS -> Color(0xFFE0A12D) to stringResource(R.string.dashboard_no_standard_measurements)
+            else -> MaterialTheme.colorScheme.primary to stringResource(R.string.connection_status_connected)
+        }
         ConnectionState.CONNECTING -> Color(0xFFE0A12D) to stringResource(R.string.connection_status_connecting)
         ConnectionState.RECONNECTING -> Color(0xFFE0A12D) to stringResource(R.string.connection_status_reconnecting)
         ConnectionState.ERROR -> Color(0xFFE25555) to stringResource(R.string.connection_status_error)

@@ -33,11 +33,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionMode
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.GaugeValue
 import com.nico.obd2dash.ObdUiState
+import com.nico.obd2dash.ObdDataAvailability
 import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.R
 import com.nico.obd2dash.RecordingFile
@@ -122,7 +124,7 @@ fun DashboardScreen(
             // plutôt que de faire croire à un arrêt, quel que soit l'état non-CONNECTED précis.
             if (state.isRecording) {
                 Text(
-                    stringResource(R.string.dashboard_recording_paused, state.recordingSamples),
+                    pluralStringResource(R.plurals.dashboard_recording_paused, state.recordingSamples, state.recordingSamples),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -137,6 +139,24 @@ fun DashboardScreen(
             // depuis l'écran ; il reste consultable dans le rapport diagnostic exporté
             // (buildDiagnosticReport) et dans le journal (EventLog), pas ici.
         } else {
+            when (state.dataAvailability) {
+                ObdDataAvailability.NO_VEHICLE_RESPONSE -> {
+                    Text(stringResource(R.string.dashboard_adapter_only), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.dashboard_no_vehicle_response), style = MaterialTheme.typography.bodyMedium)
+                }
+                ObdDataAvailability.NO_STANDARD_MEASUREMENTS -> {
+                    Text(stringResource(R.string.dashboard_vehicle_responding), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.dashboard_no_standard_measurements), style = MaterialTheme.typography.bodyMedium)
+                }
+                else -> Unit
+            }
+            if (state.vehicleResponseObserved && !state.pidDiscoveryComplete) {
+                Text(
+                    stringResource(R.string.dashboard_partial_discovery),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             // bigGaugePids : choix de l'utilisateur depuis Réglages (voir ObdUiState),
             // PRIMARY_PIDS par défaut tant que rien n'est personnalisé.
             val primaryDefs = PidCatalog.defs.filter { it.pid in state.bigGaugePids && it.pid in state.supportedPids }
@@ -182,12 +202,13 @@ fun DashboardScreen(
         // ObdViewModel.pauseRecordingForReconnect). "Démarrer" n'a de sens que CONNECTED
         // (startRecording() exige un client actif), d'où la condition en union plutôt qu'un
         // simple state.isRecording.
-        if (state.connectionState == ConnectionState.CONNECTED || state.isRecording) {
+        if ((state.connectionState == ConnectionState.CONNECTED &&
+                state.dataAvailability == ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE) || state.isRecording) {
             HorizontalDivider()
             Button(onClick = onToggleRecording, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     if (state.isRecording) {
-                        stringResource(R.string.dashboard_stop_recording, state.recordingSamples)
+                        pluralStringResource(R.plurals.dashboard_stop_recording, state.recordingSamples, state.recordingSamples)
                     } else {
                         stringResource(R.string.dashboard_start_recording)
                     }
@@ -199,6 +220,10 @@ fun DashboardScreen(
             // ici tant que la connexion elle-même allait bien.
             state.recordingError?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (state.isRecording && state.connectionState == ConnectionState.CONNECTED &&
+                state.dataAvailability != ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE) {
+                Text(stringResource(R.string.dashboard_recording_no_data), style = MaterialTheme.typography.bodySmall)
             }
         }
 

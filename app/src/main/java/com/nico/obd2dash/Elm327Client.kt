@@ -4,10 +4,13 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.net.Network
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -18,10 +21,10 @@ import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 /** Où joindre l'adaptateur ELM327 : Wi-Fi (socket TCP) ou Bluetooth (RFCOMM/SPP). */
 sealed class ConnectionTarget {
@@ -37,20 +40,38 @@ sealed class ConnectionTarget {
  * sendRaw() et tout ce qui suit ne connaissent que out/reader, pas le transport sous-jacent.
  *
  * Vérifié sur un ELM327 Wi-Fi et, depuis le 24 septembre 2026, sur un ELM327 Bluetooth
- * (captures obd_SEAT-000000_20260924_*.csv). `Socket.soTimeout` borne une lecture Wi-Fi
- * bloquée à 3s de façon garantie par l'OS ; `BluetoothSocket` n'a pas d'équivalent direct :
- * sans le chien de garde de [sendRaw] (voir READ_INACTIVITY_TIMEOUT_MS), une lecture
- * Bluetooth sur un adaptateur appairé mais muet bloquait indéfiniment le polling, et avec
- * lui le filet anti-zombie d'ObdViewModel qui n'est évalué qu'en fin de cycle.
+ * (captures obd_SEAT-000000_20260924_*.csv). Une échéance couvre l'échange entier, même si
+ * des octets arrivent au compte-gouttes, et un gardien ferme le transport capturé à
+ * l'échéance ou à l'annulation : c'est le seul moyen de débloquer une lecture sur un
+ * BluetoothSocket, qui n'expose pas de SO_TIMEOUT (sans lui, un adaptateur Bluetooth
+ * appairé mais muet bloquait indéfiniment le polling, constaté le 24/09).
  */
-class Elm327Client(private val target: ConnectionTarget) {
+class Elm327Client internal constructor(
+    private val target: ConnectionTarget,
+    private val timeouts: ElmTimeouts
+) {
+
+    constructor(target: ConnectionTarget) : this(target, ElmTimeouts())
 
     constructor(host: String, port: Int = 35000) : this(ConnectionTarget.Wifi(host, port))
 
-    private var socket: Socket? = null
-    private var bluetoothSocket: BluetoothSocket? = null
-    private var out: OutputStream? = null
-    private var reader: BufferedReader? = null
+    private class Transport(val wifi: Socket? = null, val bluetooth: BluetoothSocket? = null) {
+        var out: OutputStream? = null
+        var reader: BufferedReader? = null
+        val closed = AtomicBoolean(false)
+
+        fun close() {
+            if (!closed.compareAndSet(false, true)) return
+            // Socket.close interrompt d'abord les appels bloquants et ferme leurs flux.
+            // BufferedReader.close en premier attendrait le verrou de read().
+            runCatching { wifi?.close() }
+            runCatching { bluetooth?.close() }
+        }
+    }
+
+    private val transportLock = Any()
+    @Volatile private var transport: Transport? = null
+    private var initialObdExchange = true
 
     // L'ELM327 est un canal requête/réponse strictement séquentiel : deux appelants
     // (le polling live et l'écran DTC) ne peuvent jamais dialoguer en même temps
@@ -66,12 +87,6 @@ class Elm327Client(private val target: ConnectionTarget) {
         private set
     var detectedProtocol: String? = null
         private set
-
-    // Délai d'inactivité du chien de garde de sendRaw : large tant que la recherche de
-    // protocole (ATSP0) n'est pas terminée, l'ELM327 pouvant rester silencieux plusieurs
-    // secondes après "SEARCHING..." (initialisations K-Line successives), puis ramené à
-    // READ_INACTIVITY_TIMEOUT_MS par detectProtocol().
-    @Volatile private var inactivityTimeoutMs = PROTOCOL_SEARCH_TIMEOUT_MS
 
     /**
      * true si l'adaptateur accepte le chiffre "nombre de réponses attendues" en fin de
@@ -94,80 +109,72 @@ class Elm327Client(private val target: ConnectionTarget) {
         private set
 
     suspend fun connect(network: Network? = null) = withContext(Dispatchers.IO) {
-        when (val t = target) {
-            is ConnectionTarget.Wifi -> {
-                val s = Socket()
-                // Force le socket à sortir par le WiFi de la sonde plutôt que par la 4G,
-                // voir le commentaire dans ObdViewModel.requestWifiNetwork().
-                network?.bindSocket(s)
-                s.connect(InetSocketAddress(t.host, t.port), 5000)
-                s.soTimeout = 3000
-                socket = s
-                out = s.getOutputStream()
-                reader = BufferedReader(InputStreamReader(s.getInputStream()))
-            }
-            is ConnectionTarget.Bluetooth -> {
-                try {
-                    // UUID standard du profil Bluetooth SPP (Serial Port Profile), le même
-                    // pour tout adaptateur ELM327 Bluetooth : ce n'est pas propre à un appareil.
-                    val sock = t.device.createRfcommSocketToServiceRecord(SPP_UUID)
-                    // Publié AVANT connect() (voir audit B8) : connect() est un appel Java
-                    // bloquant, pas un point de suspension Kotlin, donc annuler cette
-                    // coroutine pendant qu'il tourne ne l'interrompt pas tout seul. Sans
-                    // publier ce socket ici, rien ne pourrait le fermer pendant qu'il est
-                    // encore en train de se connecter. BluetoothSocket.close() depuis un
-                    // autre thread interrompt bien une connexion en cours (voir la doc
-                    // Android citée ci-dessous), ce qui rend l'échéance ci-dessous réellement
-                    // effective plutôt que cosmétique (un withTimeout seul autour de
-                    // sock.connect() ne ferait qu'annuler la coroutine sans jamais débloquer
-                    // cet appel Java, l'adaptateur resterait "en cours de connexion" jusqu'à
-                    // ce qu'il réponde de lui-même, potentiellement jamais).
-                    bluetoothSocket = sock
-                    coroutineScope {
-                        // Ferme aussi le socket si CETTE coroutine est annulée pendant
-                        // connect() (ex: l'utilisateur choisit un autre transport pendant la
-                        // tentative, voir ObdViewModel.connect) : annuler le watchdog seul ne
-                        // débloquait pas l'appel Java, qui continuait jusqu'à son propre
-                        // délai système en occupant l'adaptateur. `finished` évite de fermer
-                        // un socket qui vient de se connecter normalement (le watchdog est
-                        // alors annulé lui aussi, et passe par le même finally).
-                        val finished = AtomicBoolean(false)
-                        val watchdog = launch {
-                            try {
-                                delay(BLUETOOTH_CONNECT_TIMEOUT_MS)
-                            } finally {
-                                if (!finished.get()) runCatching { sock.close() }
-                            }
+        mutex.withLock {
+            disconnect()
+            initialObdExchange = true
+            detectedProtocol = null
+            isCanProtocol = true
+            // Capacités de l'adaptateur précédent : redétectées pour celui-ci.
+            supportsResponseCount = false
+            supportsMultiPid = false
+            val candidate = try {
+                when (val t = target) {
+                    is ConnectionTarget.Wifi -> {
+                        val s = Socket()
+                        val connection = Transport(wifi = s)
+                        synchronized(transportLock) { transport = connection }
+                        // Le réseau de la sonde doit être préféré à la connexion mobile.
+                        boundedBlocking(connection, timeouts.connectMs) {
+                            network?.bindSocket(s)
+                            // Un nom d'hôte déclenche ici une résolution DNS Java que
+                            // Socket.close ne peut pas interrompre. L'échéance sera
+                            // constatée à son retour ; une IP littérale évite cette limite.
+                            s.connect(InetSocketAddress(t.host, t.port), timeouts.connectMs.toInt())
                         }
+                        connection.out = s.getOutputStream()
+                        connection.reader = BufferedReader(InputStreamReader(s.getInputStream()))
+                        connection
+                    }
+                    is ConnectionTarget.Bluetooth -> {
                         try {
-                            sock.connect()
-                        } finally {
-                            finished.set(true)
-                            watchdog.cancel()
+                            val sock = t.device.createRfcommSocketToServiceRecord(SPP_UUID)
+                            val connection = Transport(bluetooth = sock)
+                            // Publier avant connect permet à disconnect d'interrompre
+                            // cet appel Java bloquant (audit B8). Le gardien capture
+                            // exactement ce socket, jamais celui d'une reconnexion.
+                            synchronized(transportLock) { transport = connection }
+                            boundedBlocking(connection, timeouts.connectMs) { sock.connect() }
+                            connection.out = sock.outputStream
+                            connection.reader = BufferedReader(InputStreamReader(sock.inputStream))
+                            connection
+                        } catch (e: SecurityException) {
+                            throw IOException("Permission Bluetooth manquante", e)
                         }
                     }
-                    out = sock.outputStream
-                    reader = BufferedReader(InputStreamReader(sock.inputStream))
-                } catch (e: SecurityException) {
-                    // BLUETOOTH_CONNECT (Android 12+) refusée ou jamais demandée : message
-                    // plus clair qu'une SecurityException brute pour l'utilisateur.
-                    throw IOException("Permission Bluetooth manquante", e)
                 }
+            } catch (e: Exception) {
+                disconnect()
+                throw e
             }
-        }
 
-        // Séquence d'init standard ELM327
-        sendRaw("ATZ")   // reset
-        sendRaw("ATE0")  // echo off
-        sendRaw("ATL0")  // linefeeds off
-        sendRaw("ATS0")  // espaces off
-        sendRaw("ATH0")  // headers off
-        sendRaw("ATSP0") // protocole auto
-        // ATDPN n'est PAS appelé ici : l'ELM327 ne recherche/verrouille effectivement le
-        // protocole qu'à la première requête OBD réelle (pas à ATSP0 lui-même). L'appeler
-        // maintenant renverrait "A0" (recherche non encore faite), classé non-CAN par
-        // erreur. Voir detectProtocol(), appelée par discoverSupportedPids() après son
-        // premier échange OBD.
+            // Toute la configuration reste sous mutex, avant le premier appelant OBD.
+            try {
+                exchange(candidate, "ATZ") // reset : la réponse est l'identification ELM.
+                for (command in listOf("ATE0", "ATL0", "ATS0", "ATH0", "ATSP0")) {
+                    val reply = exchange(candidate, command)
+                    val lines = reply.lineSequence().map { it.trim().uppercase(Locale.ROOT) }
+                        .filter { it.isNotEmpty() && it != command }.toList()
+                    if (lines != listOf("OK")) {
+                        throw IOException("$command refusé par l'adaptateur : $reply")
+                    }
+                }
+            } catch (e: Exception) {
+                closeTransport(candidate)
+                throw e
+            }
+            // ATDPN est interrogé après la découverte PID : seule la première requête
+            // OBD déclenche la recherche de protocole, ATSP0 seul renverrait encore A0.
+        }
     }
 
     /**
@@ -175,8 +182,8 @@ class Elm327Client(private val target: ConnectionTarget) {
      * de "A" si sélectionné automatiquement par ATSP0). Protocoles 6-9/A-C = ISO 15765-4
      * CAN ; 1-5 = SAE J1850/ISO 9141-2/ISO 14230 KWP, non-CAN. Doit être appelée après au
      * moins un échange OBD réel (cf. commentaire dans connect()), jamais juste après l'init.
-     * Une réponse ni CAN ni non-CAN reconnue (transport en échec, "?", vide) retombe sur
-     * l'hypothèse CAN plutôt que de classer arbitrairement en non-CAN.
+     * Une réponse non reconnue ("?", vide) conserve l'hypothèse CAN ; une erreur du
+     * transport remonte à l'appelant, puisque celui-ci est alors fermé.
      */
     internal suspend fun detectProtocol() {
         try {
@@ -193,18 +200,9 @@ class Elm327Client(private val target: ConnectionTarget) {
         } catch (e: Exception) {
             isCanProtocol = true
             detectedProtocol = null
+            if (!isConnected) throw e
         }
-        inactivityTimeoutMs = READ_INACTIVITY_TIMEOUT_MS
     }
-
-    /** Ferme les sockets sans toucher aux champs : débloque une lecture en cours sur un autre thread (voir [sendRaw]). */
-    private fun closeTransport() {
-        runCatching { socket?.close() }
-        runCatching { bluetoothSocket?.close() }
-    }
-
-    private fun timeoutMessage(command: String) =
-        "Adaptateur muet depuis ${inactivityTimeoutMs / 1000}s (commande $command)"
 
     fun disconnect() {
         // Fermer le socket EN PREMIER interrompt immédiatement une lecture ou une connexion
@@ -213,175 +211,147 @@ class Elm327Client(private val target: ConnectionTarget) {
         // Vrai aussi pour BluetoothSocket : sa documentation garantit qu'un close() depuis
         // un autre thread interrompt une opération bloquante en cours (connect() ou read(),
         // voir audit B8) : un commentaire antérieur affirmait ici à tort le contraire.
-        runCatching { socket?.close() }
-        runCatching { bluetoothSocket?.close() }
-        runCatching { reader?.close() }
-        runCatching { out?.close() }
-        socket = null
-        bluetoothSocket = null
+        val previous = synchronized(transportLock) {
+            transport.also { transport = null }
+        }
+        previous?.close()
+    }
+
+    private fun closeTransport(connection: Transport) {
+        synchronized(transportLock) {
+            if (transport === connection) transport = null
+        }
+        connection.close()
     }
 
     val isConnected: Boolean
-        get() = when (target) {
-            is ConnectionTarget.Wifi -> socket?.isConnected == true
+        get() = transport?.let { connection -> !connection.closed.get() && when (target) {
+            is ConnectionTarget.Wifi -> connection.wifi?.let { it.isConnected && !it.isClosed } == true
             // BluetoothSocket.isConnected() existe depuis l'API 14, bien en dessous du
             // minSdk de ce projet (voir audit B8) : un commentaire antérieur affirmait à
             // tort son absence et se rabattait sur la seule présence de la référence, qui
             // restait vraie même après une déconnexion silencieuse côté adaptateur.
-            is ConnectionTarget.Bluetooth -> runCatching { bluetoothSocket?.isConnected }.getOrNull() == true
-        }
+            is ConnectionTarget.Bluetooth -> runCatching { connection.bluetooth?.isConnected }.getOrNull() == true
+        } } == true
 
     companion object {
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-        // BluetoothSocket.connect() ne prend pas de délai en paramètre (contrairement à
-        // Socket.connect(SocketAddress, timeout) côté Wi-Fi) : sans cette échéance, un
-        // adaptateur qui ne répond jamais à la demande de connexion RFCOMM bloquerait ce
-        // thread indéfiniment (voir audit B8).
-        private const val BLUETOOTH_CONNECT_TIMEOUT_MS = 10_000L
-        // Silence maximal toléré au milieu d'une réponse, une fois le protocole trouvé : une
-        // réponse OBD normale arrive en moins d'une seconde, même en Bluetooth (captures du
-        // 24/09 : ~120-270 ms par requête). Plus long que soTimeout (3s) côté Wi-Fi, qui
-        // reste donc le premier à se déclencher sur ce transport.
-        private const val READ_INACTIVITY_TIMEOUT_MS = 6_000L
-        private const val PROTOCOL_SEARCH_TIMEOUT_MS = 20_000L
-        private const val WATCHDOG_TICK_MS = 250L
+        private const val MAX_RESPONSE_CHARS = 65_536
         /** Maximum de PID par requête mode 01 groupée (SAE J1979 / ISO 15765-4). */
         const val MAX_PIDS_PER_REQUEST = 6
-        private val FRAME_REGEX = Regex("^([0-9A-Fa-f]):(.+)$")
+    }
+
+    /** L'annulation du gardien ferme aussi l'appel Java bloquant avant que son parent termine. */
+    private suspend fun <T> boundedBlocking(
+        connection: Transport,
+        timeoutMs: Long,
+        block: (deadlineNanos: Long) -> T
+    ): T = coroutineScope {
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000
+        val guard = Any()
+        var active = true
+        val expired = AtomicBoolean(false)
+        val watchdog = launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                delay(timeoutMs)
+                expired.set(true)
+            } finally {
+                synchronized(guard) { if (active) closeTransport(connection) }
+            }
+        }
+        try {
+            currentCoroutineContext().ensureActive()
+            val result = block(deadline)
+            currentCoroutineContext().ensureActive()
+            if (expired.get() || System.nanoTime() >= deadline) {
+                throw SocketTimeoutException("Échéance de l'échange dépassée (${timeoutMs} ms)")
+            }
+            result
+        } catch (e: Exception) {
+            closeTransport(connection)
+            currentCoroutineContext().ensureActive()
+            if (expired.get() && e !is SocketTimeoutException) {
+                throw SocketTimeoutException("Échéance de l'échange dépassée (${timeoutMs} ms)")
+                    .apply { initCause(e) }
+            }
+            throw e
+        } finally {
+            // Désarmement avant libération du mutex : un ancien gardien ne peut pas
+            // fermer le transport pendant l'échange suivant ni une reconnexion.
+            synchronized(guard) { active = false }
+            watchdog.cancel()
+        }
     }
 
     /** Envoie une commande brute et retourne la réponse (sans le '>' final). */
-    suspend fun sendRaw(command: String): String = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            val o = out ?: error("Non connecté")
-            val r = reader ?: error("Non connecté")
-
-            // Chien de garde d'inactivité (voir READ_INACTIVITY_TIMEOUT_MS) : remis à zéro à
-            // chaque caractère reçu, pour ne jamais couper une réponse lente mais vivante
-            // ("SEARCHING..." pendant la recherche de protocole, VIN multi-trame). Fermer le
-            // transport depuis un autre thread est le seul moyen de débloquer r.read() sur
-            // un BluetoothSocket (pas de soTimeout), et reste sans effet côté Wi-Fi où
-            // soTimeout (3s) se déclenche de toute façon avant.
-            val lastActivityAtMs = AtomicLong(System.currentTimeMillis())
-            val timedOut = AtomicBoolean(false)
-            try {
-                coroutineScope {
-                    val watchdog = launch {
-                        while (true) {
-                            delay(WATCHDOG_TICK_MS)
-                            if (System.currentTimeMillis() - lastActivityAtMs.get() > inactivityTimeoutMs) {
-                                timedOut.set(true)
-                                closeTransport()
-                                break
-                            }
-                        }
-                    }
-                    try {
-                        o.write("$command\r".toByteArray())
-                        o.flush()
-
-                        val sb = StringBuilder()
-                        while (true) {
-                            val c = try {
-                                r.read()
-                            } catch (e: IOException) {
-                                if (timedOut.get()) throw IOException(timeoutMessage(command), e)
-                                throw e
-                            }
-                            // Une fin de flux avant '>' signifie que la connexion a été coupée
-                            // (sonde éteinte, WiFi perdu) : ce n'est pas une réponse normale, il
-                            // ne faut pas la traiter comme telle sous peine de la confondre plus
-                            // tard avec un résultat de lecture valide (ex: "0 défaut").
-                            if (c == -1) {
-                                if (timedOut.get()) throw IOException(timeoutMessage(command))
-                                throw IOException("Connexion perdue (fin de flux avant '>')")
-                            }
-                            lastActivityAtMs.set(System.currentTimeMillis())
-                            val ch = c.toChar()
-                            if (ch == '>') break
-                            sb.append(ch)
-                        }
-                        sb.toString().trim()
-                    } finally {
-                        watchdog.cancel()
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Un timeout (soTimeout=3000) ou une coupure en cours d'échange laisse le
-                // flux dans un état qu'on ne peut pas resynchroniser de façon fiable : une
-                // réponse tardive à cette commande serait sinon lue comme réponse à la
-                // suivante. On ferme la session plutôt que de risquer de mélanger deux
-                // échanges ; toute réutilisation échouera franchement ("Non connecté").
-                disconnect()
-                throw e
-            }
+    suspend fun sendRaw(command: String): String {
+        // Une commande déjà en attente appartient à cette connexion. Une reconnexion
+        // ne doit pas lui donner silencieusement accès au nouveau transport.
+        val expected = transport ?: throw IOException("Non connecté")
+        return withContext(Dispatchers.IO) {
+            mutex.withLock { exchange(expected, command) }
         }
+    }
+
+    private suspend fun exchange(connection: Transport, command: String): String {
+        require(command.isNotBlank() && '\r' !in command && '\n' !in command)
+        if (transport !== connection || connection.closed.get()) throw IOException("Non connecté")
+        val o = connection.out ?: throw IOException("Non connecté")
+        val r = connection.reader ?: throw IOException("Non connecté")
+        val upper = command.trim().uppercase(Locale.ROOT)
+        val isAt = upper.startsWith("AT")
+        val timeoutMs = when {
+            isAt -> timeouts.atMs
+            initialObdExchange -> timeouts.initialObdMs
+            else -> timeouts.establishedReadMs
+        }
+        val sb = StringBuilder()
+        val result = try {
+            boundedBlocking(connection, timeoutMs) { deadline ->
+                o.write("$command\r".toByteArray())
+                o.flush()
+                while (true) {
+                    val remaining = deadline - System.nanoTime()
+                    if (remaining <= 0) throw SocketTimeoutException("Échéance de l'échange dépassée")
+                    connection.wifi?.soTimeout = ((remaining + 999_999) / 1_000_000)
+                        .coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+                    val c = r.read()
+                    // Une fin de flux avant '>' signifie que la connexion a été coupée
+                    // (sonde éteinte, WiFi perdu) : ce n'est pas une réponse normale, il
+                    // ne faut pas la traiter comme telle sous peine de la confondre plus
+                    // tard avec un résultat de lecture valide (ex: "0 défaut").
+                    if (c == -1) throw IOException("Connexion perdue (fin de flux avant '>')")
+                    val ch = c.toChar()
+                    if (ch == '>') break
+                    sb.append(ch)
+                    if (sb.length > MAX_RESPONSE_CHARS) throw IOException("Réponse ELM trop longue")
+                }
+                sb.toString().trim()
+            }
+        } catch (e: IOException) {
+            // Les erreurs de découverte gardent leur phase et leurs octets partiels.
+            // Le contenu des autres services (VIN notamment) n'est pas ajouté au log.
+            val partial = if (isAt || upper.startsWith("01")) {
+                sb.toString().take(512).replace("\r", "\\r").replace("\n", "\\n")
+            } else "${sb.length} caractères"
+            val message = "$upper (${timeoutMs} ms) : ${e.message}; réponse partielle=$partial"
+            if (e is SocketTimeoutException) throw SocketTimeoutException(message).apply { initCause(e) }
+            throw IOException(message, e)
+        }
+        if (!isAt) initialObdExchange = false
+        if (upper in setOf("ATZ", "ATD", "ATWS", "ATPC") ||
+            upper.startsWith("ATSP") || upper.startsWith("ATTP")) initialObdExchange = true
+        return result
     }
 
     /**
-     * Recolle les réponses multi-trames ISO-TP affichées en lignes "N: <hex>" (headers
-     * off mais réponse trop longue pour une seule trame CAN, ex: VIN, DTC nombreux).
-     * Sinon retombe sur une ligne purement hexadécimale de la réponse.
-     *
-     * Limite connue (non résolue ici) : les headers sont désactivés (ATH0), donc rien
-     * n'identifie quel calculateur a répondu quoi. Si plusieurs ECU répondent à une même
-     * requête broadcast, leurs lignes/trames peuvent se mélanger. On limite les dégâts de
-     * deux façons sans deviner le format headers-on (jamais vérifié sur un véhicule réel,
-     * cf. [probeHeaderFormat]) :
-     * - Repli une ligne : on préfère, parmi plusieurs lignes candidates, celle qui
-     *   correspond au préfixe attendu plutôt que la première venue.
-     * - Multi-trame : le numéro de séquence ISO-TP tient sur 4 bits (0-F) et boucle,
-     *   y compris pour un seul calculateur qui répondrait avec assez de trames (au-delà
-     *   d'environ 112 octets). On ne peut donc pas se contenter de détecter "même numéro,
-     *   contenu différent" (un retour légitime à 0 après F déclencherait un faux positif).
-     *   On exige à la place un flux strictement séquentiel démarrant à 0 (0,1,2,...,F,0,...) :
-     *   c'est le seul ordre qu'un flux ISO-TP à flux contrôlé, transporté sur TCP (donc déjà
-     *   dans l'ordre), peut produire pour un seul répondant. Tout écart (index inattendu,
-     *   trame répétée hors cycle) signale soit une collision entre calculateurs, soit une
-     *   trame perdue : dans les deux cas on renvoie une chaîne vide plutôt que d'assembler
-     *   des données dont l'origine ou l'ordre n'est plus garanti.
+     * ATH0 ne permet pas d'attribuer les réponses aux calculateurs. Exige une seule
+     * valeur distincte au préfixe attendu ; un conflit reste illisible au lieu de
+     * retenir arbitrairement le premier répondant (notamment « zéro défaut »).
+     * La découverte traite séparément l'union des bitmaps de capacités.
      */
-    internal fun reassembleHex(response: String, expectedPrefix: String): String {
-        val lines = response.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }
-        val frameRegex = FRAME_REGEX
-        val frames = mutableListOf<String>()
-        var expectedIndex = 0
-        // Longueur ISO-TP totale annoncée par l'ELM327 avant la première trame d'une
-        // réponse multi-trame (ex: "00A" = 10 octets), jusqu'ici récupérée puis jetée
-        // faute de correspondre à `frameRegex` (voir A3) : une trame manquante en fin de
-        // séquence passait alors inaperçue, la donnée partielle étant acceptée telle
-        // quelle. Une ligne de ce type après le début des trames n'est pas ce format
-        // (déjà ignorée avant ce correctif), on ne la traite donc que si aucune trame
-        // n'a encore été vue.
-        var declaredLength: Int? = null
-        for (line in lines) {
-            val m = frameRegex.find(line)
-            if (m == null) {
-                if (frames.isEmpty()) declaredLength = line.toIntOrNull(16)
-                continue
-            }
-            val index = m.groupValues[1].toInt(16)
-            val data = m.groupValues[2].trim()
-            if (index != expectedIndex) return ""
-            frames.add(data)
-            expectedIndex = (expectedIndex + 1) % 16
-        }
-        if (frames.isNotEmpty()) {
-            val joined = frames.joinToString("")
-            val declaredHexLen = declaredLength?.times(2)
-            return when {
-                declaredHexLen == null -> joined
-                joined.length < declaredHexLen -> "" // trame(s) manquante(s) : rejeter, pas tronquer en silence
-                else -> joined.take(declaredHexLen) // retire le remplissage de fin de trame
-            }
-        }
-        val hexLines = lines.filter { line -> line.all { c -> c in '0'..'9' || c in 'A'..'F' || c in 'a'..'f' } }
-        return hexLines.firstOrNull { it.uppercase().startsWith(expectedPrefix.uppercase()) }
-            ?: hexLines.firstOrNull()
-            ?: ""
-    }
+    internal fun reassembleHex(response: String, expectedPrefix: String): String =
+        HeaderlessObdResponse.parse(response).select(expectedPrefix)
 
     /**
      * Diagnostic ponctuel, pas utilisé en fonctionnement normal : capture la réponse brute
@@ -472,22 +442,22 @@ class Elm327Client(private val target: ConnectionTarget) {
     /**
      * Toutes les réponses exploitables commençant par [expectedPrefix] : chaque ligne
      * hexadécimale d'une seule trame (un calculateur par ligne, headers désactivés), plus
-     * la réponse multi-trame recollée par [reassembleHex] s'il y en a une. Contrairement à
-     * reassembleHex seul, qui ne garde que la PREMIÈRE ligne, une réponse "rien à signaler"
-     * d'un calculateur (ex: boîte de vitesses, "4300") ne masque plus les codes d'un autre
-     * (voir audit du 24/09). Une réponse multi-trame illisible (collision entre deux
-     * calculateurs, trame manquante) lève plutôt que d'être ignorée en silence : les lignes
-     * restantes ne représenteraient alors qu'une partie des calculateurs.
+     * la séquence multi-trame recollée s'il y en a une (voir [HeaderlessObdResponse]).
+     * Contrairement à [reassembleHex], qui exige une valeur unique, une réponse "rien à
+     * signaler" d'un calculateur (ex: boîte de vitesses, "4300") ne masque plus les codes
+     * d'un autre (voir audit du 24/09). Une séquence multi-trame incohérente (collision
+     * entre deux calculateurs, trame manquante) lève plutôt que d'être ignorée en silence :
+     * les lignes restantes ne représenteraient alors qu'une partie des calculateurs.
      */
     internal fun responsePayloads(response: String, expectedPrefix: String): List<String> {
-        val prefix = expectedPrefix.uppercase()
-        val lines = response.split('\r', '\n').map { it.trim().uppercase() }.filter { it.isNotEmpty() }
-        val singles = lines.filter { line -> line.all { it in '0'..'9' || it in 'A'..'F' } && line.startsWith(prefix) }
-        val hasFrames = lines.any { FRAME_REGEX.matches(it) }
-        if (!hasFrames) return singles
-        val multi = reassembleHex(response, expectedPrefix).uppercase()
-        if (!multi.startsWith(prefix)) throw IOException("Réponse multi-trame illisible : ${response.replace('\r', ' ').trim()}")
-        return singles + multi
+        val parsed = HeaderlessObdResponse.parse(response)
+        if (!parsed.isComplete) {
+            throw IOException("Réponse multi-trame illisible : ${response.replace('\r', ' ').trim()}")
+        }
+        val prefix = expectedPrefix.uppercase(Locale.ROOT)
+        return parsed.payloads.filter { payload ->
+            payload.startsWith(prefix) && payload.all { it in '0'..'9' || it in 'A'..'F' }
+        }
     }
 
     /**
@@ -502,6 +472,7 @@ class Elm327Client(private val target: ConnectionTarget) {
         if (!hexstr.uppercase().startsWith(expectedPrefix.uppercase())) return null
         val dataHex = hexstr.substring(expectedPrefix.length)
         if (dataHex.isEmpty() || dataHex.length % 2 != 0) return null
+        if (!dataHex.all { it in '0'..'9' || it in 'A'..'F' || it in 'a'..'f' }) return null
         val bytes = dataHex.chunked(2).map { it.toIntOrNull(16) }
         if (bytes.any { it == null }) return null
         return bytes.filterNotNull()
@@ -513,29 +484,81 @@ class Elm327Client(private val target: ConnectionTarget) {
      * Deux véhicules différents peuvent renvoyer des ensembles très différents.
      */
     suspend fun discoverSupportedPids(): Set<Int> {
+        return discoverPidSupport().supportedPids
+    }
+
+    /** Un bitmap nul reçu est un résultat complet, distinct d'une absence de réponse. */
+    suspend fun discoverPidSupport(): PidDiscoveryResult {
+        val discoveryTransport = transport ?: throw IOException("Non connecté")
         val supported = mutableSetOf<Int>()
+        val responses = linkedMapOf<Int, String>()
+        var vehicleResponseObserved = false
+        var bitmapReceived = false
+        var incompleteResponseObserved = false
+        var complete = false
         var base = 0x00
-        while (true) {
-            val bytes = readPidBytes(base) ?: break
-            if (bytes.size < 4) break
-            val value = (bytes[0] shl 24) or (bytes[1] shl 16) or (bytes[2] shl 8) or bytes[3]
+        while (base <= 0xE0) {
+            val prefix = "41%02X".format(Locale.ROOT, base)
+            val raw = sendRaw("01%02X".format(Locale.ROOT, base))
+            responses[base] = raw
+            val normalized = raw.replace(" ", "").replace("\t", "")
+            val parsed = HeaderlessObdResponse.parse(normalized)
+            val candidates = parsed.payloads.filter { it.startsWith(prefix) }
+            val bitmaps = candidates.mapNotNull { parseHexPayload(it, prefix)?.takeIf { bytes -> bytes.size == 4 } }
+            // Un écho résiduel "0100" peut être la première ligne hexadécimale.
+            // Chercher le refus corrélé dans les lignes, pas seulement dans ce repli.
+            val negativeCodes = (normalized.split('\r', '\n') + parsed.payloads)
+                .map { it.trim() }
+                .filter { it.matches(Regex("(?i)7F01[0-9A-F]{2}")) }
+                .map { it.takeLast(2).toInt(16) }
+            if (negativeCodes.isNotEmpty()) vehicleResponseObserved = true
+            val temporaryCode = negativeCodes.firstOrNull {
+                it == 0x78 || (it == 0x21 && (bitmaps.isEmpty() || !parsed.isComplete))
+            }
+            if (temporaryCode != null) {
+                // En ATH0, un bitmap positif voisin ne garantit pas que le NRC78
+                // provient du même ECU : une autre réponse peut encore arriver.
+                // Fermer avant toute autre commande évite de l'attribuer à ATDPN.
+                // La fermeture ne doit pas toucher une éventuelle reconnexion.
+                closeTransport(discoveryTransport)
+                throw IOException(
+                    "01%02X : réponse négative temporaire (NRC %02X)"
+                        .format(Locale.ROOT, base, temporaryCode)
+                )
+            }
+            if (bitmaps.isEmpty()) break
+            vehicleResponseObserved = true
+            bitmapReceived = true
+            // Les capacités peuvent être unies sans inventer l'identité des répondants.
+            // Conserver la réserve si une autre réponse est tronquée ou négative.
+            if (!parsed.isComplete || bitmaps.size != candidates.size ||
+                negativeCodes.isNotEmpty() || parsed.payloads.any { it.startsWith("7F01") }) {
+                incompleteResponseObserved = true
+            }
+            val value = bitmaps.fold(0) { union, bytes ->
+                union or (bytes[0] shl 24) or (bytes[1] shl 16) or (bytes[2] shl 8) or bytes[3]
+            }
             var bankContinues = false
             for (i in 0 until 32) {
                 val bit = 31 - i
                 if ((value shr bit) and 1 == 1) {
                     val pid = base + i + 1
-                    supported.add(pid)
+                    if (pid <= 0xFF) supported.add(pid)
                     if (pid == base + 0x20) bankContinues = true
                 }
             }
-            if (!bankContinues) break
+            if (!bankContinues) {
+                complete = !incompleteResponseObserved
+                break
+            }
             base += 0x20
         }
         // Appelée ici, après le(s) échange(s) "01xx" ci-dessus qui déclenchent la recherche
         // de protocole de l'ELM327 : avant ça, ATDPN renverrait une recherche non aboutie.
         // Envoyée même si aucun PID n'a été trouvé (base=0x00 déjà tenté = un échange réel).
         detectProtocol()
-        return supported
+        return PidDiscoveryResult(supported.toSet(), vehicleResponseObserved, bitmapReceived,
+            complete, responses.toMap())
     }
 
     /**
@@ -553,14 +576,33 @@ class Elm327Client(private val target: ConnectionTarget) {
      * Combine les réponses PID01 de tous les calculateurs (une ligne chacun, headers
      * désactivés) : voyant allumé si l'un d'eux le demande, nombre de codes = somme. Seule
      * la première ligne était lue jusqu'ici, si bien qu'une boîte de vitesses répondant
-     * avant le moteur masquait son voyant. Fonction pure, testée indépendamment.
+     * avant le moteur masquait son voyant. Une réponse d'une autre longueur que 4 octets
+     * (SAE J1979) rend l'ensemble illisible au lieu d'être écartée : elle pourrait porter
+     * le voyant. Fonction pure, testée indépendamment.
      */
     internal fun parseMilStatus(response: String): Pair<Boolean, Int> {
-        val statusBytes = responsePayloads(response, "4101").mapNotNull { payload ->
-            payload.substring(4).take(2).takeIf { it.length == 2 }?.toIntOrNull(16)
+        val payloads = responsePayloads(response, "4101")
+        if (payloads.isEmpty()) throw IOException("PID01 (statut MIL) illisible")
+        payloads.firstOrNull { it.length != 12 }?.let {
+            throw IOException("PID01 (statut MIL) : longueur invalide (${(it.length - 4) / 2}/4 octets)")
         }
-        if (statusBytes.isEmpty()) throw IOException("PID01 (statut MIL) illisible")
-        return statusBytes.any { it and 0x80 != 0 } to statusBytes.sumOf { it and 0x7F }
+        val statusBytes = payloads.map { it.substring(4, 6).toInt(16) }
+        val status = statusBytes.any { it and 0x80 != 0 } to statusBytes.sumOf { it and 0x7F }
+        // Un calculateur qui refuse (7F01) garde son voyant inconnu : jamais « éteint,
+        // 0 défaut » confirmé sur cette seule base.
+        if (status == (false to 0) && hasNegativeResponse(response, 0x01)) {
+            throw IOException("PID01 (statut MIL) incomplet : un calculateur a refusé la requête")
+        }
+        return status
+    }
+
+    /**
+     * Vrai si un calculateur a refusé le service [service] (réponse négative 7F, ex:
+     * "7F0311"). Sans en-tête, on ne sait pas lequel : ses codes restent inconnus.
+     */
+    private fun hasNegativeResponse(response: String, service: Int): Boolean {
+        val negative = "7F%02X".format(Locale.ROOT, service)
+        return HeaderlessObdResponse.parse(response).payloads.any { it.startsWith(negative) }
     }
 
     suspend fun readStoredDtcs(): List<String> = readDtcs(mode = "03", expectedPrefix = "43")
@@ -573,14 +615,22 @@ class Elm327Client(private val target: ConnectionTarget) {
 
     /**
      * Réunit les DTC de TOUS les calculateurs qui ont répondu (voir [responsePayloads]),
-     * sans doublon. Fonction pure, testée indépendamment.
+     * sans doublon : sans en-tête, "4300" d'une boîte de vitesses et "43010087" du moteur
+     * se complètent, ils ne se contredisent pas. Seul un refus (7F) d'un calculateur
+     * empêche de confirmer l'absence de défaut, ses codes restant inconnus. Fonction pure,
+     * testée indépendamment.
      */
     internal fun parseDtcResponses(response: String, expectedPrefix: String, isCan: Boolean): List<String> {
         val payloads = responsePayloads(response, expectedPrefix)
         if (payloads.isEmpty()) {
             throw IOException("Réponse DTC inattendue: ${response.ifBlank { "(vide)" }}")
         }
-        return payloads.flatMap { parseDtcResponse(it, expectedPrefix, isCan) }.distinct()
+        val codes = payloads.flatMap { parseDtcResponse(it, expectedPrefix, isCan) }.distinct()
+        val service = expectedPrefix.take(2).toInt(16) - 0x40
+        if (codes.isEmpty() && hasNegativeResponse(response, service)) {
+            throw IOException("Diagnostic incomplet : un calculateur a refusé la requête (${response.replace('\r', ' ').trim()})")
+        }
+        return codes
     }
 
     /**
@@ -603,60 +653,10 @@ class Elm327Client(private val target: ConnectionTarget) {
      * pour contenir ne serait-ce que le compteur, est une erreur de lecture et doit être
      * signalée comme telle, pas confondue avec "0 défaut confirmé".
      */
-    internal fun parseDtcResponse(hexstr: String, expectedPrefix: String, isCan: Boolean): List<String> {
-        val payload = hexstr.substring(expectedPrefix.length)
-        val declaredCount: Int?
-        val dtcData: String
-        if (isCan) {
-            if (payload.length < 2) {
-                throw IOException("Réponse DTC tronquée (pas de compteur): $hexstr")
-            }
-            declaredCount = payload.substring(0, 2).toIntOrNull(16)
-                ?: throw IOException("Compteur DTC illisible: $hexstr")
-            dtcData = payload.substring(2)
-        } else {
-            declaredCount = null
-            dtcData = payload
-        }
+    internal fun parseDtcResponse(hexstr: String, expectedPrefix: String, isCan: Boolean): List<String> =
+        DtcPayloadDecoder.parse(hexstr, expectedPrefix, isCan)
 
-        val codes = mutableListOf<String>()
-        var i = 0
-        var pairsRead = 0
-        while (i + 4 <= dtcData.length && (declaredCount == null || pairsRead < declaredCount)) {
-            val b1 = dtcData.substring(i, i + 2).toIntOrNull(16)
-            val b2 = dtcData.substring(i + 2, i + 4).toIntOrNull(16)
-            i += 4
-            if (b1 == null || b2 == null) throw IOException("Octet DTC illisible: $hexstr")
-            pairsRead++
-            // 0000 est le remplissage de fin de trame (CAN comme non-CAN, l'exemple
-            // fabricant "43013300000000" en contient), jamais un vrai code : P0000 n'est
-            // assigné à aucun défaut. On compte quand même la paire (elle occupe un slot
-            // du compteur CAN) mais on ne l'ajoute pas aux DTC retournés.
-            if (b1 == 0 && b2 == 0) continue
-            codes.add(decodeDtc(b1, b2))
-        }
-        if (declaredCount != null) {
-            // En CAN, le compteur promettait plus de codes que la trame n'en contenait
-            // réellement : trame tronquée, pas "moins de défauts que prévu".
-            if (pairsRead != declaredCount) {
-                throw IOException("Nombre de DTC incohérent (annoncé $declaredCount, lu $pairsRead): $hexstr")
-            }
-        } else if (i < dtcData.length) {
-            // Non-CAN : pas de compteur pour se caler dessus, donc un reste plus court
-            // qu'une paire complète ne peut être qu'une trame tronquée en transmission.
-            throw IOException("Trame DTC tronquée (reste incomplet): $hexstr")
-        }
-        return codes
-    }
-
-    internal fun decodeDtc(b1: Int, b2: Int): String {
-        val letter = when ((b1 shr 6) and 0b11) {
-            0 -> "P"; 1 -> "C"; 2 -> "B"; else -> "U"
-        }
-        val digit1 = (b1 shr 4) and 0b11
-        val digit2 = b1 and 0b1111
-        return "%s%d%X%02X".format(Locale.FRANCE, letter, digit1, digit2, b2)
-    }
+    internal fun decodeDtc(b1: Int, b2: Int): String = DtcPayloadDecoder.decode(b1, b2)
 
     private val continuousMonitors = listOf("Misfire", "Système carburant", "Composants")
 
@@ -852,13 +852,34 @@ class Elm327Client(private val target: ConnectionTarget) {
             val bytes = dataHex.chunked(2).map { it.toIntOrNull(16) ?: return UdsDidResult.NoResponse }
             return UdsDidResult.Positive(bytes)
         }
-        if (upper.startsWith("7F22") && upper.length >= 6) {
+        if (upper.matches(Regex("7F22[0-9A-F]{2}"))) {
             val nrc = upper.substring(4, 6).toIntOrNull(16) ?: return UdsDidResult.NoResponse
             return UdsDidResult.Negative(nrc)
         }
         return UdsDidResult.NoResponse
     }
 }
+
+/** Échéances hôte, indépendantes du délai de bus configuré dans l'ELM. */
+internal data class ElmTimeouts(
+    val connectMs: Long = 10_000,
+    val atMs: Long = 10_000,
+    val initialObdMs: Long = 45_000,
+    val establishedReadMs: Long = 3_000
+) {
+    init {
+        require(listOf(connectMs, atMs, initialObdMs, establishedReadMs)
+            .all { it in 1..Int.MAX_VALUE.toLong() })
+    }
+}
+
+data class PidDiscoveryResult(
+    val supportedPids: Set<Int>,
+    val vehicleResponseObserved: Boolean,
+    val mode01BitmapReceived: Boolean,
+    val isComplete: Boolean,
+    val rawResponses: Map<Int, String>
+)
 
 data class ReadinessMonitor(val name: String, val ready: Boolean)
 

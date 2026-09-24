@@ -15,8 +15,8 @@
     <string name="share_recording_title">Partager l\'enregistrement</string>
     <string name="share_probe_title">Partager le sondage</string>
     <string name="connection_status_connected">Connecté</string>
-    <string name="connection_status_connecting">Connexion...</string>
-    <string name="connection_status_reconnecting">Reconnexion...</string>
+    <string name="connection_status_connecting">Connexion…</string>
+    <string name="connection_status_reconnecting">Reconnexion…</string>
     <string name="connection_status_error">Erreur</string>
     <string name="connection_status_disconnected">Déconnecté</string>
 
@@ -31,9 +31,23 @@
 
     <!-- DashboardScreen -->
     <string name="dashboard_waiting_connection">Attente de connexion</string>
-    <string name="dashboard_recording_paused">Enregistrement en pause, reprendra automatiquement (%1$d échantillons déjà enregistrés).</string>
+    <string name="dashboard_adapter_only">Sonde connectée</string>
+    <string name="dashboard_no_vehicle_response">Aucune réponse du véhicule confirmée. Vérifiez le contact et le branchement, puis reconnectez la sonde depuis les réglages.</string>
+    <string name="dashboard_vehicle_responding">Le véhicule répond</string>
+    <string name="dashboard_no_standard_measurements">Aucune mesure OBD standard exploitable sur cet accès. Les données constructeur ne sont pas encore prises en charge pour ce véhicule.</string>
+    <string name="dashboard_partial_discovery">La liste des paramètres est incomplète ; seuls ceux déjà confirmés sont utilisés.</string>
+    <string name="dashboard_recording_no_data">Enregistrement en pause : aucune mesure disponible sur cette connexion.</string>
+    <string name="probe_requires_validated_profile">Sondage désactivé : aucun profil de lectures constructeur validé n’est disponible.</string>
+    <string name="graph_no_standard_measurements">Aucun paramètre disponible à tracer sur cette connexion.</string>
+    <plurals name="dashboard_recording_paused">
+        <item quantity="one">Enregistrement en pause, reprendra automatiquement (%1$d échantillon déjà enregistré).</item>
+        <item quantity="other">Enregistrement en pause, reprendra automatiquement (%1$d échantillons déjà enregistrés).</item>
+    </plurals>
     <string name="dashboard_disconnect_button">Déconnecter</string>
-    <string name="dashboard_stop_recording">Arrêter l\'enregistrement (%1$d échantillons)</string>
+    <plurals name="dashboard_stop_recording">
+        <item quantity="one">Arrêter l\'enregistrement (%1$d échantillon)</item>
+        <item quantity="other">Arrêter l\'enregistrement (%1$d échantillons)</item>
+    </plurals>
     <string name="dashboard_start_recording">Démarrer l\'enregistrement</string>
     <string name="dashboard_recordings_title">Enregistrements (%1$d)</string>
 
@@ -52,6 +66,65 @@
     <string name="settings_log_title">Journal (%1$d)</string>
     <string name="settings_log_description">Démarrage, connexions, coupures, activation d\'une fonction, plantage. Un fichier par lancement de l\'application.</string>
 
+    <!-- OfflineCanDtcPanel : lecture locale d’une réponse enregistrée, par calculateur -->
+    <string name="offline_can_title">Défauts d’une capture CAN</string>
+    <string name="offline_can_expanded">Déplié</string>
+    <string name="offline_can_collapsed">Replié</string>
+    <string name="offline_can_intro">Collez une seule réponse enregistrée en mode 03 ou 07 : en-têtes visibles, sans espaces ni champ DLC. Choisissez le format CAN et le mode indiqués dans le journal.</string>
+    <string name="offline_can_scope">Analyse locale, sans échange avec le véhicule. La source et la date de la capture ne sont pas vérifiées ; le résultat ne décrit pas l’état actuel du véhicule.</string>
+    <string name="offline_can_format_required">Choisir le format CAN de la capture…</string>
+    <string name="offline_can_format_11">CAN à 11 bits</string>
+    <string name="offline_can_format_29">CAN à 29 bits</string>
+    <string name="offline_can_mode_required">Choisir le mode de la capture…</string>
+    <string name="offline_can_mode_stored">Mode 03 : défauts mémorisés</string>
+    <string name="offline_can_mode_pending">Mode 07 : défauts en attente</string>
+    <string name="offline_can_capture_label">Réponse CAN enregistrée</string>
+    <string name="offline_can_input_limit">Caractères : %1$d / %2$d</string>
+    <string name="offline_can_too_long">Collage refusé. Limite de caractères : %1$d. Le texte précédent est conservé ; aucune analyse n’a été lancée.</string>
+    <string name="offline_can_analyze">Analyser la capture</string>
+    <string name="offline_can_result_title">Résultat de la capture</string>
+    <string name="offline_can_no_response">Aucune réponse de calculateur exploitable dans ce texte. L’absence de défauts n’est pas établie.</string>
+    <string name="offline_can_complete_no_codes">Réponses complètes : aucun code dans les réponses des calculateurs présents dans cette capture.</string>
+    <string name="offline_can_complete_codes">Réponses complètes : codes relevés par calculateur ci-dessous.</string>
+    <string name="offline_can_partial">Capture partielle : certaines réponses sont inexploitables. Les codes affichés ne constituent pas un relevé complet.</string>
+    <string name="offline_can_invalid">Capture inexploitable. Impossible de conclure sur les défauts.</string>
+    <string name="offline_can_global_too_large">La capture dépasse la limite de taille acceptée.</string>
+    <string name="offline_can_unrecognized_line">Format ou échange non reconnu : impossible de valider la capture entière.</string>
+    <string name="offline_can_ecu">Calculateur %1$s</string>
+    <string name="offline_can_ecu_no_codes">Aucun code dans cette réponse</string>
+    <string name="offline_can_malformed_frame">Trame mal formée ou format non pris en charge.</string>
+    <string name="offline_can_invalid_sequence">Séquence de trames incomplète ou incohérente.</string>
+    <string name="offline_can_unexpected_service">La réponse ne correspond pas au mode choisi.</string>
+    <string name="offline_can_negative_response">Réponse négative : aucun relevé de défauts exploitable.</string>
+    <string name="offline_can_malformed_payload">Données de défauts mal formées.</string>
+    <string name="offline_can_nrc">Code de réponse négative : 0x%1$s</string>
+
+    <!-- OfflineProfilePanel : analyse locale de texte, indépendante de la connexion -->
+    <string name="offline_profile_protocol_unknown">Protocole du journal : non renseigné</string>
+    <string name="offline_profile_protocol_fast">Protocole du journal : KWP rapide</string>
+    <string name="offline_profile_protocol_slow">Protocole du journal : KWP lent</string>
+    <string name="offline_profile_protocol_required">Identité extraite ; précisez le protocole de la capture pour rechercher un profil.</string>
+    <string name="offline_profile_title">Analyse d’une capture</string>
+    <string name="offline_profile_expanded">Déplié</string>
+    <string name="offline_profile_collapsed">Replié</string>
+    <string name="offline_profile_intro">Collez une réponse KWP enregistrée à la requête 2180, au format Renault STD_A. La trame hexadécimale doit être entière, avec ses en-têtes et sa somme de contrôle.</string>
+    <string name="offline_profile_scope">Le résultat décrit la capture collée, indépendamment du véhicule connecté. Cette analyse fonctionne hors connexion et ne lance aucune lecture sur le véhicule.</string>
+    <string name="offline_profile_frame_label">Trame hexadécimale complète</string>
+    <string name="offline_profile_input_limit">Caractères : %1$d / %2$d</string>
+    <string name="offline_profile_too_long">Collage refusé. Limite de caractères : %1$d. La capture doit contenir une seule trame complète.</string>
+    <string name="offline_profile_invalid_frame">Trame invalide ou format non pris en charge. Vérifiez la réponse 2180 complète, ses en-têtes et sa somme de contrôle.</string>
+    <string name="offline_profile_analyze">Analyser la capture</string>
+    <string name="offline_profile_result_title">Identité extraite de la capture</string>
+    <string name="offline_profile_addresses">Adresse calculateur : %1$s · adresse testeur : %2$s</string>
+    <string name="offline_profile_diagnostic_version">Version diagnostic : %1$d (0x%2$02X)</string>
+    <string name="offline_profile_supplier">Code fournisseur : %1$s</string>
+    <string name="offline_profile_software_version">Logiciel : %1$s · version : %2$s</string>
+    <string name="offline_profile_no_validated_profile">Aucun profil de mesures validé</string>
+    <plurals name="offline_profile_matched_profile">
+        <item quantity="one">Profil reconnu : %1$s · %2$d lecture définie, aucune exécutée.</item>
+        <item quantity="other">Profil reconnu : %1$s · %2$d lectures définies, aucune exécutée.</item>
+    </plurals>
+
     <!-- DtcScreen -->
     <string name="dtc_title">Codes défaut</string>
     <string name="dtc_mil_on">MIL allumé</string>
@@ -60,7 +133,7 @@
     <string name="dtc_vin_label">VIN %1$s</string>
     <string name="dtc_protocol_label">Protocole %1$s</string>
     <string name="dtc_model_year_label">année-modèle %1$s</string>
-    <string name="dtc_loading">Lecture...</string>
+    <string name="dtc_loading">Lecture…</string>
     <string name="dtc_refresh_button">Rafraîchir</string>
     <string name="dtc_export_subject">OBD2 Dash - export diagnostic</string>
     <string name="dtc_share_chooser_title">Partager le diagnostic</string>
@@ -104,7 +177,7 @@
     <string name="graph_not_connected">Connecte-toi à la sonde depuis le Dashboard pour tracer une courbe.</string>
     <string name="graph_reconnecting_note">Reconnexion en cours, la courbe reprendra automatiquement.</string>
     <string name="graph_choose_param">Choisis un paramètre ci-dessus pour voir sa courbe.</string>
-    <string name="graph_collecting">Collecte des données...</string>
+    <string name="graph_collecting">Collecte des données…</string>
     <string name="graph_current_value">Actuel : %1$s</string>
     <string name="graph_picker_placeholder">Choisir un paramètre</string>
     <string name="graph_picker_label">Paramètre</string>
@@ -125,7 +198,7 @@
     <string name="error_read_failed_fallback">Lecture échouée</string>
     <string name="error_connection_lost">Connexion perdue avec la sonde</string>
     <string name="error_dtc_read_failed_fallback">Lecture DTC échouée</string>
-    <string name="error_header_probe_reading">Lecture...</string>
+    <string name="error_header_probe_reading">Lecture…</string>
     <string name="error_header_probe_failed">Échec: %1$s</string>
     <string name="error_probe_range_invalid">Plage invalide (hexadécimal, 0000-FFFF, début ≤ fin).</string>
     <string name="error_probe_target_invalid">Adresse cible invalide : exactement 3 chiffres hexadécimaux (ex: 7E0), ou la laisser vide.</string>
@@ -148,19 +221,31 @@
     <string name="smoketest_step_readiness">Moniteurs de préparation</string>
     <string name="smoketest_step_recording">Enregistrement court (10s)</string>
     <string name="smoketest_step_probe">Sondage UDS court (3 DID)</string>
-    <string name="smoketest_detail_mil_on">MIL allumé, %1$d code(s) annoncé(s)</string>
-    <string name="smoketest_detail_mil_off">MIL éteint, %1$d code(s) annoncé(s)</string>
+    <plurals name="smoketest_detail_mil_on">
+        <item quantity="one">MIL allumé, %1$d code annoncé</item>
+        <item quantity="other">MIL allumé, %1$d codes annoncés</item>
+    </plurals>
+    <plurals name="smoketest_detail_mil_off">
+        <item quantity="one">MIL éteint, %1$d code annoncé</item>
+        <item quantity="other">MIL éteint, %1$d codes annoncés</item>
+    </plurals>
     <string name="smoketest_generic_failure">échec</string>
     <string name="smoketest_no_dynamic_pid">Aucun PID dynamique annoncé supporté</string>
     <string name="smoketest_dynamic_value_result">%1$s = %2$s</string>
     <string name="smoketest_dynamic_value_unusable">%1$s : pas de réponse exploitable</string>
     <string name="smoketest_vin_not_read">Non lu (normal en non-CAN, ou VIN non supporté)</string>
-    <string name="smoketest_dtc_summary">%1$d stocké(s), %2$d en attente</string>
-    <string name="smoketest_readiness_count">%1$d moniteur(s) annoncé(s)</string>
+    <string name="smoketest_dtc_summary">Codes stockés : %1$d · en attente : %2$d</string>
+    <plurals name="smoketest_readiness_count">
+        <item quantity="one">%1$d moniteur annoncé</item>
+        <item quantity="other">%1$d moniteurs annoncés</item>
+    </plurals>
     <string name="smoketest_readiness_unreadable">PID01 illisible pour les moniteurs</string>
     <string name="smoketest_connection_changed">Connexion changée en cours de test</string>
     <string name="smoketest_recording_not_started">L\'enregistrement n\'a pas démarré</string>
-    <string name="smoketest_recording_samples">%1$d échantillon(s) écrit(s) pendant le test</string>
+    <plurals name="smoketest_recording_samples">
+        <item quantity="one">%1$d échantillon écrit pendant le test</item>
+        <item quantity="other">%1$d échantillons écrits pendant le test</item>
+    </plurals>
     <string name="smoketest_recording_zero_samples">Aucun échantillon écrit pendant le test (voir l\'erreur d\'enregistrement)</string>
     <string name="smoketest_probe_not_started">Le sondage n\'a pas démarré</string>
     <string name="smoketest_probe_ok">Mécanisme de sondage fonctionnel (3 DID lus)</string>

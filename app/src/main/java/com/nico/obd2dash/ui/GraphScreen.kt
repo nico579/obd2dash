@@ -96,7 +96,10 @@ fun GraphScreen(
         // la courbe continue donc de s'afficher, en pause, jusqu'à la reprise du polling.
         if (options.isEmpty()) {
             Text(
-                stringResource(R.string.graph_not_connected),
+                stringResource(
+                    if (state.connectionState == ConnectionState.CONNECTED) R.string.graph_no_standard_measurements
+                    else R.string.graph_not_connected
+                ),
                 style = MaterialTheme.typography.bodyMedium
             )
         } else {

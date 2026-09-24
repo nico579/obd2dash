@@ -77,12 +77,22 @@ android {
 }
 
 dependencies {
+    // Dernière branche Core pour compileSdk 34 ; Core >= 1.15 exige SDK 35.
+    // Exception ciblée au conseil de version, pas aux contrôles de compatibilité.
+    // Voir les métadonnées AAR Google Maven (minCompileSdk de chaque version).
+    //noinspection GradleDependency
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
-    implementation("androidx.activity:activity-compose:1.9.1")
+    // Lifecycle 2.8.7 : correctifs de la branche Kotlin 1.9 ; 2.9 exige Kotlin 2.0.
+    //noinspection GradleDependency
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    //noinspection GradleDependency
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+    //noinspection GradleDependency
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    // Activity 1.9.3 : correctifs de la branche SDK 34 ; 1.10 exige SDK 35.
+    //noinspection GradleDependency
+    implementation("androidx.activity:activity-compose:1.9.3")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)

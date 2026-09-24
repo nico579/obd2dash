@@ -1,126 +1,166 @@
 package com.nico.obd2dash
 
+import java.util.Locale
+
+/** Largeur connue par le protocole de la capture, jamais devinée depuis ses octets. */
+internal enum class CanIdFormat(val hexDigits: Int, val maxId: Int) {
+    CAN_11(3, 0x7FF),
+    CAN_29(8, 0x1FFFFFFF)
+}
+
+internal enum class CanCaptureStatus { NO_RESPONSE, COMPLETE, PARTIAL, INVALID }
+internal enum class CanCaptureGlobalFailure { INPUT_TOO_LARGE, UNRECOGNIZED_LINE }
+internal enum class CanFrameFailure { MALFORMED_FRAME, INVALID_SEQUENCE }
+
+/** Complet décrit les lignes fournies, pas un inventaire de tous les ECU du véhicule. */
+internal data class CanReassemblyResult(
+    val payloadsByEcu: Map<Int, String>,
+    val failuresByEcu: Map<Int, CanFrameFailure>,
+    val globalFailure: CanCaptureGlobalFailure? = null
+) {
+    val status: CanCaptureStatus get() = captureStatus(
+        payloadsByEcu.isNotEmpty(), failuresByEcu.isNotEmpty() || globalFailure != null
+    )
+}
+
+internal fun captureStatus(hasValidResponse: Boolean, hasFailure: Boolean): CanCaptureStatus = when {
+    hasValidResponse && hasFailure -> CanCaptureStatus.PARTIAL
+    hasValidResponse -> CanCaptureStatus.COMPLETE
+    hasFailure -> CanCaptureStatus.INVALID
+    else -> CanCaptureStatus.NO_RESPONSE
+}
+
 /**
- * Réassemblage headers-on (ATH1), préparé à l'avance à partir du format documenté par
- * python-OBD (bibliothèque OBD mature, https://github.com/barracuda-fsh/pyobd) : chaque
- * ligne commence par l'ID CAN sur 3 caractères hexadécimaux (adressage 11 bits), suivi de
- * l'octet (ou des octets) PCI ISO-TP puis des données, sans espaces (ATS0 déjà actif dans
- * ce projet). Grouper les trames PAR CALCULATEUR D'ABORD, puis réassembler chaque groupe
- * indépendamment, évite la collision et le faux positif de bouclage de séquence rencontrés
- * avec le réassemblage global sans identité ECU (voir Elm327Client.reassembleHex et le
- * finding R4 de l'audit) : deux calculateurs ne voient alors jamais les numéros de
- * séquence l'un de l'autre.
+ * Réassemblage local ATH1/ATS0, sans DLC, CAN classique et adressage ISO-TP normal.
+ * Format : ID CAN, PCI puis données ; voir documentation ELM327, pages 44–45.
+ * https://www.elmelectronics.com/wp-content/uploads/2017/01/ELM327DS.pdf
  *
- * PAS ENCORE ACTIVÉ : `ATH1` reste éteint dans `Elm327Client.connect()`, ce format n'a pas
- * été vérifié sur notre sonde/véhicule (cf. `Elm327Client.probeHeaderFormat`). Si le format
- * réel diffère de l'hypothèse ci-dessous, seuls `parseCanFrame` et le décodage du PCI
- * doivent changer ; le regroupement par ECU et le suivi de séquence par calculateur
- * restent valables quel que soit le détail exact du PCI.
+ * Le format CAN11 a été observé sur la sonde SEAT le 10 septembre 2026, répondant
+ * 7E8. Les réponses 0904 et 090A sont rejouées dans les tests ; les cas CAN29 et
+ * multi-ECU restent synthétiques. CAN FD, adressage étendu ISO-TP, J1939 et affichage
+ * avec DLC ne sont pas pris en charge par ce parseur.
+ *
+ * PAS ENCORE ACTIVÉ dans Elm327Client : aucun changement de configuration de sonde.
+ * Une seule réponse distincte par ECU est admise, pas une succession de messages
+ * (par exemple NRC provisoire puis réponse positive). L'absence d'un ECU dans le
+ * résultat signifie réponse inutilisable ou absente, jamais « aucun défaut ».
  */
 internal object CanHeaderReassembly {
-
-    /**
-     * Une trame décodée : calculateur d'origine et position dans sa séquence (voir
-     * [parseCanFrame]). `totalLength` n'est renseigné que sur la première trame d'une
-     * séquence multi-trame (longueur ISO-TP annoncée, en octets) ; `null` pour une trame
-     * unique ou une trame de suite, où cette information n'existe pas.
-     */
     data class Frame(val ecuId: Int, val data: String, val sequenceIndex: Int?, val totalLength: Int? = null)
 
-    /**
-     * Découpe une ligne "IDPCIdonnées" (headers-on, sans espaces) en trame décodée.
-     *
-     * PCI ISO-TP (premier(s) caractère(s) après l'ID CAN de 3 caractères) :
-     * - `0N` : trame unique, N = longueur en octets (0-7). `sequenceIndex = null`.
-     * - `1XYZ` : première trame d'une séquence multi-trame (XYZ = longueur totale du
-     *   message sur 12 bits). `sequenceIndex = FIRST_FRAME_MARKER` (convention de ce
-     *   fichier, pas la trame ISO-TP : sert à la retrouver dans [reassembleByEcu]).
-     *   La longueur EST utilisée (voir [reassembleSequence]) : sans elle, le remplissage
-     *   de la dernière trame de suite (padding `AA` ou similaire) serait pris pour des
-     *   données réelles (trouvé sur capture réelle, cf. audit finding S2).
-     * - `2N` : trame de suite, N = numéro de séquence ISO-TP réel, cycle 1..F puis 0..F
-     *   après la première trame (jamais 0 pour la toute première trame de suite).
-     */
-    fun parseCanFrame(line: String): Frame? {
-        if (line.length < 4) return null
-        val ecuId = line.substring(0, 3).toIntOrNull(16) ?: return null
-        val rest = line.substring(3)
-        if (rest.isEmpty()) return null
-        return when (rest[0]) {
+    /** SF : index null ; FF : -1 ; CF : numéro ISO-TP 0..F. Remplissage SF retiré. */
+    fun parseCanFrame(line: String, format: CanIdFormat = CanIdFormat.CAN_11): Frame? {
+        val ecuId = parseEcuId(line, format) ?: return null
+        val rest = line.substring(format.hexDigits)
+        // Au plus huit octets de CAN classique, PCI compris. Vérifier aussi le
+        // remplissage : une donnée corrompue ne doit pas disparaître à la troncature.
+        if (rest.length !in 4..16 || rest.length % 2 != 0 || !rest.isAsciiHex()) return null
+        val upper = rest.uppercase(Locale.ROOT)
+        return when (upper[0]) {
             '0' -> {
-                if (rest.length < 2) return null
-                val len = rest[1].digitToIntOrNull(16) ?: return null
-                val data = rest.substring(2)
-                if (data.length < len * 2) return null
-                Frame(ecuId, data.substring(0, len * 2), sequenceIndex = null)
+                val length = upper[1].digitToInt(16)
+                val data = upper.substring(2)
+                if (length !in 1..7 || data.length < length * 2) return null
+                Frame(ecuId, data.take(length * 2), sequenceIndex = null)
             }
             '1' -> {
-                if (rest.length < 4) return null
-                // -1 : sentinel "première trame", distinct de 0 qui est une valeur légitime
-                // du numéro de séquence réel des trames de suite (celui-ci boucle 1..F puis
-                // 0..F). Les confondre faisait échouer le réassemblage sur toute séquence
-                // d'au moins 16 trames de suite (la 16e a justement pour numéro réel 0).
-                // Longueur sur les 12 bits bas des 4 caractères PCI (le nibble haut du
-                // premier caractère, '1', est le code de trame, pas la longueur).
-                val totalLength = rest.substring(0, 4).toIntOrNull(16)?.and(0x0FFF) ?: return null
-                Frame(ecuId, rest.substring(4), sequenceIndex = FIRST_FRAME_MARKER, totalLength = totalLength)
+                val totalLength = upper.substring(1, 4).toInt(16)
+                // Deux octets PCI, six premiers octets utiles, message trop long
+                // pour une SF. Le format de longueur étendue n'est pas accepté.
+                if (upper.length != 16 || totalLength !in 8..4095) return null
+                Frame(ecuId, upper.substring(4), FIRST_FRAME_MARKER, totalLength)
             }
-            '2' -> {
-                if (rest.length < 2) return null
-                val seq = rest[1].digitToIntOrNull(16) ?: return null
-                Frame(ecuId, rest.substring(2), sequenceIndex = seq)
-            }
-            else -> null
+            '2' -> Frame(ecuId, upper.substring(2), upper[1].digitToInt(16))
+            else -> null // FC, RTR ou format non pris en charge : pas de payload
         }
     }
 
-    /**
-     * Réassemble une réponse complète (potentiellement plusieurs calculateurs, chacun en
-     * une ou plusieurs trames) en une chaîne hexadécimale par ECU (clé = ID CAN). L'absence
-     * d'entrée pour un ECU signifie que sa séquence n'a pas pu être reconstruite (première
-     * trame manquante, ou numéro de séquence inattendu) plutôt que des données fausses.
-     */
-    fun reassembleByEcu(response: String): Map<Int, String> {
-        val lines = response.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }
-        val singles = mutableMapOf<Int, String>()
-        val multiFramesByEcu = mutableMapOf<Int, MutableList<Frame>>()
+    /** Compatibilité des rejeux historiques ; préférer [analyze] pour tout diagnostic. */
+    fun reassembleByEcu(response: String, format: CanIdFormat = CanIdFormat.CAN_11): Map<Int, String> {
+        val result = analyze(response, format)
+        return if (result.globalFailure == null) result.payloadsByEcu else emptyMap()
+    }
 
-        for (line in lines) {
-            val frame = parseCanFrame(line) ?: continue
-            if (frame.sequenceIndex == null) {
-                singles[frame.ecuId] = frame.data
-            } else {
-                multiFramesByEcu.getOrPut(frame.ecuId) { mutableListOf() }.add(frame)
+    fun analyze(response: String, format: CanIdFormat): CanReassemblyResult {
+        if (response.length > MAX_RESPONSE_CHARS) return CanReassemblyResult(
+            emptyMap(), emptyMap(), CanCaptureGlobalFailure.INPUT_TOO_LARGE
+        )
+        val framesByEcu = linkedMapOf<Int, MutableList<Frame>>()
+        val failuresByEcu = linkedMapOf<Int, CanFrameFailure>()
+        var globalFailure: CanCaptureGlobalFailure? = null
+        var promptSeen = false
+        var noDataSeen = false
+        for (rawLine in response.split('\r', '\n')) {
+            val line = rawLine.trim()
+            if (line.isEmpty()) continue
+            if (promptSeen) globalFailure = CanCaptureGlobalFailure.UNRECOGNIZED_LINE
+            if (line == ">") {
+                promptSeen = true
+                continue
             }
+            if (line.equals("SEARCHING...", ignoreCase = true)) continue
+            if (line.equals("NO DATA", ignoreCase = true)) {
+                noDataSeen = true
+                continue
+            }
+            // Sans adresse lisible, impossible de circonscrire une ligne inconnue
+            // ou une erreur d'adaptateur : conserver une réserve sur l'échange entier.
+            val ecuId = parseEcuId(line, format)
+            if (ecuId == null) {
+                globalFailure = CanCaptureGlobalFailure.UNRECOGNIZED_LINE
+                continue
+            }
+            val frame = parseCanFrame(line, format)
+            if (frame == null) failuresByEcu[ecuId] = CanFrameFailure.MALFORMED_FRAME
+            else framesByEcu.getOrPut(ecuId) { mutableListOf() }.add(frame)
         }
-
-        val result = mutableMapOf<Int, String>()
-        result.putAll(singles)
-        for ((ecuId, frames) in multiFramesByEcu) {
-            reassembleSequence(frames)?.let { result[ecuId] = it }
+        if (noDataSeen && (framesByEcu.isNotEmpty() || failuresByEcu.isNotEmpty())) {
+            globalFailure = CanCaptureGlobalFailure.UNRECOGNIZED_LINE
         }
-        return result
+        val result = linkedMapOf<Int, String>()
+        for ((ecuId, frames) in framesByEcu) {
+            if (ecuId in failuresByEcu) continue
+            val payload = reassembleSequence(frames)
+            if (payload == null) failuresByEcu[ecuId] = CanFrameFailure.INVALID_SEQUENCE
+            else result[ecuId] = payload
+        }
+        return CanReassemblyResult(result.toMap(), failuresByEcu.toMap(), globalFailure)
     }
 
     private fun reassembleSequence(frames: List<Frame>): String? {
-        val firstFrame = frames.firstOrNull { it.sequenceIndex == FIRST_FRAME_MARKER } ?: return null
-        val totalLength = firstFrame.totalLength ?: return null
-        val sb = StringBuilder(firstFrame.data)
-        var expected = 1
-        for (frame in frames) {
-            if (frame.sequenceIndex == FIRST_FRAME_MARKER) continue
-            if (frame.sequenceIndex != expected) return null
-            sb.append(frame.data)
-            expected = (expected + 1) % 16
+        val first = frames.firstOrNull() ?: return null
+        if (first.sequenceIndex == null) {
+            // Répétitions identiques permises, y compris avec un padding différent.
+            return first.data.takeIf { data -> frames.all { it.sequenceIndex == null && it.data == data } }
         }
-        // La dernière trame de suite est remplie jusqu'à 7 octets (padding AA ou 00 selon
-        // le calculateur) : sans cette troncature à la longueur annoncée, ce remplissage
-        // serait retourné comme si c'était des données (audit finding S2, confirmé sur
-        // capture réelle : 20 octets rendus pour 19 annoncés, jusqu'à 6 de trop).
-        val expectedHexLength = totalLength * 2
-        if (sb.length < expectedHexLength) return null // réponse incomplète, pas juste du padding en moins
-        return sb.substring(0, expectedHexLength)
+        if (first.sequenceIndex != FIRST_FRAME_MARKER) return null
+        val expectedLength = (first.totalLength ?: return null) * 2
+        val data = StringBuilder(first.data)
+        var expectedIndex = 1
+        for (frame in frames.drop(1)) {
+            val remaining = expectedLength - data.length
+            // Ni nouvelle FF, ni SF, ni CF après la fin de ce message.
+            if (remaining <= 0 || frame.sequenceIndex != expectedIndex) return null
+            // Une CF intermédiaire doit remplir ses sept octets. Seule la dernière
+            // peut être courte ou contenir du remplissage après les données utiles.
+            if (frame.data.length < minOf(remaining, 14)) return null
+            data.append(frame.data.take(remaining))
+            expectedIndex = (expectedIndex + 1) % 16
+        }
+        return data.toString().takeIf { it.length == expectedLength }
+    }
+
+    private fun parseEcuId(line: String, format: CanIdFormat): Int? {
+        if (line.length < format.hexDigits) return null
+        val text = line.take(format.hexDigits)
+        if (!text.isAsciiHex()) return null
+        return text.toIntOrNull(16)?.takeIf { it <= format.maxId }
+    }
+
+    private fun String.isAsciiHex(): Boolean = isNotEmpty() && all {
+        it in '0'..'9' || it in 'A'..'F' || it in 'a'..'f'
     }
 
     private const val FIRST_FRAME_MARKER = -1
+    private const val MAX_RESPONSE_CHARS = 65_536
 }

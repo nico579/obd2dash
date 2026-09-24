@@ -5,10 +5,11 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Couvre l'hypothèse de format headers-on (voir CanHeaderReassembly), construite à partir
- * du format documenté par python-OBD, PAS encore vérifiée sur un véhicule réel. Ces cas
- * sont synthétiques (aucune capture réelle disponible) : ils prouvent la mécanique de
- * regroupement par ECU et de suivi de séquence, pas la conformité au véhicule de test.
+ * Couvre le format headers-on CAN11 sans DLC (voir CanHeaderReassembly), observé avec
+ * un répondant 7E8 sur la sonde Wi-Fi de la SEAT le 10 septembre 2026. Deux tests rejouent
+ * les lectures réelles 0904/090A ; les autres cas sont synthétiques. Plusieurs répondants
+ * réels et le CAN29 restent non validés matériellement. Le module n'est toujours pas
+ * activé dans la connexion normale ; ces tests ne valident pas tout son comportement.
  */
 class CanHeaderReassemblyTest {
 
@@ -71,6 +72,31 @@ class CanHeaderReassemblyTest {
     }
 
     @Test
+    fun `reassembleByEcu rejoue la capture reelle CAN11 0904 sans son padding`() {
+        // captures/session_2026-09-10_12-49-29/exchanges.jsonl, ligne 32.
+        // 19 octets annonces : FF(6) + CF1(7) + CF2(6 utiles, puis AA de remplissage).
+        val response = "7E81013490401303350\r7E82139303630323150\r7E822202038343038AA\r\r>"
+        val expected = "49040130335039303630323150202038343038"
+        val result = CanHeaderReassembly.reassembleByEcu(response)
+        assertEquals(19, CanHeaderReassembly.parseCanFrame(response.substringBefore('\r'))?.totalLength)
+        assertEquals(mapOf(0x7E8 to expected), result)
+        assertEquals(19, result.getValue(0x7E8).length / 2)
+    }
+
+    @Test
+    fun `reassembleByEcu rejoue la capture reelle CAN11 090A sans son padding`() {
+        // captures/session_2026-09-10_12-49-29/exchanges.jsonl, ligne 34.
+        // 23 octets annonces ; les trois derniers octets utiles 6C0000 restent presents,
+        // seuls les quatre AA suivants sont du remplissage.
+        val response = "7E81017490A0145434D\r7E821002D456E67696E\r7E82265436F6E74726F\r7E8236C0000AAAAAAAA\r\r>"
+        val expected = "490A0145434D002D456E67696E65436F6E74726F6C0000"
+        val result = CanHeaderReassembly.reassembleByEcu(response)
+        assertEquals(23, CanHeaderReassembly.parseCanFrame(response.substringBefore('\r'))?.totalLength)
+        assertEquals(mapOf(0x7E8 to expected), result)
+        assertEquals(23, result.getValue(0x7E8).length / 2)
+    }
+
+    @Test
     fun `reassembleByEcu tronque le remplissage au-dela de la longueur annoncee`() {
         // Longueur annoncee 8 (FF=6 + 2 attendus), mais la CF apporte 3 octets (un de trop,
         // remplissage AA typique d'une derniere trame CAN). Doit etre coupe a 8 exactement.
@@ -113,14 +139,14 @@ class CanHeaderReassemblyTest {
     fun `reassembleByEcu boucle la sequence apres F pour un seul emetteur`() {
         // 17 trames de suite : la 16e boucle de F a 0, comme pour reassembleHex (R4).
         val firstData = "AABBCCDDEEFF" // 6 octets
-        val cfCount = 17 // 1 octet chacune : 6 + 17 = 23 octets au total
-        val totalBytes = firstData.length / 2 + cfCount
+        val cfCount = 17 // CF intermédiaires pleines : 6 + 17 * 7 = 125 octets
+        val totalBytes = firstData.length / 2 + cfCount * 7
         val header = "7E81" + "%03X".format(totalBytes) // longueur exacte, pas une constante approximative
         val lines = mutableListOf("$header$firstData")
         val expected = StringBuilder(firstData)
         for (k in 1..cfCount) {
             val seq = (k % 16).toString(16).uppercase()
-            val data = "%02X".format(k)
+            val data = "%02X".format(k).repeat(7)
             lines.add("7E82$seq$data")
             expected.append(data)
         }

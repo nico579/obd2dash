@@ -220,6 +220,10 @@ fun SettingsScreen(
                 )
             }
         }
+
+        HorizontalDivider()
+        OfflineProfilePanel(modifier = Modifier.fillMaxWidth())
+        OfflineCanDtcPanel(modifier = Modifier.fillMaxWidth())
     }
 }
 

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Masque alpha de l'icône existante : les broches sont transparentes, pas peintes
+     avec la couleur du fond, pour rester visibles avec la teinte du lanceur. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M28,28 L80,28 L68,80 L40,80 Z
+            M39,40 L45,40 L45,52 L39,52 Z
+            M48,40 L54,40 L54,52 L48,52 Z
+            M57,40 L63,40 L63,52 L57,52 Z
+            M66,40 L72,40 L72,52 L66,52 Z" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:pathData="M54,80 L54,94" />
+</vector>

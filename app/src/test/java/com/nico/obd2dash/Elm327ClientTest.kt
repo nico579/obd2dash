@@ -79,6 +79,25 @@ class Elm327ClientTest {
         assertThrows(IOException::class.java) { client.parseDtcResponse("43020100", "43", isCan = true) }
     }
 
+    @Test
+    fun `parseDtcResponse valide tout le payload avant dignorer le remplissage CAN`() {
+        for (response in listOf("43010087F", "43010087GG", "4301+187", "4301-187", "4３010087")) {
+            assertThrows(response, IOException::class.java) {
+                client.parseDtcResponse(response, "43", isCan = true)
+            }
+        }
+        assertEquals(listOf("P0087"), client.parseDtcResponse("43010087AAAA", "43", isCan = true))
+    }
+
+    @Test
+    fun `parseDtcResponse un mauvais service ou un payload vide est une erreur de lecture`() {
+        for (response in listOf("", "4", "47010087", "7F0311")) {
+            assertThrows(response, IOException::class.java) {
+                client.parseDtcResponse(response, "43", isCan = true)
+            }
+        }
+    }
+
     // --- parseDtcResponse (non-CAN, K-Line/KWP2000) : pas de compteur, paires enchainees ---
 
     @Test
@@ -208,6 +227,12 @@ class Elm327ClientTest {
         assertNull(client.parseHexPayload("7F0311", "410C"))
     }
 
+    @Test
+    fun `parseHexPayload un signe ne remplace pas un chiffre hexadecimal`() {
+        assertNull(client.parseHexPayload("410C+1", "410C"))
+        assertNull(client.parseHexPayload("410C-1", "410C"))
+    }
+
     // --- freeze frame (readFreezeFrameBytes) : le numero de trame fait partie du prefixe,
     // reproduit depuis l'audit B6 (requete 020C00, deux trames presentes dans la reponse).
 
@@ -251,6 +276,13 @@ class Elm327ClientTest {
         // Exemple reel de capture : 22114E rejete avec NRC 0x31 (hors plage).
         val result = client.parseUdsResponse("7F2231", 0x114E)
         assertEquals(UdsDidResult.Negative(0x31), result)
+    }
+
+    @Test
+    fun `parseUdsResponse refuse les NRC incomplets ou avec octets supplementaires`() {
+        for (raw in listOf("7F223", "7F223100", "7F2231GG", "7F22+1")) {
+            assertEquals(raw, UdsDidResult.NoResponse, client.parseUdsResponse(raw, 0x114E))
+        }
     }
 
     @Test
