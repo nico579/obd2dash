@@ -385,6 +385,37 @@ class Elm327ClientTest {
         assertEquals(emptyMap<Int, List<Int>>(), client.parseMultiPidResponse("410C0B", setOf(0x0C)))
     }
 
+    // --- Identification de l'adaptateur ---
+
+    @Test
+    fun `parseAdapterReply garde la reponse texte`() {
+        assertEquals("ELM327 v1.5", client.parseAdapterReply("ELM327 v1.5\r"))
+    }
+
+    @Test
+    fun `parseAdapterReply retire l'echo d'un clone qui ignore ATE0`() {
+        assertEquals("ELM327 v2.1", client.parseAdapterReply("ATI\rELM327 v2.1"))
+    }
+
+    @Test
+    fun `parseAdapterReply commande refusee ou reponse vide est absente`() {
+        assertNull(client.parseAdapterReply("?"))
+        assertNull(client.parseAdapterReply(""))
+        assertNull(client.parseAdapterReply("STI\r?"))
+        // Un clone qui repond OK a tout ne doit pas passer pour une puce STN.
+        assertNull(client.parseAdapterReply("OK"))
+    }
+
+    @Test
+    fun `AdapterInfo distingue un clone d'une puce STN`() {
+        val clone = AdapterInfo("ELM327 v1.5", "OBDII to RS232 Interpreter", null, null)
+        assertEquals(false, clone.isStn)
+        assertEquals("ELM327 v1.5 · OBDII to RS232 Interpreter · pas de puce STN (commandes ST refusées)", clone.summary())
+        val stn = AdapterInfo("ELM327 v1.4b", null, "STN2120 v5.6.19", "OBDLink MX+ r2.2")
+        assertEquals(true, stn.isStn)
+        assertEquals("ELM327 v1.4b · OBDLink MX+ r2.2 · STN2120 v5.6.19 · puce STN", stn.summary())
+    }
+
     // --- nrcDescription ---
 
     @Test

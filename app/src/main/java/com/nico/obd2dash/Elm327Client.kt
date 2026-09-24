@@ -239,6 +239,7 @@ class Elm327Client internal constructor(
         private const val MAX_RESPONSE_CHARS = 65_536
         /** Maximum de PID par requête mode 01 groupée (SAE J1979 / ISO 15765-4). */
         const val MAX_PIDS_PER_REQUEST = 6
+        private val ADAPTER_ID_COMMANDS = setOf("ATI", "AT@1", "STI", "STDI")
     }
 
     /** L'annulation du gardien ferme aussi l'appel Java bloquant avant que son parent termine. */
@@ -745,6 +746,37 @@ class Elm327Client internal constructor(
     }
 
     /**
+     * Identité de l'adaptateur (voir [AdapterInfo]), lue une fois par connexion : la puce
+     * (ELM327 d'origine, clone, STN) conditionne ce que l'adaptateur sait faire bien plus
+     * que son transport Wi-Fi/Bluetooth. Chaque commande est indépendante : un clone qui
+     * ne connaît pas les commandes ST (STN uniquement) répond "?", simplement noté absent.
+     * Ne lève que sur une vraie erreur de transport (socket déjà fermé, voir sendRaw).
+     */
+    suspend fun readAdapterInfo(): AdapterInfo = AdapterInfo(
+        version = parseAdapterReply(sendRaw("ATI")),
+        description = parseAdapterReply(sendRaw("AT@1")),
+        stnFirmware = parseAdapterReply(sendRaw("STI")),
+        stnDevice = parseAdapterReply(sendRaw("STDI"))
+    )
+
+    /**
+     * Réponse texte d'une commande d'identification, sans les lignes vides ni l'écho
+     * éventuel ; null si l'adaptateur a refusé la commande ("?", "ERROR") ou n'a rien
+     * répondu. Fonction pure, testée indépendamment.
+     */
+    internal fun parseAdapterReply(response: String): String? {
+        val lines = response.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+            // Écho de la commande elle-même si ATE0 n'a pas été pris en compte par un clone.
+            .filterNot { it.uppercase() in ADAPTER_ID_COMMANDS }
+        if (lines.isEmpty()) return null
+        val joined = lines.joinToString(" ")
+        // "OK" seul n'identifie rien : certains clones répondent OK à toute commande
+        // inconnue, ce qui ferait passer à tort un clone pour une puce STN.
+        if (joined == "?" || joined.uppercase() in setOf("ERROR", "NO DATA", "OK")) return null
+        return joined
+    }
+
+    /**
      * Vérifie une fois par connexion si l'adaptateur accepte le chiffre "nombre de
      * réponses" (voir [supportsResponseCount]) : "01001" doit rendre une réponse PID00
      * normale. Un clone qui ne le comprend pas répond "?" (ou autre chose) et l'option
@@ -882,6 +914,30 @@ data class PidDiscoveryResult(
 )
 
 data class ReadinessMonitor(val name: String, val ready: Boolean)
+
+/**
+ * Identité déclarée par l'adaptateur (voir [Elm327Client.readAdapterInfo]) : texte brut,
+ * jamais interprété au-delà de "présent ou non". Un clone peut annoncer n'importe quelle
+ * version ("ELM327 v1.5" est la plus courante, sans rapport avec un vrai ELM327 v1.5) ;
+ * seule la présence des commandes ST distingue de façon fiable une puce STN.
+ */
+data class AdapterInfo(
+    val version: String?,
+    val description: String?,
+    val stnFirmware: String?,
+    val stnDevice: String?
+) {
+    val isStn: Boolean get() = stnFirmware != null || stnDevice != null
+
+    /** Résumé d'une ligne pour le journal, l'export et les métadonnées CSV. */
+    fun summary(): String = listOfNotNull(
+        version,
+        description?.takeIf { it != version },
+        stnDevice,
+        stnFirmware?.takeIf { it != stnDevice },
+        if (isStn) "puce STN" else "pas de puce STN (commandes ST refusées)"
+    ).joinToString(" · ")
+}
 
 /** Résultat d'une lecture UDS ReadDataByIdentifier (voir [Elm327Client.readUdsDid]). */
 sealed class UdsDidResult {

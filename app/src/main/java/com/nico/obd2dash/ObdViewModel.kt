@@ -128,6 +128,13 @@ data class ObdUiState(
     val graphHistory: List<GraphPoint> = emptyList(),
     val vin: String? = null,
     val protocol: String? = null,
+    // Identité de l'adaptateur et optimisations de lecture acceptées (voir
+    // Elm327Client.readAdapterInfo/supportsResponseCount/supportsMultiPid), relues à chaque
+    // connexion : distinguent un clone d'une puce STN dans l'export, indépendamment du
+    // transport Wi-Fi/Bluetooth.
+    val adapterInfo: AdapterInfo? = null,
+    val supportsResponseCount: Boolean? = null,
+    val supportsMultiPid: Boolean? = null,
     // null = jamais lu avec succès (pas encore connecté, ou dernière lecture en échec) :
     // distinct de "lu et confirmé sans défaut", pour ne pas afficher un faux résultat propre.
     val milOn: Boolean? = null,
@@ -217,6 +224,14 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
         if (details.isNotEmpty()) sb.appendLine("Décodage VIN : " + details.joinToString(", "))
     }
     sb.appendLine("Protocole : ${state.protocol ?: "inconnu"}")
+    sb.appendLine("Adaptateur : ${state.adapterInfo?.summary() ?: "non identifié"}")
+    if (state.supportsResponseCount != null || state.supportsMultiPid != null) {
+        fun yesNo(v: Boolean?) = when (v) { true -> "oui"; false -> "non"; null -> "non testé" }
+        sb.appendLine(
+            "Optimisations de lecture : réponse unique ${yesNo(state.supportsResponseCount)}, " +
+                "groupage ${yesNo(state.supportsMultiPid)}"
+        )
+    }
     sb.appendLine("Données OBD standard : " + when (state.dataAvailability) {
         ObdDataAvailability.NOT_CHECKED -> "découverte non terminée"
         ObdDataAvailability.NO_VEHICLE_RESPONSE -> "sonde joignable, aucune réponse véhicule confirmée"
@@ -596,6 +611,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val entries = listOf(
             "VIN" to (state.vin ?: "inconnu"),
             "Protocole" to (state.protocol ?: "inconnu"),
+            "Adaptateur" to (state.adapterInfo?.summary() ?: "non identifié"),
             "Version app" to appVersionName(),
             "Début session" to timestampFormat.format(Date())
         ) + extra
@@ -935,6 +951,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 "Optimisations de lecture : réponse unique ${if (c.supportsResponseCount) "oui" else "non"}, " +
                     "groupage ${if (c.supportsMultiPid) "oui" else "non"}"
             )
+            // Après la recherche de protocole (discoverPidSupport) : l'échéance des échanges
+            // est alors celle d'une lecture établie (ElmTimeouts), une commande
+            // d'identification sans réponse ne retient donc pas la connexion 45 s.
+            val adapterInfo = c.readAdapterInfo()
+            EventLog.log("Adaptateur : ${adapterInfo.summary()}")
 
             if (!c.isConnected) {
                 error("Connexion perdue pendant l'établissement de la session")
@@ -946,6 +967,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     supportedPids = supported,
                     vin = vin,
                     protocol = c.detectedProtocol,
+                    adapterInfo = adapterInfo,
+                    supportsResponseCount = c.supportsResponseCount,
+                    supportsMultiPid = c.supportsMultiPid,
                     dtcHistory = historyStore.load(vehicleId),
                     bigGaugePids = loadBigGaugePids(vehicleId),
                     values = it.values + contextValues
