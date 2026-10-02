@@ -1,6 +1,7 @@
 package com.nico.obd2dash.ui
 
 import android.content.Intent
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,6 +32,9 @@ import com.nico.obd2dash.R
 import com.nico.obd2dash.ReadinessMonitor
 import com.nico.obd2dash.VinDecoder
 import com.nico.obd2dash.buildDiagnosticReport
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun DtcScreen(
@@ -118,7 +123,11 @@ fun DtcScreen(
 
         state.dtcError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
+        DiagnosticReadDate(R.string.dtc_mil_last_read, state.milLastSuccessAtMs)
+        DiagnosticReadDate(R.string.dtc_full_last_read, state.dtcLastSuccessAtMs)
+
         DtcSection(title = stringResource(R.string.dtc_stored_title, state.storedDtcs?.size?.toString() ?: "?"), codes = state.storedDtcs)
+        DiagnosticReadDate(R.string.dtc_stored_last_read, state.storedDtcsLastSuccessAtMs)
         DtcSection(title = stringResource(R.string.dtc_pending_title, state.pendingDtcs?.size?.toString() ?: "?"), codes = state.pendingDtcs)
 
         Text(
@@ -174,6 +183,16 @@ fun DtcScreen(
             Text(it, style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+@Composable
+private fun DiagnosticReadDate(@StringRes label: Int, atMs: Long?) {
+    val date = remember(atMs) { atMs?.let { SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date(it)) } }
+    Text(
+        stringResource(label, date ?: stringResource(R.string.dtc_section_not_read)),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 @Composable

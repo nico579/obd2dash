@@ -50,6 +50,15 @@
     </plurals>
     <string name="dashboard_start_recording">Démarrer l\'enregistrement</string>
     <string name="dashboard_recordings_title">Enregistrements (%1$d)</string>
+    <string name="dashboard_enter_fullscreen">Afficher les cadrans en plein écran</string>
+    <string name="dashboard_exit_fullscreen">Quitter le plein écran</string>
+    <string name="dashboard_actions">Commandes du tableau de bord</string>
+    <string name="dashboard_choose_gauges">Choisir les cadrans</string>
+    <string name="dashboard_other_measurements">Autres mesures (%1$d)</string>
+    <string name="dashboard_no_selected_gauges">Aucun cadran sélectionné parmi les mesures disponibles.</string>
+    <string name="dashboard_recording_indicator">REC · %1$d</string>
+    <string name="dashboard_gauge_unavailable">Indisponible</string>
+    <string name="dashboard_gauge_stale">Lecture ancienne</string>
 
     <!-- SettingsScreen -->
     <string name="settings_title">Réglages de connexion</string>
@@ -61,8 +70,8 @@
     <string name="settings_bluetooth_no_devices">Aucun appareil appairé (ou Bluetooth désactivé, ou permission refusée).</string>
     <string name="settings_bluetooth_connect_button">Connecter</string>
     <string name="settings_connected_label">Connecté.</string>
-    <string name="settings_big_gauges_title">Valeurs affichées en gros sur le Dashboard</string>
-    <string name="settings_big_gauges_description">Choisis jusqu\'à 6 paramètres (%1$d/6 sélectionnés). Les autres paramètres supportés restent affichés en plus petit.</string>
+    <string name="settings_big_gauges_title">Cadrans du tableau de bord</string>
+    <string name="settings_big_gauges_description">Choisis jusqu\'à 6 paramètres (%1$d/6 sélectionnés). Leur placement s\'adapte à l\'écran. Les autres mesures restent accessibles dans le menu du tableau de bord.</string>
     <string name="settings_log_title">Journal (%1$d)</string>
     <string name="settings_log_description">Démarrage, connexions, coupures, activation d\'une fonction, plantage. Un fichier par lancement de l\'application.</string>
 
@@ -134,6 +143,9 @@
     <string name="dtc_protocol_label">Protocole %1$s</string>
     <string name="dtc_model_year_label">année-modèle %1$s</string>
     <string name="dtc_loading">Lecture…</string>
+    <string name="dtc_mil_last_read">Dernière lecture MIL : %1$s</string>
+    <string name="dtc_stored_last_read">Dernière lecture des codes stockés : %1$s</string>
+    <string name="dtc_full_last_read">Dernier scan complet : %1$s</string>
     <string name="dtc_refresh_button">Rafraîchir</string>
     <string name="dtc_export_subject">OBD2 Dash - export diagnostic</string>
     <string name="dtc_share_chooser_title">Partager le diagnostic</string>

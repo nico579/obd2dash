@@ -346,6 +346,37 @@ class Elm327ClientTest {
         }
     }
 
+    @Test
+    fun `un payload DTC malforme ne disparait pas derriere une reponse valide`() {
+        for (bad in listOf("4301GGGG", "4301+187", "43010087F")) {
+            for (responses in listOf("4300\r$bad", "$bad\r4300")) {
+                assertThrows(IOException::class.java) {
+                    client.parseDtcResponses(responses, "43", isCan = true)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `un payload MIL malforme ne confirme pas un voyant eteint`() {
+        for (bad in listOf("4101GG000000", "41010000000", "4101+1000000")) {
+            assertThrows(IOException::class.java) { client.parseMilStatus("410100000000\r$bad") }
+        }
+    }
+
+    @Test
+    fun `un refus MIL garde le voyant inconnu meme avec un code stocke connu`() {
+        assertThrows(IOException::class.java) { client.parseMilStatus("410101000000\r7F0111") }
+    }
+
+    @Test
+    fun `une liste DTC partielle ne permet pas de declarer les autres codes absents`() {
+        val error = assertThrows(IOException::class.java) {
+            client.parseDtcResponses("43010087\r7F0311", "43", isCan = true)
+        }
+        org.junit.Assert.assertTrue(error.message.orEmpty().contains("P0087"))
+    }
+
     // --- Requetes groupees (plusieurs PID mode 01) ---
 
     @Test
@@ -383,6 +414,25 @@ class Elm327ClientTest {
     @Test
     fun `parseMultiPidResponse donnee tronquee rejetee`() {
         assertEquals(emptyMap<Int, List<Int>>(), client.parseMultiPidResponse("410C0B", setOf(0x0C)))
+    }
+
+    @Test
+    fun `les valeurs groupees contradictoires sont refusees quel que soit leur ordre`() {
+        val replies = listOf("410C0BB80D28", "410C17700D28", "410C0BB80D28")
+        for (responses in listOf(replies, replies.reversed())) {
+            assertEquals(
+                mapOf(0x0D to listOf(0x28)),
+                client.parseMultiPidResponse(responses.joinToString("\r"), setOf(0x0C, 0x0D))
+            )
+        }
+    }
+
+    @Test
+    fun `des valeurs groupees identiques restent utilisables`() {
+        assertEquals(
+            mapOf(0x0C to listOf(0x0B, 0xB8), 0x0D to listOf(0x28)),
+            client.parseMultiPidResponse("410C0BB80D28\r410C0BB80D28", setOf(0x0C, 0x0D))
+        )
     }
 
     // --- Identification de l'adaptateur ---

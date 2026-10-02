@@ -3,6 +3,7 @@ package com.nico.obd2dash
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.view.Window
@@ -43,17 +44,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -61,6 +65,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.nico.obd2dash.ui.AutoTestScreen
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.DtcScreen
@@ -133,6 +139,12 @@ class MainActivity : ComponentActivity() {
                     var screen by remember { mutableStateOf(Screen.DASHBOARD) }
                     var showSettings by remember { mutableStateOf(false) }
                     val state by viewModel.state.collectAsState()
+                    // Le téléphone posé sur le tableau de bord bénéficie d'emblée de
+                    // toute la surface en paysage. Le bouton conserve le choix manuel
+                    // lors des rotations, et reste disponible aussi en portrait.
+                    var expandedDashboard by rememberSaveable { mutableStateOf<Boolean?>(null) }
+                    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+                    val fullScreen = screen == Screen.DASHBOARD && !showSettings && (expandedDashboard ?: landscape)
 
                     // Écran maintenu allumé seulement pendant l'usage réel "au volant" : connecté
                     // ET sur Dashboard ou Graphique (jauges/courbe en train d'être regardées),
@@ -155,6 +167,14 @@ class MainActivity : ComponentActivity() {
                     // quitte cet écran, comme un réveil ou un lecteur vidéo au-dessus du
                     // verrouillage, pas un contournement permanent.
                     val view = LocalView.current
+                    DisposableEffect(fullScreen) {
+                        val controller = WindowInsetsControllerCompat(window, view)
+                        if (fullScreen) {
+                            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                            controller.hide(WindowInsetsCompat.Type.systemBars())
+                        }
+                        onDispose { if (fullScreen) controller.show(WindowInsetsCompat.Type.systemBars()) }
+                    }
                     val keepAwake = !showSettings &&
                         state.connectionState == ConnectionState.CONNECTED &&
                         (screen == Screen.DASHBOARD || screen == Screen.GRAPH)
@@ -170,11 +190,12 @@ class MainActivity : ComponentActivity() {
                     // ViewModel, contrairement à ce qu'un simple retour d'écran laisse
                     // attendre.
                     BackHandler(enabled = showSettings) { showSettings = false }
+                    BackHandler(enabled = fullScreen) { expandedDashboard = false }
 
                     Scaffold(
                         containerColor = Color.Transparent,
                         topBar = {
-                            TopAppBar(
+                            if (!fullScreen) TopAppBar(
                                 colors = TopAppBarDefaults.topAppBarColors(containerColor = topBarContainerColor()),
                                 title = {
                                     Text(stringResource(if (showSettings) R.string.topbar_title_settings else R.string.app_name))
@@ -201,7 +222,7 @@ class MainActivity : ComponentActivity() {
                             // sans ça, screen changeait bien en interne mais l'écran affiché
                             // restait Réglages (priorité du "if (showSettings)" ci-dessous),
                             // jusqu'à ce que la flèche de retour soit pressée séparément.
-                            NavigationBar(containerColor = navBarContainerColor()) {
+                            if (!fullScreen) NavigationBar(containerColor = navBarContainerColor()) {
                                 NavigationBarItem(
                                     selected = screen == Screen.DASHBOARD,
                                     onClick = { screen = Screen.DASHBOARD; showSettings = false },
@@ -278,7 +299,10 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onShareRecording = { path -> shareCsvFile(path, R.string.share_recording_title) },
                                 onDeleteRecording = { path -> viewModel.deleteRecording(path) },
-                                modifier = Modifier.padding(padding)
+                                modifier = Modifier.padding(padding),
+                                fullScreen = fullScreen,
+                                onToggleFullScreen = { expandedDashboard = !fullScreen },
+                                onOpenSettings = { showSettings = true }
                             )
                             Screen.DTC -> DtcScreen(
                                 state = state,
@@ -357,7 +381,7 @@ private fun applyWakeOverLockScreenFlags(window: Window, active: Boolean) {
  * l'accessibilité (lecteur d'écran), simplement plus affiché visuellement.
  */
 @Composable
-private fun ConnectionIndicator(state: ConnectionState, availability: ObdDataAvailability) {
+internal fun ConnectionIndicator(state: ConnectionState, availability: ObdDataAvailability) {
     // Connecté réutilise directement le turquoise fonctionnel de l'appli (colorScheme.primary,
     // déjà utilisé par Wi-Fi/Bluetooth/Partager) plutôt qu'un vert isolé : un seul "cette
     // couleur = actif/bon" dans toute l'appli, qui s'assombrit aussi cohéremment la nuit avec

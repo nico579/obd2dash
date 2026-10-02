@@ -24,7 +24,7 @@ SOURCE_DIR = ROOT / "app/src/main/java/com/nico/obd2dash"
 OUTPUT_ROOT = ROOT / "captures/audit_2026-09-13/recording_reconnect"
 SOURCE_NAMES = (
     "ObdViewModel", "Elm327Client", "PidCatalog", "DtcDictionary", "VinDecoder",
-    "CanHeaderReassembly", "HeaderlessObdResponse", "DtcPayloadDecoder",
+    "CanHeaderReassembly", "HeaderlessObdResponse", "DtcPayloadDecoder", "VinPayloadDecoder",
     "PollingHealth", "StandardObdAvailability",
 )
 

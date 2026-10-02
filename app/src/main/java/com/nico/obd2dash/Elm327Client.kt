@@ -416,13 +416,14 @@ class Elm327Client internal constructor(
      * Décode la réponse à une requête mode 01 groupée : "41" suivi, pour chaque PID
      * supporté, de son numéro puis de ses octets (longueur fixe par PID, voir
      * [PidCatalog.dataLength]). Plusieurs calculateurs peuvent répondre chacun sur sa
-     * propre ligne (headers désactivés) : toutes les lignes sont lues, la première valeur
-     * trouvée pour un PID l'emporte. Un PID de longueur inconnue arrête le décodage de
+     * propre ligne (headers désactivés) : toutes les lignes sont lues, une valeur
+     * contradictoire rend CE PID illisible. Un PID de longueur inconnue arrête le décodage de
      * CETTE réponse (impossible de savoir où commence le suivant) plutôt que de deviner.
      * Fonction pure, testée indépendamment.
      */
     internal fun parseMultiPidResponse(response: String, requested: Set<Int>): Map<Int, List<Int>> {
         val result = mutableMapOf<Int, List<Int>>()
+        val conflicting = mutableSetOf<Int>()
         for (payload in responsePayloads(response, "41")) {
             var i = 2
             while (i + 2 <= payload.length) {
@@ -433,7 +434,16 @@ class Elm327Client internal constructor(
                 if (end > payload.length) break
                 val bytes = payload.substring(i + 2, end).chunked(2).map { it.toIntOrNull(16) }
                 if (bytes.any { it == null }) break
-                result.putIfAbsent(pid, bytes.filterNotNull())
+                val value = bytes.filterNotNull()
+                if (pid !in conflicting) {
+                    val previous = result[pid]
+                    if (previous != null && previous != value) {
+                        result.remove(pid)
+                        conflicting.add(pid)
+                    } else {
+                        result[pid] = value
+                    }
+                }
                 i = end
             }
         }
@@ -456,9 +466,13 @@ class Elm327Client internal constructor(
             throw IOException("Réponse multi-trame illisible : ${response.replace('\r', ' ').trim()}")
         }
         val prefix = expectedPrefix.uppercase(Locale.ROOT)
-        return parsed.payloads.filter { payload ->
-            payload.startsWith(prefix) && payload.all { it in '0'..'9' || it in 'A'..'F' }
+        val matching = parsed.payloads.filter { it.startsWith(prefix) }
+        if (matching.any { payload ->
+                payload.length % 2 != 0 || payload.any { it !in '0'..'9' && it !in 'A'..'F' }
+            }) {
+            throw IOException("Réponse $prefix malformée : diagnostic ou mesure incomplet")
         }
+        return matching
     }
 
     /**
@@ -589,10 +603,11 @@ class Elm327Client internal constructor(
         }
         val statusBytes = payloads.map { it.substring(4, 6).toInt(16) }
         val status = statusBytes.any { it and 0x80 != 0 } to statusBytes.sumOf { it and 0x7F }
-        // Un calculateur qui refuse (7F01) garde son voyant inconnu : jamais « éteint,
-        // 0 défaut » confirmé sur cette seule base.
-        if (status == (false to 0) && hasNegativeResponse(response, 0x01)) {
-            throw IOException("PID01 (statut MIL) incomplet : un calculateur a refusé la requête")
+        // Un refus laisse le voyant et le compteur de ce répondant inconnus.
+        // Même un code connu ailleurs ne permet pas de confirmer « MIL éteint ».
+        if (hasNegativeResponse(response, 0x01)) {
+            val known = if (status.first) "MIL allumé observé" else "MIL inconnu pour ce calculateur"
+            throw IOException("PID01 incomplet : un calculateur a refusé la requête ($known, ${status.second} code(s) observé(s))")
         }
         return status
     }
@@ -618,7 +633,8 @@ class Elm327Client internal constructor(
      * Réunit les DTC de TOUS les calculateurs qui ont répondu (voir [responsePayloads]),
      * sans doublon : sans en-tête, "4300" d'une boîte de vitesses et "43010087" du moteur
      * se complètent, ils ne se contredisent pas. Seul un refus (7F) d'un calculateur
-     * empêche de confirmer l'absence de défaut, ses codes restant inconnus. Fonction pure,
+     * empêche de publier une liste complète et de déclarer les autres codes absents dans
+     * l'historique. Les codes déjà observés restent indiqués dans l'erreur. Fonction pure,
      * testée indépendamment.
      */
     internal fun parseDtcResponses(response: String, expectedPrefix: String, isCan: Boolean): List<String> {
@@ -628,8 +644,9 @@ class Elm327Client internal constructor(
         }
         val codes = payloads.flatMap { parseDtcResponse(it, expectedPrefix, isCan) }.distinct()
         val service = expectedPrefix.take(2).toInt(16) - 0x40
-        if (codes.isEmpty() && hasNegativeResponse(response, service)) {
-            throw IOException("Diagnostic incomplet : un calculateur a refusé la requête (${response.replace('\r', ' ').trim()})")
+        if (hasNegativeResponse(response, service)) {
+            val observed = if (codes.isEmpty()) "aucun code exploitable" else "codes observés : ${codes.joinToString(", ")}"
+            throw IOException("Diagnostic incomplet : un calculateur a refusé la requête ($observed)")
         }
         return codes
     }
@@ -807,22 +824,12 @@ class Elm327Client internal constructor(
 
     /**
      * VIN du véhicule (mode 09, PID 02) : sert à distinguer l'historique DTC d'un
-     * véhicule à l'autre. Réponse multi-trames (17 caractères ASCII ne tiennent pas dans
-     * une seule trame CAN), réassemblée par reassembleHex. Un octet "nombre d'items"
-     * (toujours 1 en pratique) précède les 17 octets ASCII du VIN.
+     * véhicule à l'autre. Le format CAN porte un item et 17 octets ASCII ; le format
+     * non-CAN documenté porte cinq segments indexés. Les deux sont validés sans
+     * supprimer arbitrairement des octets ni fusionner des réponses contradictoires.
      */
     suspend fun readVin(): String? {
-        val expectedPrefix = "4902"
-        val response = sendRaw("0902")
-        val hexstr = reassembleHex(response, expectedPrefix)
-        val bytes = parseHexPayload(hexstr, expectedPrefix) ?: return null
-        val vinBytes = bytes.drop(1) // octet "nombre d'items"
-        val vin = vinBytes.filter { it in 0x20..0x7E }.map { it.toChar() }.joinToString("")
-        // ISO 3779 : un VIN fait toujours exactement 17 caracteres. Une chaine plus courte
-        // (trame tronquee non detectee autrement, voir A3) n'est pas un VIN partiel utile :
-        // c'est une identite fausse qui peut fusionner l'historique DTC de deux vehicules
-        // differents (voir DtcHistoryStore).
-        return vin.takeIf { it.length == 17 }
+        return VinPayloadDecoder.decode(sendRaw("0902"), isCanProtocol)
     }
 
     /**

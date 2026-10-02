@@ -139,7 +139,9 @@ data class ObdUiState(
     // distinct de "lu et confirmé sans défaut", pour ne pas afficher un faux résultat propre.
     val milOn: Boolean? = null,
     val dtcCount: Int? = null,
+    val milLastSuccessAtMs: Long? = null,
     val storedDtcs: List<String>? = null,
+    val storedDtcsLastSuccessAtMs: Long? = null,
     val pendingDtcs: List<String>? = null,
     val readiness: List<ReadinessMonitor> = emptyList(),
     val freezeFrame: Map<Int, String> = emptyMap(),
@@ -148,7 +150,9 @@ data class ObdUiState(
     val dtcHistory: List<DtcHistoryEntry> = emptyList(),
     val dtcLoading: Boolean = false,
     val dtcError: String? = null,
-    // Age de storedDtcs/pendingDtcs/readiness/freezeFrame ci-dessus : sans cette date, un
+    // Dernier scan complet (pending/readiness/freeze frame inclus). Une relecture
+    // automatique des seuls codes stockés ne doit jamais rajeunir ce résultat.
+    // Sans cette date, un
     // ancien résultat encore affiché après un refresh en échec (dtcError non-null) se
     // confond avec une lecture actuelle dans l'export (voir A6). null = jamais lu avec
     // succès depuis le lancement de l'app.
@@ -247,8 +251,12 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
             null -> "non lu"
         }
     )
+    sb.appendLine("Dernière lecture MIL réussie : " +
+        (state.milLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
+    sb.appendLine("Dernière lecture des codes stockés réussie : " +
+        (state.storedDtcsLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
 
-    // Les sections DTC/readiness/freeze frame ci-dessous datent de cette dernière lecture
+    // Les sections pending/readiness/freeze frame datent de cette dernière lecture
     // réussie, pas de la date d'export ci-dessus : sans cette ligne, un ancien résultat
     // encore affiché après un refresh en échec se lisait comme une lecture actuelle
     // (voir A6). dtcError est celle de la tentative la PLUS RÉCENTE, potentiellement
@@ -257,6 +265,7 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
         "Dernière lecture DTC réussie : " +
             (state.dtcLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais")
     )
+    sb.appendLine("Portée de cette lecture : scan complet (codes en attente, moniteurs, freeze frame si disponible).")
     if (state.dtcLoading) sb.appendLine("Lecture DTC en cours au moment de cet export.")
     state.dtcError?.let { sb.appendLine("Dernière tentative de lecture DTC en échec : $it") }
 
@@ -341,6 +350,18 @@ private const val CSV_DELIMITER = ";"
 internal fun csvEscape(value: String): String = "\"" + value.replace("\"", "\"\"") + "\""
 
 internal fun csvRow(fields: List<String>): String = fields.joinToString(CSV_DELIMITER) { csvEscape(it) }
+
+/** Les états diagnostiques échantillonnés gardent la date de leur vraie lecture. */
+internal fun recordingDiagnosticFields(state: ObdUiState, formatTime: (Long) -> String): List<String> {
+    val mil = when (state.milOn) { true -> "allumé"; false -> "éteint"; null -> "non lu" }
+    val codes = when {
+        state.storedDtcs != null -> state.storedDtcs.joinToString(" ").ifEmpty { "aucun" }
+        state.dtcCount != null -> "${state.dtcCount} annoncé(s), détail non lu"
+        else -> ""
+    }
+    return listOf(mil, codes, state.milLastSuccessAtMs?.let(formatTime).orEmpty(),
+        state.storedDtcsLastSuccessAtMs?.let(formatTime).orEmpty())
+}
 
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -905,15 +926,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // supporte pas PID4F OU annonce zéro sur cet octet précis (voir A4 : un
             // octet nul ne veut pas dire "plafonner à zéro", mais "garder le repli"),
             // pour qu'une valeur laissée par un véhicule précédent ne s'applique pas ici.
-            val scaleBytes = if (0x4F in supported) c.readPidBytes(0x4F) else null
-            PidCatalog.o2MaxRatio = scaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.toDouble() ?: 2.0
-            PidCatalog.o2MaxVoltage = scaleBytes?.getOrNull(1)?.takeIf { it != 0 }?.toDouble() ?: 8.0
-            PidCatalog.mapMaxKpa = scaleBytes?.getOrNull(3)?.takeIf { it != 0 }?.let { it * 10.0 }
+            val scaleBytes = if (0x4F in supported) c.readPidBytes(0x4F)?.takeIf { it.size == 4 } else null
 
             // Même principe pour le débit d'air (PID10), annoncé par PID50 (un seul
             // octet, max en dizaines de g/s).
-            val mafScaleBytes = if (0x50 in supported) c.readPidBytes(0x50) else null
-            PidCatalog.mafMaxGramsPerSec = mafScaleBytes?.getOrNull(0)?.takeIf { it != 0 }?.let { it * 10.0 }
+            val mafScaleBytes = if (0x50 in supported) c.readPidBytes(0x50)?.takeIf { it.size == 4 } else null
+            PidCatalog.applyAnnouncedScales(scaleBytes, mafScaleBytes)
 
             // PID4F/PID50 sont exclus du polling répété (voir startPolling) puisqu'ils
             // ne varient pas ; affichés une fois ici à partir des octets déjà reçus
@@ -1096,6 +1114,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // colonne MIL renseignee des le debut (voir capturer les defauts pendant
             // l'enregistrement, ci-dessous).
             var lastMilCheckAtMs: Long? = null
+            // Une lecture de codes ratée doit être retentée, même si le voyant et
+            // le compteur n'ont pas changé depuis la réussite du PID01.
+            var storedRefreshPending = false
             // Même logique pour les PID lents : lus dès le premier cycle.
             var lastSlowPollAtMs = 0L
             // Durée des cycles complets, journalisée périodiquement (voir EventLog) : seul
@@ -1213,7 +1234,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                 // rafraîchissant l'écran DTC à la main.
                                 val countChanged = count != previous.dtcCount &&
                                     (previous.dtcCount != null || previous.storedDtcs == null)
-                                if (milTurnedOn || countChanged) {
+                                _state.update {
+                                    it.copy(milOn = mil, dtcCount = count, milLastSuccessAtMs = System.currentTimeMillis())
+                                }
+                                if (milTurnedOn || countChanged) storedRefreshPending = true
+                                if (storedRefreshPending) {
                                     // Va chercher les codes réels (readStoredDtcs, "03"), pas
                                     // seulement ce compteur. Volontairement PAS aussi complet
                                     // qu'un refreshDtcs() (pas de pending/readiness/freeze frame
@@ -1233,11 +1258,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                             dtcCount = count,
                                             storedDtcs = stored,
                                             dtcHistory = history,
-                                            dtcLastSuccessAtMs = System.currentTimeMillis()
+                                            storedDtcsLastSuccessAtMs = System.currentTimeMillis()
                                         )
                                     }
-                                } else {
-                                    _state.update { it.copy(milOn = mil, dtcCount = count) }
+                                    storedRefreshPending = false
                                 }
                             } catch (e: CancellationException) {
                                 throw e
@@ -1367,7 +1391,14 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // référence au job de ce dernier avant que l'appelant ait pu le récupérer).
                 previousJobs.forEach { it.join() }
                 val (mil, count) = c.readMilStatus()
+                _state.update {
+                    it.copy(milOn = mil, dtcCount = count, milLastSuccessAtMs = System.currentTimeMillis())
+                }
                 val stored = c.readStoredDtcs()
+                val history = historyStore.record(vehicleId, stored)
+                _state.update {
+                    it.copy(storedDtcs = stored, dtcHistory = history, storedDtcsLastSuccessAtMs = System.currentTimeMillis())
+                }
                 val pending = c.readPendingDtcs()
                 val readiness = c.readReadiness() ?: emptyList()
 
@@ -1387,8 +1418,6 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     emptyMap()
                 }
-
-                val history = historyStore.record(vehicleId, stored)
 
                 _state.update {
                     it.copy(
@@ -1758,7 +1787,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
         try {
             writeSessionMetadata(writer)
-            writer.write(csvRow(listOf("Horodatage", "État", "MIL", "Codes stockés") + columns.map { it.label }))
+            writer.write(csvRow(listOf("Horodatage", "État", "MIL", "Codes stockés", "Lecture MIL", "Lecture codes stockés") + columns.map { it.label }))
             writer.newLine()
             writer.flush()
         } catch (e: Exception) {
@@ -1808,6 +1837,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val dynamicColumns = recordingColumns.filter { it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
         recordingJob = viewModelScope.launch {
             val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
+            val diagnosticTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.FRANCE)
             while (true) {
                 delay(RECORDING_INTERVAL_MS)
                 val snapshot = _state.value
@@ -1843,26 +1873,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     freshDynamicCount < dynamicColumns.size -> "partiel"
                     else -> "ok"
                 }
-                // MIL/codes stockés : alimentés en arrière-plan par la "Surveillance MIL" de
-                // startPolling, pas par une commande envoyée ici (voir MIL_CHECK_INTERVAL_MS).
-                // "non lu" tant qu'aucune vérification n'a encore eu lieu (ex: tout début d'un
-                // enregistrement très court) : distinct d'un MIL éteint confirmé, pour ne pas
-                // laisser croire à une lecture qui n'a pas eu lieu.
-                val milText = when (snapshot.milOn) {
-                    true -> "allumé"
-                    false -> "éteint"
-                    null -> "non lu"
-                }
-                // Les codes réels (storedDtcs) ne sont récupérés qu'à la transition MIL éteint
-                // -> allumé ou via un refresh manuel de l'écran DTC (voir startPolling) : entre
-                // les deux, seul le compteur brut de PID01 est disponible, affiché comme repli
-                // plutôt que de laisser la colonne vide alors qu'un chiffre est bien connu.
-                val dtcText = when {
-                    snapshot.storedDtcs != null -> snapshot.storedDtcs.joinToString(" ").ifEmpty { "aucun" }
-                    snapshot.dtcCount != null -> "${snapshot.dtcCount} annoncé(s), détail non lu"
-                    else -> ""
-                }
-                val row = listOf(timestampFormat.format(Date()), etat, milText, dtcText) + cells
+                // Aucune requête ici : chaque état cache sa propre date de lecture.
+                // Celle-ci peut être antérieure à la date d'échantillonnage de la ligne.
+                val row = listOf(timestampFormat.format(Date(now)), etat) +
+                    recordingDiagnosticFields(snapshot) { diagnosticTimeFormat.format(Date(it)) } + cells
                 val written = withContext(Dispatchers.IO) {
                     runCatching {
                         writer.write(csvRow(row))

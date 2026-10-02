@@ -56,6 +56,36 @@ class ObdViewModelTest {
     }
 
     @Test
+    fun `le rapport distingue une relecture stockee du dernier scan complet`() {
+        val format = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.FRANCE)
+        val fullAt = 1_700_000_000_000L
+        val storedAt = fullAt + 600_000
+        val milAt = storedAt + 30_000
+        val report = buildDiagnosticReport(ObdUiState(
+            milOn = false, storedDtcs = listOf("P0087"), pendingDtcs = emptyList(),
+            dtcLastSuccessAtMs = fullAt, storedDtcsLastSuccessAtMs = storedAt, milLastSuccessAtMs = milAt
+        ))
+        assertTrue(report.contains("Dernière lecture DTC réussie : ${format.format(java.util.Date(fullAt))}"))
+        assertTrue(report.contains("Dernière lecture des codes stockés réussie : ${format.format(java.util.Date(storedAt))}"))
+        assertTrue(report.contains("Dernière lecture MIL réussie : ${format.format(java.util.Date(milAt))}"))
+    }
+
+    @Test
+    fun `la lecture automatique des codes ne pretend pas avoir lu les pending`() {
+        val state = ObdUiState(storedDtcs = listOf("P0087"), storedDtcsLastSuccessAtMs = 1_700_000_000_000L)
+        assertTrue(buildDiagnosticReport(state).contains("Dernière lecture DTC réussie : jamais"))
+        assertEquals(null, state.pendingDtcs)
+    }
+
+    @Test
+    fun `le CSV date les etats MIL et codes sans les rajeunir a l'export`() {
+        val state = ObdUiState(milOn = false, storedDtcs = listOf("P0087"),
+            milLastSuccessAtMs = 30_000, storedDtcsLastSuccessAtMs = 10_000, dtcLastSuccessAtMs = 5_000)
+        assertEquals(listOf("éteint", "P0087", "30000", "10000"), recordingDiagnosticFields(state) { it.toString() })
+        assertEquals(listOf("non lu", "", "", ""), recordingDiagnosticFields(ObdUiState()) { it.toString() })
+    }
+
+    @Test
     fun `buildDiagnosticReport marque une valeur live perimee`() {
         val old = GaugeValue("830 rpm", updatedAtMs = 0L) // horodatage tres ancien par construction
         val state = ObdUiState(values = mapOf(0x0C to old))

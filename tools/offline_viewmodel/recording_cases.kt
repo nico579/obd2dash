@@ -7,6 +7,8 @@ import java.io.BufferedWriter
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 private const val ONE_CSV_INTERVAL_PLUS_MARGIN = 6_100L
 
@@ -247,6 +249,61 @@ private suspend fun stopAndRestartDuringWrite(dir: File) {
     }
 }
 
+private suspend fun milPublishedBeforeDtcRetry(dir: File) {
+    val storedAttempts = AtomicInteger()
+    FakeElm(bitmap = "410080100000", replyOverride = { command ->
+        when (command) {
+            "0101" -> "410181000000"
+            "03" -> if (storedAttempts.incrementAndGet() == 1) "NO DATA" else "43010087"
+            else -> null
+        }
+    }).use { server ->
+        val vm = makeVm(server, dir)
+        try {
+            awaitUntil { storedAttempts.get() == 1 && vm.state.value.milLastSuccessAtMs != null }
+            check(vm.state.value.milOn == true) { "A failed DTC read hid the successful MIL reading" }
+            check(vm.state.value.dtcCount == 1)
+            check(vm.state.value.storedDtcs == null)
+            check(vm.state.value.dtcLastSuccessAtMs == null)
+            start(vm)
+            awaitUntil { vm.state.value.recordingSamples > 0 }
+            val initialCsv = csvFile(dir).readText()
+            check(initialCsv.contains("\"Lecture MIL\";\"Lecture codes stockés\""))
+            check(initialCsv.contains("\"allumé\";\"1 annoncé(s), détail non lu\""))
+            awaitUntil(timeoutMs = 35_000) { vm.state.value.storedDtcs == listOf("P0087") }
+            check(storedAttempts.get() == 2) { "A failed code read was not retried" }
+            check(vm.state.value.storedDtcsLastSuccessAtMs != null)
+            check(vm.state.value.dtcLastSuccessAtMs == null) { "An automatic code read became a full scan" }
+            check(vm.state.value.pendingDtcs == null)
+        } finally { finish(vm) }
+    }
+}
+
+private suspend fun automaticReadPreservesFullScanDate(dir: File) {
+    val mil = AtomicReference("410100000000")
+    val stored = AtomicReference("4300")
+    FakeElm(bitmap = "410080100000", replyOverride = { command ->
+        when (command) { "0101" -> mil.get(); "03" -> stored.get(); else -> null }
+    }).use { server ->
+        val vm = makeVm(server, dir)
+        try {
+            awaitUntil { vm.state.value.storedDtcs != null }
+            withContext(auditDispatcher) { vm.refreshDtcs() }
+            awaitUntil { vm.state.value.dtcLastSuccessAtMs != null && !vm.state.value.dtcLoading }
+            val fullScanAt = vm.state.value.dtcLastSuccessAtMs
+            val pending = vm.state.value.pendingDtcs
+            check(pending == emptyList<String>())
+            mil.set("410181000000")
+            stored.set("43010087")
+            awaitUntil(timeoutMs = 35_000) { vm.state.value.storedDtcs == listOf("P0087") }
+            check(vm.state.value.milOn == true)
+            check(vm.state.value.storedDtcsLastSuccessAtMs!! > fullScanAt!!)
+            check(vm.state.value.dtcLastSuccessAtMs == fullScanAt) { "The old pending/readiness snapshot was given a new date" }
+            check(vm.state.value.pendingDtcs == pending)
+        } finally { finish(vm) }
+    }
+}
+
 fun main(args: Array<String>) = runBlocking {
     val root = File(args[0]).apply { mkdirs() }
     val cases: Map<String, suspend (File) -> Unit> = linkedMapOf(
@@ -259,7 +316,9 @@ fun main(args: Array<String>) = runBlocking {
         "bluetooth_without_device" to ::bluetoothWithoutDevice,
         "bluetooth_failure" to ::bluetoothFailure,
         "manual_diagnostics" to ::manualDiagnostics,
-        "stop_restart_during_write" to ::stopAndRestartDuringWrite
+        "stop_restart_during_write" to ::stopAndRestartDuringWrite,
+        "mil_retry" to ::milPublishedBeforeDtcRetry,
+        "diagnostic_dates" to ::automaticReadPreservesFullScanDate
     )
     val selected = args.getOrNull(1)?.let { name -> mapOf(name to cases.getValue(name)) } ?: cases
     var failed = 0

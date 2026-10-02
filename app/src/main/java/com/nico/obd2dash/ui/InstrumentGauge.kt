@@ -1,0 +1,181 @@
+package com.nico.obd2dash.ui
+
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.Typeface
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.nico.obd2dash.GaugeValue
+import com.nico.obd2dash.PidCatalog
+import com.nico.obd2dash.R
+import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
+
+/** Cadran dessiné à sa taille réelle : textes et traits restent nets dans les deux orientations. */
+@Composable
+internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Long, modifier: Modifier = Modifier) {
+    val (text, stale) = staleness(def.pid, value, nowMs)
+    val unavailable = text == "--"
+    val reading = remember(text) { dialReading(text) }
+    val scale = remember(def.pid, reading.value) { dialScale(def.pid)?.including(reading.value) }
+    val tickLabels = remember(scale) {
+        scale?.let { s ->
+            (0..s.divisions).map { tick ->
+                val number = (s.min + (s.max - s.min) * tick / s.divisions) / s.divisor
+                if (kotlin.math.abs(number - number.toInt()) < .001) number.toInt().toString()
+                else "%.1f".format(Locale.FRANCE, number)
+            }
+        }.orEmpty()
+    }
+    val fraction by animateFloatAsState(
+        targetValue = if (reading.value != null && scale != null) scale.fraction(reading.value) else 0f,
+        animationSpec = tween(180), label = "dialNeedle"
+    )
+    val colors = MaterialTheme.colorScheme
+    val textColor = if (stale || unavailable) colors.onSurfaceVariant else colors.onSurface
+    val needleColor = if (stale) colors.onSurfaceVariant else colors.primary
+    val status = when {
+        unavailable -> stringResource(R.string.dashboard_gauge_unavailable)
+        stale -> stringResource(R.string.dashboard_gauge_stale)
+        else -> ""
+    }
+    val description = listOf(def.label, if (unavailable) status else text, if (stale) status else "")
+        .filter { it.isNotEmpty() }.joinToString(", ")
+    val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
+    val label = dialLabel(def.pid, def.label)
+    val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER } }
+    val textBounds = remember { Rect() }
+    val regularTypeface = remember { Typeface.create("sans-serif", Typeface.NORMAL) }
+    val boldTypeface = remember { Typeface.create("sans-serif-condensed", Typeface.BOLD) }
+    val tickTypeface = remember { Typeface.create("sans-serif-condensed", Typeface.NORMAL) }
+    val rimBrush = remember {
+        Brush.linearGradient(listOf(Color(0xFFCBD2D6), Color(0xFF52616C), Color(0xFFB7C0C5)))
+    }
+    val needle = remember { Path() }
+
+    BoxWithConstraints(modifier = modifier.semantics { contentDescription = description }) {
+        val diameter = min(maxWidth.value, maxHeight.value).coerceAtLeast(0f)
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.size(androidx.compose.ui.unit.Dp(diameter))) {
+                val d = size.minDimension
+                if (d <= 0f) return@Canvas
+                val c = center
+                val faceColor = colors.surface
+                drawCircle(
+                    brush = rimBrush,
+                    radius = d * .49f
+                )
+                drawCircle(color = colors.background, radius = d * .474f)
+                drawCircle(color = faceColor, radius = d * .459f)
+                drawCircle(color = colors.onSurfaceVariant.copy(alpha = .4f), radius = d * .45f, style = Stroke(d * .003f))
+
+                fun polar(radius: Float, angle: Float): Offset {
+                    val radians = Math.toRadians(angle.toDouble())
+                    return Offset(c.x + cos(radians).toFloat() * radius, c.y + sin(radians).toFloat() * radius)
+                }
+
+                fun drawCentered(text: String, y: Float, nominalSize: Float, maxWidth: Float, color: Color, bold: Boolean = false, maxHeight: Float = d * .065f) {
+                    if (text.isEmpty()) return
+                    paint.typeface = if (bold) boldTypeface else regularTypeface
+                    paint.color = color.toArgb()
+                    paint.textSize = nominalSize
+                    val measured = paint.measureText(text)
+                    if (measured > maxWidth) paint.textSize *= maxWidth / measured
+                    // Adapter aussi la hauteur réelle des glyphes : une grande taille
+                    // système ne doit pas superposer le nombre, son libellé et son unité.
+                    paint.getTextBounds(text, 0, text.length, textBounds)
+                    if (textBounds.height() > maxHeight) {
+                        paint.textSize *= maxHeight / textBounds.height()
+                        paint.getTextBounds(text, 0, text.length, textBounds)
+                    }
+                    val baseline = y - (textBounds.top + textBounds.bottom) / 2f
+                    drawContext.canvas.nativeCanvas.drawText(text, c.x, baseline, paint)
+                }
+
+                if (scale != null) {
+                    val tickCount = scale.divisions * 4
+                    drawArc(
+                        color = colors.onSurfaceVariant.copy(alpha = .22f), startAngle = 135f, sweepAngle = 270f,
+                        useCenter = false, topLeft = Offset(d * .076f, d * .076f), size = Size(d * .848f, d * .848f),
+                        style = Stroke(width = d * .022f, cap = StrokeCap.Round)
+                    )
+                    if (!unavailable && reading.value != null) {
+                        drawArc(
+                            color = needleColor.copy(alpha = if (stale) .35f else .85f), startAngle = 135f,
+                            sweepAngle = 270f * fraction, useCenter = false,
+                            topLeft = Offset(d * .076f, d * .076f), size = Size(d * .848f, d * .848f),
+                            style = Stroke(width = d * .022f, cap = StrokeCap.Round)
+                        )
+                    }
+                    for (tick in 0..tickCount) {
+                        val major = tick % 4 == 0
+                        val angle = 135f + 270f * tick / tickCount
+                        drawLine(
+                            color = colors.onSurface.copy(alpha = if (major) .95f else .5f),
+                            start = polar(d * if (major) .37f else .394f, angle), end = polar(d * .418f, angle),
+                            strokeWidth = d * if (major) .008f else .004f
+                        )
+                        if (major) {
+                            val numberText = tickLabels[tick / 4]
+                            val position = polar(d * .318f, angle)
+                            paint.typeface = tickTypeface
+                            paint.color = colors.onSurface.toArgb()
+                            paint.textSize = d * .057f * fontScale.coerceAtMost(1.2f)
+                            drawContext.canvas.nativeCanvas.drawText(
+                                numberText, position.x, position.y - (paint.ascent() + paint.descent()) / 2, paint
+                            )
+                        }
+                    }
+                    if (!unavailable && reading.value != null) {
+                        // Aiguille courte sur la couronne : elle ne traverse jamais les chiffres.
+                        val angle = 135f + fraction * 270f
+                        val tip = polar(d * .42f, angle)
+                        val base = polar(d * .34f, angle)
+                        val sideways = polar(d * .014f, angle + 90) - c
+                        needle.reset()
+                        needle.moveTo(tip.x, tip.y)
+                        needle.lineTo(base.x + sideways.x, base.y + sideways.y)
+                        needle.lineTo(base.x - sideways.x, base.y - sideways.y)
+                        needle.close()
+                        drawPath(needle, needleColor)
+                    }
+                }
+                drawCentered(label, d * .395f, d * .061f * fontScale, d * .55f, colors.onSurface, bold = true, maxHeight = d * .055f)
+                // Les valeurs composites gardent leur seconde composante, dans la ligne de
+                // détail. Leur valeur numérique et leur unité ne sont jamais recalculées.
+                val number = if (unavailable) "—" else if (def.pid == 0x4F) text else reading.number
+                val detail = if (def.pid == 0x4F || unavailable) "" else reading.detail
+                drawCentered(number, d * .535f, d * .222f * fontScale, d * .60f, textColor, bold = true, maxHeight = d * .19f)
+                drawCentered(detail, d * .667f, d * .075f * fontScale, d * .60f, textColor)
+                val footer = if (status.isNotEmpty()) status else scale?.annotation.orEmpty()
+                drawCentered(footer, d * .79f, d * .052f * fontScale, d * .53f, colors.onSurfaceVariant)
+            }
+        }
+    }
+}

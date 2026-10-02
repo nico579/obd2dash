@@ -64,6 +64,18 @@ object PidCatalog {
     var mapMaxKpa: Double? = null
     var mafMaxGramsPerSec: Double? = null
 
+    /** N'utiliser les annonces d'échelle qu'après validation de leurs quatre octets. */
+    internal fun applyAnnouncedScales(maximums: List<Int>?, airflow: List<Int>?) {
+        fun complete(bytes: List<Int>?): List<Int>? =
+            bytes?.takeIf { it.size == 4 && it.all { byte -> byte in 0..255 } }
+        val scale = complete(maximums)
+        val maf = complete(airflow)
+        o2MaxRatio = scale?.get(0)?.takeIf { it != 0 }?.toDouble() ?: 2.0
+        o2MaxVoltage = scale?.get(1)?.takeIf { it != 0 }?.toDouble() ?: 8.0
+        mapMaxKpa = scale?.get(3)?.takeIf { it != 0 }?.let { it * 10.0 }
+        mafMaxGramsPerSec = maf?.get(0)?.takeIf { it != 0 }?.let { it * 10.0 }
+    }
+
     // Locale.FRANCE explicite sur CHAQUE "%f".format(...) ci-dessous : sans lui, ce format
     // utilise la locale par défaut de la JVM (Locale.getDefault()), qui choisit le
     // séparateur décimal ("," vs ".") - correcte par coïncidence sur un poste de dev

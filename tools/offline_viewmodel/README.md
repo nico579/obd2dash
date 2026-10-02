@@ -28,7 +28,7 @@ Les préférences du double désactivent la connexion initiale sans cible ; le t
 appelle ensuite explicitement la connexion locale. Le transport Bluetooth du
 double lève une erreur s'il est sollicité.
 
-Les dix scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
+Les douze scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
 même CSV ; arrêt manuel pendant la reconnexion ; connexion sans mesures ; échec de
 connexion ; coupure TCP puis reprise automatique ; adresse Wi-Fi invalide avec une
 session active ; choix Bluetooth sans appareil ; échec du transport Bluetooth
@@ -37,7 +37,11 @@ nettoyage ; arrêt puis nouveau fichier pendant une écriture IO inachevée.
 Les tests de pause dépassent l'intervalle CSV réel de cinq secondes et comparent
 les octets du fichier ainsi que le compteur. Le dernier scénario interpose un
 writer à verrou contrôlé et utilise la réflexion pour démarrer la vraie boucle
-sur ce writer ; il ne modifie pas les sources applicatives.
+sur ce writer ; il ne modifie pas les sources applicatives. Les deux nouveaux cas
+vérifient la publication du MIL malgré un premier échec des codes, leur relecture
+après cet échec (`--case mil_retry`), et la conservation de la date du scan complet
+après une relecture automatique des seuls codes stockés (`--case diagnostic_dates`).
+Ils attendent la cadence MIL réelle de 30 secondes, sans la modifier pour le test.
 
 Les doubles remplacent le contexte Android, la sélection réseau, les préférences,
 les services, le journal applicatif et l'historique DTC. Un exécuteur à un seul

@@ -16,7 +16,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class FakeElm(
     private val bitmap: String = "410000100000",
     blockDiscovery: Boolean = false,
-    private val failDiscovery: Boolean = false
+    private val failDiscovery: Boolean = false,
+    private val replyOverride: ((String) -> String?)? = null
 ) : AutoCloseable {
     private val listener = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
     val port: String get() = listener.localPort.toString()
@@ -59,7 +60,7 @@ class FakeElm(
                         }
                         if (failDiscovery) break
                     }
-                    val reply = when (text) {
+                    val reply = replyOverride?.invoke(text) ?: when (text) {
                         "ATZ" -> "ELM327 v1.5"
                         "ATH1" -> { headers = true; "OK" }
                         "ATH0" -> { headers = false; "OK" }

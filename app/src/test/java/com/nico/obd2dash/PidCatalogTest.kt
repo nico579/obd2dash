@@ -32,6 +32,34 @@ class PidCatalogTest {
     @After
     fun tearDown() = resetScales()
 
+    @Test
+    fun `une annonce d'echelle tronquee ne modifie pas les mesures`() {
+        PidCatalog.applyAnnouncedScales(listOf(10, 10), listOf(100))
+        assertEquals(2.0, PidCatalog.o2MaxRatio, 0.0)
+        assertEquals(8.0, PidCatalog.o2MaxVoltage, 0.0)
+        assertEquals("580,00 g/s", def(0x10).decode(listOf(0xE2, 0x90)))
+        assertNull(PidCatalog.mapMaxKpa)
+    }
+
+    @Test
+    fun `les annonces completes appliquent tous les maxima non nuls`() {
+        PidCatalog.applyAnnouncedScales(listOf(10, 10, 0, 77), listOf(100, 0, 0, 0))
+        assertEquals(10.0, PidCatalog.o2MaxRatio, 0.0)
+        assertEquals(10.0, PidCatalog.o2MaxVoltage, 0.0)
+        assertEquals("383,5 kPa", def(0x0B).decode(listOf(127)))
+        assertEquals("885,02 g/s", def(0x10).decode(listOf(0xE2, 0x90)))
+    }
+
+    @Test
+    fun `la connexion suivante ne conserve aucune echelle de l'ancien vehicule`() {
+        PidCatalog.applyAnnouncedScales(listOf(10, 10, 0, 77), listOf(100, 0, 0, 0))
+        PidCatalog.applyAnnouncedScales(null, listOf(0, 0, 0, 0))
+        assertEquals(2.0, PidCatalog.o2MaxRatio, 0.0)
+        assertEquals(8.0, PidCatalog.o2MaxVoltage, 0.0)
+        assertNull(PidCatalog.mapMaxKpa)
+        assertNull(PidCatalog.mafMaxGramsPerSec)
+    }
+
     // --- PID0B : pression admission ---
 
     @Test

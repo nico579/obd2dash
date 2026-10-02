@@ -12,7 +12,15 @@ profil applicable, ses commandes et leurs conditions d'accès ne sont pas valid�
 ## Fonctionnalités
 
 - **Dashboard temps réel** : jauges pour les PID réellement supportés par le véhicule
-  connecté (auto-découverte à la connexion, pas de liste figée).
+  connecté (auto-découverte à la connexion, pas de liste figée). Jusqu'à six cadrans
+  choisis dans Réglages, avec grandes valeurs numériques, graduations et aiguilles.
+  Leur grille exploite la surface disponible en portrait comme en paysage ; une
+  dernière rangée incomplète utilise toute la largeur. Le paysage ouvre par défaut
+  le plein écran, également accessible par le bouton d'agrandissement en portrait.
+  Ce bouton ou Retour rétablit la navigation. Le menu permet de choisir les cadrans,
+  consulter les autres mesures et les enregistrements, ou déconnecter la sonde.
+  Le bouton d'enregistrement reste accessible, y compris pour arrêter pendant une
+  reconnexion. Les échelles sont graphiques et ne constituent pas des seuils d'alerte.
 - **Résultat de découverte explicite** : une sonde joignable ne prouve pas une réponse
   véhicule ; un bitmap PID nul confirme une réponse sans fournir de mesures standard.
   Dans ce dernier cas, l'app affiche la limite et ne lance pas de polling vide, de
@@ -20,9 +28,14 @@ profil applicable, ses commandes et leurs conditions d'accès ne sont pas valid�
   véhicule conserve les tentatives de connexion automatiques.
 - **Écran DTC** : codes stockés/en attente, statut MIL, moniteurs de préparation
   (readiness), freeze frame au moment du défaut, historique local par véhicule (indexé
-  par VIN).
+  par VIN). Les dates distinguent le MIL, les codes stockés et le dernier scan complet.
+  Les CSV conservent aussi les dates de lecture du MIL et des codes : ces états sont
+  échantillonnés depuis le cache, sans lecture supplémentaire à chaque ligne.
 - **Détection de protocole** : CAN (ISO 15765-4) ou non-CAN (SAE J1850, ISO 9141-2,
   ISO 14230 KWP2000), pour décoder les DTC correctement dans les deux cas.
+- **VIN validé** : longueur et alphabet contrôlés, compteur CAN vérifié, assemblage
+  du format non-CAN à cinq segments documenté par ELM. Aucun octet intrus n'est retiré
+  pour fabriquer une identité ; une réponse ambiguë reste inconnue.
 - **Analyse de capture hors ligne** dans Réglages : extraction d'une identité Renault
   STD_A depuis une réponse KWP enregistrée à `2180`, contrôle du checksum et recherche
   exacte d'un profil. Le protocole vient du journal, sans être déduit de la trame.
@@ -38,9 +51,11 @@ profil applicable, ses commandes et leurs conditions d'accès ne sont pas valid�
   en attente d'un accord explicite avant d'y toucher.
 - **Réponses sans identité du calculateur.** Les headers sont désactivés (`ATH0`).
   La découverte réunit les bitmaps de capacités valides, mais ne peut pas les attribuer
-  à un ECU. Plusieurs résultats différents pour une même mesure ou un même diagnostic
-  sont refusés : le premier « zéro défaut » ne masque plus une seconde réponse.
-  Les doublons identiques restent lisibles. L'agrégation des DTC par ECU reste à faire.
+  à un ECU. Les mesures contradictoires sont refusées, y compris dans les requêtes
+  groupées ; les doublons identiques restent lisibles. Le MIL est combiné et les codes
+  des réponses valides sont réunis. Une réponse malformée ou un refus voisin empêche
+  de publier le diagnostic comme complet ; les codes observés restent dans l'erreur.
+  L'attribution des DTC par ECU reste à faire dans le diagnostic connecté.
   Le réassembleur `ATH1` préparatoire vérifie les octets, longueurs et séquences par ECU,
   avec choix explicite CAN11/CAN29. Il dispose de rejeux réels CAN11 sur la sonde SEAT ;
   il reste inactif, sans validation matérielle CAN29 ni multi-ECU. Son format est limité
@@ -88,9 +103,10 @@ services et le contexte Android sont remplacés par des doubles de test.
 - [`architecture_multimarque_2026-09-10_20-17.md`](architecture_multimarque_2026-09-10_20-17.md) :
   étude historique d'un moteur de profils ; les décisions de périmètre qu'elle conserve
   précèdent la demande multimarque et les essais Trafic du 12 septembre.
-- [`audit_code_2026-09-09_20-18-33.md`](audit_code_2026-09-09_20-18-33.md) : audit du
-  code, bugs trouvés et corrections appliquées. Tenu à jour au fil des sessions, c'est
-  la référence pour comprendre pourquoi le code est écrit comme il l'est.
+- [`audit_code_2026-10-02.md`](audit_code_2026-10-02.md) : audit courant, correctifs de
+  la version 0.8, validations locales et améliorations prioritaires restantes.
+- [`audit_code_2026-09-09_20-18-33.md`](audit_code_2026-09-09_20-18-33.md) : historique
+  de l'audit de septembre ; certains constats ouverts ont été corrigés depuis.
 - [`rapport_obd2.html`](rapport_obd2.html) : rapport de recherche OBD2 (PID testés sur
   le véhicule de mise au point, décodage DTC, comparaison avec les applications du
   Play Store).

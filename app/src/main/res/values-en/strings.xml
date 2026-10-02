@@ -50,6 +50,15 @@
     </plurals>
     <string name="dashboard_start_recording">Start recording</string>
     <string name="dashboard_recordings_title">Recordings (%1$d)</string>
+    <string name="dashboard_enter_fullscreen">Show gauges full screen</string>
+    <string name="dashboard_exit_fullscreen">Exit full screen</string>
+    <string name="dashboard_actions">Dashboard actions</string>
+    <string name="dashboard_choose_gauges">Choose gauges</string>
+    <string name="dashboard_other_measurements">Other measurements (%1$d)</string>
+    <string name="dashboard_no_selected_gauges">No gauge selected from the available measurements.</string>
+    <string name="dashboard_recording_indicator">REC · %1$d</string>
+    <string name="dashboard_gauge_unavailable">Unavailable</string>
+    <string name="dashboard_gauge_stale">Older reading</string>
 
     <!-- SettingsScreen -->
     <string name="settings_title">Connection settings</string>
@@ -61,8 +70,8 @@
     <string name="settings_bluetooth_no_devices">No paired device (or Bluetooth is off, or permission was denied).</string>
     <string name="settings_bluetooth_connect_button">Connect</string>
     <string name="settings_connected_label">Connected.</string>
-    <string name="settings_big_gauges_title">Values shown large on the Dashboard</string>
-    <string name="settings_big_gauges_description">Choose up to 6 parameters (%1$d/6 selected). Other supported parameters are still shown, smaller.</string>
+    <string name="settings_big_gauges_title">Dashboard gauges</string>
+    <string name="settings_big_gauges_description">Choose up to 6 parameters (%1$d/6 selected). Their placement adapts to the screen. Other measurements remain available from the dashboard menu.</string>
     <string name="settings_log_title">Log (%1$d)</string>
     <string name="settings_log_description">Startup, connections, drops, feature activation, crashes. One file per app launch.</string>
 
@@ -134,6 +143,9 @@
     <string name="dtc_protocol_label">Protocol %1$s</string>
     <string name="dtc_model_year_label">model year %1$s</string>
     <string name="dtc_loading">Reading…</string>
+    <string name="dtc_mil_last_read">Last MIL reading: %1$s</string>
+    <string name="dtc_stored_last_read">Last stored-code reading: %1$s</string>
+    <string name="dtc_full_last_read">Last full scan: %1$s</string>
     <string name="dtc_refresh_button">Refresh</string>
     <string name="dtc_export_subject">OBD2 Dash - diagnostic export</string>
     <string name="dtc_share_chooser_title">Share the diagnostic</string>
