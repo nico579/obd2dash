@@ -1,0 +1,435 @@
+{
+  "schema_version": 1,
+  "registered_date_local": "2026-10-03",
+  "history_reconstructed": true,
+  "vehicle_commands_sent": 0,
+  "sources": [
+    {
+      "id": "S01",
+      "url": "https://www.obdtester.com/rencom-eculist/renault/trafic_ii_ph1_%5B2000_2005%5D",
+      "revision": null,
+      "artifact": "captures/recherche_sources_20261002/rencom_trafic.html",
+      "sha256": "25c2e2d5d5cdbb260f776a1f3147ade30780ca7ddff0ca7621d0ee0925b70a36",
+      "size": 12390,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S02",
+      "url": "https://raw.githubusercontent.com/cedricp/ddt4all/68bf06e3cf6ffc7086aa5af6275823c4d49e5e02/src/ddt4all/core/ecu/ecu_scanner.py",
+      "revision": "68bf06e3cf6ffc7086aa5af6275823c4d49e5e02",
+      "artifact": "captures/recherche_sources_20261002/ddt4all_ecu_scanner.py.txt",
+      "sha256": "7f330e36e385d12147b3034d5c883139db345fb710d6743465978955e7eebc4c",
+      "size": 27967,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S03",
+      "url": "https://raw.githubusercontent.com/cedricp/ddt4all/68bf06e3cf6ffc7086aa5af6275823c4d49e5e02/src/ddt4all/core/ecu/ecu_ident.py",
+      "revision": "68bf06e3cf6ffc7086aa5af6275823c4d49e5e02",
+      "artifact": "captures/recherche_sources_20261002/ddt4all_ecu_ident.py.txt",
+      "sha256": "55dbfc1210bf7f58c39e6afedf2a96cf651508a4b3b73c72764bbc66d7b30020",
+      "size": 2566,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S04",
+      "url": "https://raw.githubusercontent.com/cedricp/ddt4all/68bf06e3cf6ffc7086aa5af6275823c4d49e5e02/src/ddt4all/ui/parameters/param_widget.py",
+      "revision": "68bf06e3cf6ffc7086aa5af6275823c4d49e5e02",
+      "artifact": "captures/recherche_sources_20261002/ddt4all_param_widget.py.txt",
+      "sha256": "dff3e0bc78f5489606bf17e8ec01ad3bf286d0dca5356c5a59f7ea5f4161a57b",
+      "size": 59956,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S05",
+      "url": "https://gitlab.com/py_ren/pyren/-/raw/ec2525dbd41d3e8d747c3b20d4d77ee360f1634b/pyren3/mod_scan_ecus.py",
+      "revision": "ec2525dbd41d3e8d747c3b20d4d77ee360f1634b",
+      "artifact": "captures/recherche_sources_20261002/pyren_mod_scan_ecus.py.txt",
+      "sha256": "7d514a9880ca6998c59ed02fa9e1fa5386be79b8dd6275b928ff390e855ef6fe",
+      "size": 41322,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S06",
+      "url": "https://gitlab.com/py_ren/pyren/-/raw/ec2525dbd41d3e8d747c3b20d4d77ee360f1634b/pyren3/mod_ecu_default.py",
+      "revision": "ec2525dbd41d3e8d747c3b20d4d77ee360f1634b",
+      "artifact": "captures/recherche_sources_20261002/pyren_mod_ecu_default.py.txt",
+      "sha256": "79030182e54b0b7425799006429fe5e6fc03c028d35bc5cef66b5fc2323b4bcb",
+      "size": 18787,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S07",
+      "url": "https://gitlab.com/py_ren/pyren/-/raw/ec2525dbd41d3e8d747c3b20d4d77ee360f1634b/pyren3/mod_ecu_mnemonic.py",
+      "revision": "ec2525dbd41d3e8d747c3b20d4d77ee360f1634b",
+      "artifact": "captures/recherche_sources_20261002/pyren_mod_ecu_mnemonic.py.txt",
+      "sha256": "55178bce44a57e0b419c36fd7cc8d8bac7c6f96974b5bc632597cb896e4be033",
+      "size": 9260,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S08",
+      "url": "https://raw.githubusercontent.com/MellotronScratch/renaultstuff/72546d6590a9f454713b73023c57dacf36e1d25b/Clip_166_ECUs.csv",
+      "revision": "72546d6590a9f454713b73023c57dacf36e1d25b",
+      "artifact": "captures/recherche_sources_20261002/clip_166_ecu_index.csv",
+      "sha256": "ad1dbd19205a51ab52a6f5fc85e028f15f44f74fd4d28b66647c313edc36e0c8",
+      "size": 239992,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S09",
+      "url": "https://raw.githubusercontent.com/autodiag2/database/11e73fd6d105a071fa472f426d23225344921a19/data-src/ecu/bosch/EDC15C13/def.yml",
+      "revision": "11e73fd6d105a071fa472f426d23225344921a19",
+      "artifact": "captures/recherche_sources_20261002/autodiag_edc15c13.yml.txt",
+      "sha256": "8a1f67e461675039de6729e74fc7e02420cc4095ed58a1464f2135425e14babe",
+      "size": 200,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "S10",
+      "url": "https://raw.githubusercontent.com/autodiag2/database/11e73fd6d105a071fa472f426d23225344921a19/data-src/vehicle/Renault/Trafic/versions/II/F9Q762_EDC15C3.yml",
+      "revision": "11e73fd6d105a071fa472f426d23225344921a19",
+      "artifact": "captures/recherche_sources_20261002/autodiag_trafic_f9q762.yml.txt",
+      "sha256": "e747cfe1653bc4c5662a62d6ba827aee98cfa74b0f26a20ebf7ebb0b5f028d85",
+      "size": 399,
+      "retrieved_at_utc": "2026-10-02T15:29:36.879130+00:00",
+      "origin": "imported_manifest_20261002"
+    },
+    {
+      "id": "L01",
+      "artifact": "captures/recherche_profil_signature_25_037_00CB_1200.md",
+      "sha256": "7bb40acae6b18c5ba63799e3dc8634b2d5f9053e4256bd7b73e4221a01e852af",
+      "size": 8180,
+      "origin": "local_historical_evidence"
+    },
+    {
+      "id": "L02",
+      "artifact": "captures/recherche_profils_legacy_2026-09-13.md",
+      "sha256": "9c300ef7968574f1a63e41ede0fb8a40a404d5d03e1ff969864c30b503d5deb5",
+      "size": 2936,
+      "origin": "local_historical_evidence"
+    },
+    {
+      "id": "L03",
+      "artifact": "captures/bilan_trafic_recherche_constructeur_2026-10-02.md",
+      "sha256": "fd20dec9c67a8779e8e1951dff75663b7cbcf5a8814d9f7d838e334ae06bb0d9",
+      "size": 13579,
+      "origin": "local_historical_evidence"
+    },
+    {
+      "id": "L04",
+      "artifact": "captures/identification_trafic_verifiee_2026-09-12.json",
+      "sha256": "02878491020258fba55c296eabb830d888c248a5bf17e7307b35b7a5496a39c4",
+      "size": 3033,
+      "origin": "local_historical_evidence"
+    },
+    {
+      "id": "L05",
+      "artifact": "captures/bilan_trafic_ble_20261002_verifie.json",
+      "sha256": "9eb9ce25355ff58897a90e92d7fc538f33e1cedd32316a60480fd4051a332b61",
+      "size": 13437,
+      "origin": "local_historical_evidence"
+    },
+    {
+      "id": "L06",
+      "artifact": "captures/recherche_sources_20261002/manifest.json",
+      "sha256": "b3ad84cf1973cb559ce36ab3d00ecc64f1f18bfc9c277aba514c7cdadc9a7cc9",
+      "size": 7435,
+      "origin": "local_historical_evidence"
+    },
+    {
+      "id": "L07",
+      "artifact": "captures/recherche_kwp_identification_2026-09-12.md",
+      "sha256": "3a09981d6b7a09ae9c607bafa48eb3ae8978e400b69485664033545a3fc28cd3",
+      "size": 5761,
+      "origin": "local_historical_evidence"
+    },
+    {
+      "id": "L08",
+      "artifact": "captures/recherche_suite_trafic_multimarque_2026-09-12.md",
+      "sha256": "532c4e2e2a6959da27df83dd93b6af1916030431a76520055a5d30009bc63029",
+      "size": 13322,
+      "origin": "local_historical_evidence"
+    },
+    {
+      "id": "N01",
+      "artifact": "captures/recherche_sources_20261003/search_R002_R005.json",
+      "sha256": "a882b85a3f3717426879006e9e10c4dc930df7bed51b7a33bab9a66d4a567265",
+      "size": 462,
+      "origin": "web_search_snapshot",
+      "action_ids": [
+        "R002",
+        "R003",
+        "R004",
+        "R005"
+      ]
+    },
+    {
+      "id": "G006",
+      "artifact": "captures/recherche_sources_20261003/github_R006.json",
+      "url": "https://api.github.com/search/code",
+      "query": "NJD_EDC15C_00CB_18_A",
+      "retrieved_at_utc": "2026-10-02T22:12:31.528491+00:00",
+      "sha256": "6adc01730a2aa0020743597c78612a11cee5b03f4893f8ffcdb8c6cf16815912",
+      "size": 484,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G007",
+      "artifact": "captures/recherche_sources_20261003/github_R007.json",
+      "url": "https://api.github.com/search/code",
+      "query": "NJD_EDC15C_CBB3_19_A",
+      "retrieved_at_utc": "2026-10-02T22:12:32.424979+00:00",
+      "sha256": "4467fc7cfecce4b9dfbf978616f6ab9acda19007c7c420b3a6e35f6fb2202f38",
+      "size": 484,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G008",
+      "artifact": "captures/recherche_sources_20261003/github_R008.json",
+      "url": "https://api.github.com/search/code",
+      "query": "INJ_EDC15_X83_19_A",
+      "retrieved_at_utc": "2026-10-02T22:12:33.229937+00:00",
+      "sha256": "db3837fa8778eb3c16f0630dbbf6b4761547a55f1ef51b4eef2b1f1a0217041a",
+      "size": 482,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G009",
+      "artifact": "captures/recherche_sources_20261003/github_R009.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"037\" \"00CB\" \"1200\"",
+      "retrieved_at_utc": "2026-10-02T22:12:33.920106+00:00",
+      "sha256": "ca1cf704ed719e80590e9e44b0ec51aa408667fd7b9b6e089965da3378e34599",
+      "size": 9049,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G010",
+      "artifact": "captures/recherche_sources_20261003/github_R010.json",
+      "url": "https://api.github.com/search/code",
+      "query": "EDC15 extension:json",
+      "retrieved_at_utc": "2026-10-02T22:12:38.444176+00:00",
+      "sha256": "9a663671c0cfdaa2a0d6786ca71046411f3a322bf53e58a9380d0335c6989c6b",
+      "size": 9760,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G011",
+      "artifact": "captures/recherche_sources_20261003/github_R011.json",
+      "url": "https://api.github.com/search/code",
+      "query": "EDC15 extension:xml",
+      "retrieved_at_utc": "2026-10-02T22:12:41.881633+00:00",
+      "sha256": "5999499aa5d5a1cae2eb9529b28816af5e33ec9529045d93a032010c42c5757d",
+      "size": 10726,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "N02",
+      "artifact": "captures/recherche_sources_20261003/search_R012_R015.json",
+      "sha256": "a11a3afce1e4ec8bf6c9385638dc488513749b574b4a9f9ace9c0971800a1c23",
+      "size": 39921,
+      "origin": "web_search_snapshot",
+      "action_ids": [
+        "R012",
+        "R013",
+        "R014",
+        "R015"
+      ]
+    },
+    {
+      "id": "G016",
+      "artifact": "captures/recherche_sources_20261003/github_R016.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"EDC_15C_C\" in:path",
+      "retrieved_at_utc": "2026-10-02T22:14:24.578594+00:00",
+      "sha256": "afbfc07cd921127aba53f7bb042e0f2c08f800d676854f529f0f9497c16094a3",
+      "size": 2033,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G017",
+      "artifact": "captures/recherche_sources_20261003/github_R017.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"EDC15C\" \"DiagVersion\" in:file extension:json",
+      "retrieved_at_utc": "2026-10-02T22:14:25.323261+00:00",
+      "sha256": "696a86e8cd47c03f8dfa95f3db72fc55f271bdcf151930511864c794a59ff7df",
+      "size": 188,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G018",
+      "artifact": "captures/recherche_sources_20261003/github_R018.json",
+      "url": "https://api.github.com/search/code",
+      "query": "EDC15C in:file extension:xml",
+      "retrieved_at_utc": "2026-10-02T22:14:26.178382+00:00",
+      "sha256": "0a1f6df8c4335380d318275424fe3e9244f5fc5eb1f8d9cbe448817162f789c6",
+      "size": 10754,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G019",
+      "artifact": "captures/recherche_sources_20261003/github_R019.json",
+      "url": "https://api.github.com/search/code",
+      "query": "037 00CB 1200 in:file extension:json",
+      "retrieved_at_utc": "2026-10-02T22:14:28.334668+00:00",
+      "sha256": "934074af242c9209496fa2b1a05612fc8ced303aa5e6c9785785985945bd93f5",
+      "size": 9494,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "D01",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VC1__IMA_evol1.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "artifact": "captures/recherche_sources_20261003/candidate_D01.json",
+      "sha256": "8217abd56445c6217eff2525166feac75970139551561b759b0ec083d3940e72",
+      "size": 179103,
+      "retrieved_at_utc": "2026-10-02T22:15:26.804204+00:00",
+      "origin": "public_candidate_not_validated",
+      "license_for_definitions": "not_established",
+      "integration_authorized": false
+    },
+    {
+      "id": "D02",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VB2___IMA_v1.3.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "artifact": "captures/recherche_sources_20261003/candidate_D02.json",
+      "sha256": "1cf9035737c60e139da633c21b27bb48eaeff8b47b06d6cc29b50ba9c25e4801",
+      "size": 178649,
+      "retrieved_at_utc": "2026-10-02T22:15:27.296138+00:00",
+      "origin": "public_candidate_not_validated",
+      "license_for_definitions": "not_established",
+      "integration_authorized": false
+    },
+    {
+      "id": "D03",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VB3___IMA_evol1.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "artifact": "captures/recherche_sources_20261003/candidate_D03.json",
+      "sha256": "13dea149a7c16ac7f149aa0f27c23d9252583153a8cbe6da4aefbd3c98338a6b",
+      "size": 177207,
+      "retrieved_at_utc": "2026-10-02T22:15:27.622940+00:00",
+      "origin": "public_candidate_not_validated",
+      "license_for_definitions": "not_established",
+      "integration_authorized": false
+    },
+    {
+      "id": "D04",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VA1_a_VA5___IMA_evol1.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "artifact": "captures/recherche_sources_20261003/candidate_D04.json",
+      "sha256": "83145e933f3e1529d9d8bf71e4399b58fe837bad46d8faa649918aaf7958a1d5",
+      "size": 174797,
+      "retrieved_at_utc": "2026-10-02T22:15:27.894089+00:00",
+      "origin": "public_candidate_not_validated",
+      "license_for_definitions": "not_established",
+      "integration_authorized": false
+    },
+    {
+      "id": "D05",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VB2___IMA_v1.3%20-%20Copy.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "artifact": "captures/recherche_sources_20261003/candidate_D05.json",
+      "sha256": "8506687e40b540327bfafda389d1875d510a99c8a03f73ebd1527ad282deaeee",
+      "size": 178649,
+      "retrieved_at_utc": "2026-10-02T22:15:28.195511+00:00",
+      "origin": "public_candidate_not_validated",
+      "license_for_definitions": "not_established",
+      "integration_authorized": false
+    },
+    {
+      "id": "G025",
+      "artifact": "captures/recherche_sources_20261003/github_R025.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"EDC_15C\" in:path",
+      "retrieved_at_utc": "2026-10-02T22:15:59.799930+00:00",
+      "sha256": "757f78ebfb1185230ffffc90aeba6cfcfeb83ef36475cc4ba4fbf6b05dc08e2c",
+      "size": 2031,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G026",
+      "artifact": "captures/recherche_sources_20261003/github_R026.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"EDC15C\" in:path",
+      "retrieved_at_utc": "2026-10-02T22:16:00.489899+00:00",
+      "sha256": "d1bb5ea3e13f4b9d7a8d76b3e085ea2a01ab7f29092719682836397b7c5f63d6",
+      "size": 12074,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G027",
+      "artifact": "captures/recherche_sources_20261003/github_R027.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"25\" \"037\" \"00CB\" \"1200\" repo:laravelcompany/ecudocs.com",
+      "retrieved_at_utc": "2026-10-02T22:16:01.298455+00:00",
+      "sha256": "8c656cda6db062da0f5fb863158ef99d53b33e5f7b3d5afc40b1127118135beb",
+      "size": 4591,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "M028",
+      "artifact": "captures/recherche_sources_20261003/metadata_R028.json",
+      "url": "https://api.github.com/search/repositories",
+      "target": "ddt2000 in:name,description",
+      "retrieved_at_utc": "2026-10-02T22:17:23.947114+00:00",
+      "sha256": "485c93107212cb1bd03054a7b7570ef251f6f8ba45f7fde2502e9eff581c6711",
+      "size": 1312,
+      "origin": "github_repository_search"
+    },
+    {
+      "id": "M029",
+      "artifact": "captures/recherche_sources_20261003/metadata_R029.json",
+      "url": "https://api.github.com/search/repositories",
+      "target": "ddt4all database in:name,description",
+      "retrieved_at_utc": "2026-10-02T22:17:24.742539+00:00",
+      "sha256": "807d72c4d00e9611488b64d559d3b65006bd8a7e6ff71620f90bfd68250ae936",
+      "size": 176,
+      "origin": "github_repository_search"
+    },
+    {
+      "id": "M030",
+      "artifact": "captures/recherche_sources_20261003/metadata_R030.json",
+      "url": "https://api.github.com/search/repositories",
+      "target": "pyren database in:name,description",
+      "retrieved_at_utc": "2026-10-02T22:17:25.335075+00:00",
+      "sha256": "067612cdd44e816bbf559dfe5fd5641e07bf77324c8883ecd31a7c4e6746a098",
+      "size": 1147,
+      "origin": "github_repository_search"
+    },
+    {
+      "id": "M031",
+      "artifact": "captures/recherche_sources_20261003/metadata_R031.json",
+      "url": "https://api.github.com/repos/laravelcompany/ecudocs.com/git/trees/3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "target": "laravelcompany/ecudocs.com@3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "retrieved_at_utc": "2026-10-02T22:17:26.305319+00:00",
+      "sha256": "8413c48b5c6f569b96369eef7f501e1a90b4b7f7c2ebd62f77e1b9bb565adef5",
+      "size": 5053365,
+      "origin": "github_tree_read"
+    },
+    {
+      "id": "A032",
+      "artifact": "recherches/trafic/candidats_2026-10-03.json",
+      "sha256": "423555a0d948c49d82d9cb5af923fcec851c39005261cd97383eefc1ce4398a0",
+      "size": 14069,
+      "origin": "offline_exact_identity_comparison",
+      "derived_from": [
+        "L04",
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05"
+      ]
+    }
+  ]
+}

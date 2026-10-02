@@ -112,6 +112,9 @@ services et le contexte Android sont remplacés par des doubles de test.
 
 ## Documentation
 
+- [`recherches/trafic/README.md`](recherches/trafic/README.md) : journal de recherche
+  Trafic, sources archivées, pistes écartées et prochaines vérifications. À consulter
+  avant de reprendre une recherche constructeur sur ce véhicule.
 - [`audit_ble_diagnostic_2026-10-02.md`](audit_ble_diagnostic_2026-10-02.md) :
   Bluetooth BLE, lectures de diagnostic indépendantes et limite du profil Renault.
 

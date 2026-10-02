@@ -1,0 +1,487 @@
+{
+  "at_utc": "2026-10-02T22:19:31.863784+00:00",
+  "captured_identity": {
+    "diagversion": "25",
+    "supplier": "037",
+    "soft": "00CB",
+    "version": "1200"
+  },
+  "identity_evidence_source_id": "L04",
+  "protocol": "KWP2000",
+  "response_address": "7A",
+  "tester_address": "F1",
+  "candidates": [
+    {
+      "source_id": "D01",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VC1__IMA_evol1.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "sha256": "8217abd56445c6217eff2525166feac75970139551561b759b0ec083d3940e72",
+      "name": "EDC 15C C - VC1- IMA",
+      "obd_declared": {
+        "protocol": "KWP2000",
+        "fastinit": true,
+        "funcaddr": "7A",
+        "funcname": "Injection",
+        "kw1": "F1",
+        "kw2": "7A"
+      },
+      "identity_comparisons": [
+        {
+          "identity": {
+            "diagversion": "35",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "C000"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "35"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "C000"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "35",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "C100"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "35"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "C100"
+            }
+          }
+        }
+      ],
+      "identity_match": false,
+      "endpoint_match": true,
+      "eligible": false,
+      "decision": "Identité différente ; exclu. Aucune transposition de commandes ou conversions.",
+      "session_verified": false,
+      "license_for_definitions": "not_established"
+    },
+    {
+      "source_id": "D02",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VB2___IMA_v1.3.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "sha256": "1cf9035737c60e139da633c21b27bb48eaeff8b47b06d6cc29b50ba9c25e4801",
+      "name": "EDC 15C C - VB2 - IMA",
+      "obd_declared": {
+        "protocol": "KWP2000",
+        "fastinit": true,
+        "funcaddr": "7A",
+        "funcname": "Injection",
+        "kw1": "F1",
+        "kw2": "7A"
+      },
+      "identity_comparisons": [
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "B000"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "B000"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "1200"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "B100"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "B100"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "B200"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "B200"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "1300"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "1300"
+            }
+          }
+        }
+      ],
+      "identity_match": false,
+      "endpoint_match": true,
+      "eligible": false,
+      "decision": "Identité différente ; exclu. Aucune transposition de commandes ou conversions.",
+      "session_verified": false,
+      "license_for_definitions": "not_established"
+    },
+    {
+      "source_id": "D03",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VB3___IMA_evol1.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "sha256": "13dea149a7c16ac7f149aa0f27c23d9252583153a8cbe6da4aefbd3c98338a6b",
+      "name": "EDC 15C C - VB3 - IMA",
+      "obd_declared": {
+        "protocol": "KWP2000",
+        "fastinit": true,
+        "funcaddr": "7A",
+        "funcname": "Injection",
+        "kw1": "F1",
+        "kw2": "7A"
+      },
+      "identity_comparisons": [
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "B300"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "B300"
+            }
+          }
+        }
+      ],
+      "identity_match": false,
+      "endpoint_match": true,
+      "eligible": false,
+      "decision": "Identité différente ; exclu. Aucune transposition de commandes ou conversions.",
+      "session_verified": false,
+      "license_for_definitions": "not_established"
+    },
+    {
+      "source_id": "D04",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VA1_a_VA5___IMA_evol1.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "sha256": "83145e933f3e1529d9d8bf71e4399b58fe837bad46d8faa649918aaf7958a1d5",
+      "name": "EDC 15C C - VA1 à VA5 - IMA",
+      "obd_declared": {
+        "protocol": "KWP2000",
+        "fastinit": true,
+        "funcaddr": "7A",
+        "funcname": "Injection",
+        "kw1": "D0",
+        "kw2": "8F"
+      },
+      "identity_comparisons": [
+        {
+          "identity": {
+            "diagversion": "20",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "A000"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "20"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "A000"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "20",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "A200"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "20"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "A200"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "20",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "A400"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "20"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "A400"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "20",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "A100"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "20"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "A100"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "20",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "A300"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "20"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "A300"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "20",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "A500"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "20"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "A500"
+            }
+          }
+        }
+      ],
+      "identity_match": false,
+      "endpoint_match": true,
+      "eligible": false,
+      "decision": "Identité différente ; exclu. Aucune transposition de commandes ou conversions.",
+      "session_verified": false,
+      "license_for_definitions": "not_established"
+    },
+    {
+      "source_id": "D05",
+      "url": "https://raw.githubusercontent.com/laravelcompany/ecudocs.com/3a006068dc8908a0d71c1867547ce406d8fdab8e/public/ecus/EDC_15C_C___VB2___IMA_v1.3%20-%20Copy.json",
+      "revision": "3a006068dc8908a0d71c1867547ce406d8fdab8e",
+      "sha256": "8506687e40b540327bfafda389d1875d510a99c8a03f73ebd1527ad282deaeee",
+      "name": "EDC 15C C - VB2 - IMA",
+      "obd_declared": {
+        "protocol": "KWP2000",
+        "fastinit": true,
+        "funcaddr": "12",
+        "funcname": "Injection",
+        "kw1": "F1",
+        "kw2": "7A"
+      },
+      "identity_comparisons": [
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "B000"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "B000"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "1200"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "B100"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "B100"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "B200"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "B200"
+            }
+          }
+        },
+        {
+          "identity": {
+            "diagversion": "24",
+            "supplier": "037",
+            "soft": "00CB",
+            "version": "1300"
+          },
+          "exact_match": false,
+          "differences": {
+            "diagversion": {
+              "expected": "25",
+              "declared": "24"
+            },
+            "version": {
+              "expected": "1200",
+              "declared": "1300"
+            }
+          }
+        }
+      ],
+      "identity_match": false,
+      "endpoint_match": false,
+      "eligible": false,
+      "decision": "Identité différente ; exclu. Aucune transposition de commandes ou conversions.",
+      "session_verified": false,
+      "license_for_definitions": "not_established"
+    }
+  ],
+  "exact_identity_matches": 0,
+  "eligible_profiles": 0,
+  "vehicle_commands_sent": 0,
+  "scope": "Cinq fichiers de ce dépôt à la révision indiquée ; pas une preuve d'absence de profil ailleurs."
+}
