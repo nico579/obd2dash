@@ -519,4 +519,55 @@ class Elm327TransportTest {
             assertFalse(client.isConnected)
         }
     }
+
+    @Test
+    fun `sequence continue apres refus MIL et refuse format DTC ambigu du Trafic`() = runBlocking {
+        withElm(reply = { command, out ->
+            when (command) {
+                "0101" -> out.reply("7F0112")
+                "03" -> out.reply("43000000")
+                "07" -> out.reply("7F0711")
+                "020200" -> out.reply("4202000000")
+                else -> standardReply(command, out)
+            }
+        }) { client, server ->
+            client.detectProtocol()
+            val reads = DiagnosticReadSequence({ client.isConnected }) { }
+            assertTrue(reads.read(DiagnosticRead.MIL) { client.readMilStatus() }.isFailure)
+            assertTrue(reads.read(DiagnosticRead.STORED) { client.readStoredDtcs() }.isFailure)
+            assertTrue(reads.read(DiagnosticRead.PENDING) { client.readPendingDtcs() }.isFailure)
+            assertNull(reads.read(DiagnosticRead.FREEZE_FRAME) { client.readFreezeFrameDtc() }.getOrThrow())
+            assertTrue(client.isConnected)
+            assertEquals(listOf("0101", "03", "07", "020200"), server.commands.filterNot { it.startsWith("AT") })
+            assertFalse(reads.isComplete)
+        }
+    }
+
+    @Test
+    fun `reponse temporaire diagnostic ferme avant lecture suivante`() = runBlocking {
+        for (response in listOf("7F0178", "7F0121", "410100000000\r7F0178")) {
+            withElm(reply = { command, out ->
+                if (command == "0101") out.reply(response) else standardReply(command, out)
+            }) { client, server ->
+                val reads = DiagnosticReadSequence({ client.isConnected }) { }
+                try {
+                    reads.read(DiagnosticRead.MIL) { client.readMilStatus() }
+                    fail("Séquence temporaire acceptée")
+                } catch (e: IOException) { assertTrue(e.message.orEmpty().contains("NRC")) }
+                assertFalse(client.isConnected)
+                assertFalse(server.commands.contains("03"))
+            }
+        }
+    }
+
+    @Test
+    fun `capture non lisible ne devient pas absence de capture`() = runBlocking {
+        withElm(reply = { command, out ->
+            if (command == "020200") out.reply("7F0211") else standardReply(command, out)
+        }) { client, _ ->
+            try { client.readFreezeFrameDtc(); fail("Refus transformé en absence") }
+            catch (_: IOException) { }
+            assertTrue(client.isConnected)
+        }
+    }
 }

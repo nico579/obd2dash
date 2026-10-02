@@ -26,6 +26,7 @@ SOURCE_NAMES = (
     "ObdViewModel", "Elm327Client", "PidCatalog", "DtcDictionary", "VinDecoder",
     "CanHeaderReassembly", "HeaderlessObdResponse", "DtcPayloadDecoder", "VinPayloadDecoder",
     "PollingHealth", "StandardObdAvailability",
+    "DiagnosticReadSequence", "BleSerialTransport",
 )
 
 
@@ -149,9 +150,12 @@ def main() -> int:
     parser.add_argument("--case", help="Run one named scenario instead of the full suite")
     parser.add_argument("--compile-only", action="store_true", help="Compile without running the Kotlin cases")
     parser.add_argument("--timeout", type=float, default=240, help="Kotlin execution timeout in seconds (default: 240)")
+    parser.add_argument("--compile-timeout", type=float, default=120, help="Kotlin compilation timeout in seconds (default: 120)")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
+    if args.compile_timeout <= 0:
+        parser.error("--compile-timeout must be positive")
     sources = [SOURCE_DIR / f"{name}.kt" for name in SOURCE_NAMES]
     harness = [*sorted(HERE.glob("stubs_*.kt")), HERE / "fake_elm.kt", HERE / "recording_cases.kt"]
     for source in [*sources, *harness]:
@@ -178,7 +182,7 @@ def main() -> int:
     classes.mkdir()
     dependency_cp = os.pathsep.join(map(str, [stdlib, coroutines, annotations]))
     compile_command = [
-        str(java), "-Dfile.encoding=UTF-8", "-cp", os.pathsep.join(map(str, compiler_jars)),
+        str(java), "-Xmx768m", "-Dfile.encoding=UTF-8", "-cp", os.pathsep.join(map(str, compiler_jars)),
         "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler", "-no-stdlib", "-no-reflect", "-jvm-target", "17",
         "-cp", dependency_cp, "-d", str(classes), *map(str, [*sources, *harness, generated]),
     ]
@@ -209,7 +213,7 @@ def main() -> int:
 
     save_provenance()
     try:
-        provenance["compile_exit"] = run_process(compile_command, run_dir / "compile.txt", 120)
+        provenance["compile_exit"] = run_process(compile_command, run_dir / "compile.txt", args.compile_timeout)
         code = int(provenance["compile_exit"])
         if code == 0 and not args.compile_only:
             provenance["run_exit"] = run_process(run_command, run_dir / "results.txt", args.timeout)

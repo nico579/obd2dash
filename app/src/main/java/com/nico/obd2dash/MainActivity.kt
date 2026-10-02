@@ -120,6 +120,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var bleScanRequested = false
+    private val bleScanPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (bleScanRequested) {
+                if (grants.values.all { it }) viewModel.startBleScan()
+                else viewModel.bleScanPermissionDenied()
+            }
+        }
+
+    private fun ensureBleScanPermissionThenStart() {
+        bleScanRequested = true
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) viewModel.startBleScan()
+        else bleScanPermissionLauncher.launch(missing.toTypedArray())
+    }
+
+    private fun stopBleSearch() {
+        bleScanRequested = false
+        viewModel.stopBleScan()
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -277,6 +305,14 @@ class MainActivity : ComponentActivity() {
                                 onHostChange = { viewModel.updateHost(it) },
                                 onPortChange = { viewModel.updatePort(it) },
                                 onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
+                                onBluetoothTransportChange = { viewModel.setBluetoothTransport(it) },
+                                onStartBleSearch = { ensureBleScanPermissionThenStart() },
+                                onStopBleSearch = { stopBleSearch() },
+                                onConnectBleDevice = { device ->
+                                    stopBleSearch()
+                                    viewModel.setBluetoothTransport(BluetoothTransport.BLE)
+                                    viewModel.connectBluetooth(device)
+                                },
                                 onSetBigGaugePid = { pid, selected -> viewModel.setBigGaugePidSelected(pid, selected) },
                                 onShareLog = { path -> shareCsvFile(path, R.string.share_log_title, mimeType = "text/plain") },
                                 onDeleteLog = { path -> viewModel.deleteLog(path) },

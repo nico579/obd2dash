@@ -2,6 +2,7 @@ package com.nico.obd2dash
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
+import android.content.Context
 import android.net.Network
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -26,10 +27,10 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Où joindre l'adaptateur ELM327 : Wi-Fi (socket TCP) ou Bluetooth (RFCOMM/SPP). */
+/** Où joindre l'adaptateur ELM327 : Wi-Fi, Bluetooth classique (SPP) ou BLE. */
 sealed class ConnectionTarget {
     data class Wifi(val host: String, val port: Int = 35000) : ConnectionTarget()
-    data class Bluetooth(val device: BluetoothDevice) : ConnectionTarget()
+    data class Bluetooth(val device: BluetoothDevice, val transport: BluetoothTransport = BluetoothTransport.AUTO) : ConnectionTarget()
 }
 
 /**
@@ -48,14 +49,16 @@ sealed class ConnectionTarget {
  */
 class Elm327Client internal constructor(
     private val target: ConnectionTarget,
-    private val timeouts: ElmTimeouts
+    private val timeouts: ElmTimeouts,
+    private val context: Context? = null
 ) {
 
     constructor(target: ConnectionTarget) : this(target, ElmTimeouts())
+    constructor(target: ConnectionTarget, context: Context) : this(target, ElmTimeouts(), context.applicationContext)
 
     constructor(host: String, port: Int = 35000) : this(ConnectionTarget.Wifi(host, port))
 
-    private class Transport(val wifi: Socket? = null, val bluetooth: BluetoothSocket? = null) {
+    private class Transport(val wifi: Socket? = null, val bluetooth: BluetoothSocket? = null, val ble: BleSerialTransport? = null) {
         var out: OutputStream? = null
         var reader: BufferedReader? = null
         val closed = AtomicBoolean(false)
@@ -66,6 +69,7 @@ class Elm327Client internal constructor(
             // BufferedReader.close en premier attendrait le verrou de read().
             runCatching { wifi?.close() }
             runCatching { bluetooth?.close() }
+            runCatching { ble?.close() }
         }
     }
 
@@ -137,16 +141,27 @@ class Elm327Client internal constructor(
                     }
                     is ConnectionTarget.Bluetooth -> {
                         try {
-                            val sock = t.device.createRfcommSocketToServiceRecord(SPP_UUID)
-                            val connection = Transport(bluetooth = sock)
-                            // Publier avant connect permet à disconnect d'interrompre
-                            // cet appel Java bloquant (audit B8). Le gardien capture
-                            // exactement ce socket, jamais celui d'une reconnexion.
-                            synchronized(transportLock) { transport = connection }
-                            boundedBlocking(connection, timeouts.connectMs) { sock.connect() }
-                            connection.out = sock.outputStream
-                            connection.reader = BufferedReader(InputStreamReader(sock.inputStream))
-                            connection
+                            val mode = resolveBluetoothTransport(t.transport, t.device.type)
+                            if (mode == BluetoothTransport.BLE) {
+                                val appContext = context ?: throw IOException("Contexte Android requis pour le BLE")
+                                val ble = BleSerialTransport(AndroidBleGattDriver(appContext, t.device))
+                                val connection = Transport(ble = ble)
+                                synchronized(transportLock) { transport = connection }
+                                boundedBlocking(connection, timeouts.connectMs) { ble.connect() }
+                                connection.out = ble.output
+                                connection.reader = BufferedReader(InputStreamReader(ble.input))
+                                connection
+                            } else {
+                                val sock = t.device.createRfcommSocketToServiceRecord(SPP_UUID)
+                                val connection = Transport(bluetooth = sock)
+                                // Publier avant connect permet à disconnect d'interrompre
+                                // cet appel Java bloquant (audit B8).
+                                synchronized(transportLock) { transport = connection }
+                                boundedBlocking(connection, timeouts.connectMs) { sock.connect() }
+                                connection.out = sock.outputStream
+                                connection.reader = BufferedReader(InputStreamReader(sock.inputStream))
+                                connection
+                            }
                         } catch (e: SecurityException) {
                             throw IOException("Permission Bluetooth manquante", e)
                         }
@@ -231,7 +246,8 @@ class Elm327Client internal constructor(
             // minSdk de ce projet (voir audit B8) : un commentaire antérieur affirmait à
             // tort son absence et se rabattait sur la seule présence de la référence, qui
             // restait vraie même après une déconnexion silencieuse côté adaptateur.
-            is ConnectionTarget.Bluetooth -> runCatching { connection.bluetooth?.isConnected }.getOrNull() == true
+            is ConnectionTarget.Bluetooth -> connection.ble?.isConnected
+                ?: (runCatching { connection.bluetooth?.isConnected }.getOrNull() == true)
         } } == true
 
     companion object {
@@ -584,7 +600,21 @@ class Elm327Client internal constructor(
     suspend fun readMilStatus(): Pair<Boolean, Int> {
         // Jamais de chiffre "1 réponse" ici (voir readPidBytes) : chaque calculateur OBD
         // rapporte SON voyant et SES codes, il faut toutes les réponses pour les combiner.
-        return parseMilStatus(sendRaw("0101"))
+        return parseMilStatus(sendDiagnosticRaw("0101"))
+    }
+
+    private suspend fun sendDiagnosticRaw(command: String): String {
+        val connection = transport ?: throw IOException("Non connecté")
+        val response = sendRaw(command)
+        val prefix = "7F${command.take(2).uppercase(Locale.ROOT)}"
+        val temporary = HeaderlessObdResponse.parse(response).payloads.firstOrNull {
+            it == "${prefix}21" || it == "${prefix}78"
+        }
+        if (temporary != null) {
+            closeTransport(connection)
+            throw IOException("$command : réponse négative temporaire (NRC ${temporary.takeLast(2)})")
+        }
+        return response
     }
 
     /**
@@ -627,7 +657,7 @@ class Elm327Client internal constructor(
 
     /** Décode les DTC d'un mode donné (03=stockés, 07=en attente). Voir [parseDtcResponse]. */
     private suspend fun readDtcs(mode: String, expectedPrefix: String): List<String> =
-        parseDtcResponses(sendRaw(mode), expectedPrefix, isCanProtocol)
+        parseDtcResponses(sendDiagnosticRaw(mode), expectedPrefix, isCanProtocol)
 
     /**
      * Réunit les DTC de TOUS les calculateurs qui ont répondu (voir [responsePayloads]),
@@ -695,8 +725,11 @@ class Elm327Client internal constructor(
      * que les moniteurs marqués supportés par ce véhicule (deux véhicules diffèrent).
      */
     suspend fun readReadiness(): List<ReadinessMonitor>? {
-        val bytes = readPidBytes(0x01) ?: return null
-        if (bytes.size < 4) return null
+        // Toutes les réponses, sans optimisation « une réponse » : un refus voisin
+        // doit rester visible, comme pour le statut MIL.
+        val bytes = parseHexPayload(reassembleHex(sendDiagnosticRaw("0101"), "4101"), "4101")
+            ?: return null
+        if (bytes.size != 4) return null
         val byteB = bytes[1]
         val byteC = bytes[2]
         val byteD = bytes[3]
@@ -746,7 +779,7 @@ class Elm327Client internal constructor(
         val pidHex = "%02X".format(pid)
         val frameHex = "%02X".format(frame)
         val expectedPrefix = "42$pidHex$frameHex"
-        val response = sendRaw("02$pidHex$frameHex")
+        val response = sendDiagnosticRaw("02$pidHex$frameHex")
         val hexstr = reassembleHex(response, expectedPrefix)
         return parseHexPayload(hexstr, expectedPrefix)
     }
@@ -754,11 +787,14 @@ class Elm327Client internal constructor(
     /**
      * Code défaut qui a déclenché la capture du freeze frame (mode 02, PID 02, trame 0) :
      * sans lui, un freeze frame affiché à côté de plusieurs DTC ne dit pas auquel il se
-     * rapporte. null si non supporté, illisible, ou 0000 (aucune capture).
+     * rapporte. null uniquement pour 0000 (aucune capture confirmée). Un refus ou
+     * une réponse illisible est une erreur, distincte d'une absence de capture.
      */
     suspend fun readFreezeFrameDtc(frame: Int = 0): String? {
-        val bytes = readFreezeFrameBytes(0x02, frame) ?: return null
-        if (bytes.size < 2 || (bytes[0] == 0 && bytes[1] == 0)) return null
+        val bytes = readFreezeFrameBytes(0x02, frame)
+            ?: throw IOException("Mode 02 PID02 : capture non lisible ou non prise en charge")
+        if (bytes.size != 2) throw IOException("Mode 02 PID02 : longueur invalide (${bytes.size}/2 octets)")
+        if (bytes[0] == 0 && bytes[1] == 0) return null
         return decodeDtc(bytes[0], bytes[1])
     }
 

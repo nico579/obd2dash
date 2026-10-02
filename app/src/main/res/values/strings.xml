@@ -65,7 +65,7 @@
     <string name="settings_intro">La connexion se fait automatiquement au lancement et se retente seule tant qu\'elle échoue. Change ici l\'adresse ou l\'appareil Bluetooth visés (le transport Wi-Fi/Bluetooth se choisit depuis le Dashboard).</string>
     <string name="settings_wifi_host_label">IP de la sonde</string>
     <string name="settings_wifi_port_label">Port</string>
-    <string name="settings_bluetooth_intro">Sélectionne un appareil déjà appairé dans les réglages Bluetooth du téléphone. Non vérifié sur un vrai adaptateur ELM327 Bluetooth (seul du Wi-Fi a été testé à ce jour) : le protocole est identique, mais cette voie de connexion elle-même ne l\'est pas.</string>
+    <string name="settings_bluetooth_intro">Sélectionne un appareil déjà appairé dans les réglages Bluetooth du téléphone.</string>
     <string name="settings_bluetooth_refresh_button">Actualiser les appareils appairés</string>
     <string name="settings_bluetooth_no_devices">Aucun appareil appairé (ou Bluetooth désactivé, ou permission refusée).</string>
     <string name="settings_bluetooth_connect_button">Connecter</string>
@@ -266,4 +266,19 @@
     <!-- RecordingService : canal de notification et notification de premier plan -->
     <string name="notification_channel_recording">Enregistrement OBD2</string>
     <string name="notification_recording_content">Enregistrement en cours</string>
+    <string name="settings_bluetooth_transport_title">Connexion à la sonde</string>
+    <string name="settings_bluetooth_auto">Auto</string>
+    <string name="settings_bluetooth_classic">Classique</string>
+    <string name="settings_bluetooth_ble">BLE</string>
+    <string name="settings_bluetooth_transport_help">Auto utilise le BLE pour les appareils BLE seuls. Pour une sonde compatible avec les deux modes, choisis son mode de connexion.</string>
+    <string name="dtc_pending_last_read">Codes en attente lus : %1$s</string>
+    <string name="dtc_readiness_last_read">Moniteurs lus : %1$s</string>
+    <string name="dtc_freeze_frame_last_read">Capture du défaut lue : %1$s</string>
+    <string name="dtc_no_freeze_frame">Aucun code déclencheur de capture fourni (0000).</string>
+    <string name="settings_ble_search">Rechercher une sonde BLE</string>
+    <string name="settings_ble_stop">Arrêter la recherche BLE</string>
+    <string name="settings_ble_search_help">Recherche de 10 secondes, sans connexion au véhicule. Sélectionne uniquement ta sonde. Le BLE de la KONNWEI est pris en charge.</string>
+    <string name="settings_ble_permission_denied">Permission refusée : la recherche BLE ne peut pas démarrer.</string>
+    <string name="settings_ble_bluetooth_off">Bluetooth indisponible : active-le dans les réglages Android.</string>
+    <string name="settings_ble_scan_failed">Recherche BLE en échec (code %1$d).</string>
 </resources>

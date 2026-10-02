@@ -59,7 +59,8 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
     )
     val colors = MaterialTheme.colorScheme
     val textColor = if (stale || unavailable) colors.onSurfaceVariant else colors.onSurface
-    val needleColor = if (stale) colors.onSurfaceVariant else colors.primary
+    val arcColor = if (stale) colors.onSurfaceVariant else colors.primary
+    val needleColor = Color(0xFFF04444).copy(alpha = if (stale) .65f else 1f)
     val status = when {
         unavailable -> stringResource(R.string.dashboard_gauge_unavailable)
         stale -> stringResource(R.string.dashboard_gauge_stale)
@@ -127,7 +128,7 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                     )
                     if (!unavailable && reading.value != null) {
                         drawArc(
-                            color = needleColor.copy(alpha = if (stale) .35f else .85f), startAngle = 135f,
+                            color = arcColor.copy(alpha = if (stale) .35f else .85f), startAngle = 135f,
                             sweepAngle = 270f * fraction, useCenter = false,
                             topLeft = Offset(d * .076f, d * .076f), size = Size(d * .848f, d * .848f),
                             style = Stroke(width = d * .022f, cap = StrokeCap.Round)

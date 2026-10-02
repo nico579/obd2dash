@@ -71,6 +71,7 @@ class FakeElm(
                         "0101" -> if (headers) "7E806410100000000" else "410100000000"
                         "03" -> "4300"
                         "07" -> "4700"
+                        "020200" -> "4202000000"
                         else -> if (text.startsWith("AT")) "OK" else "NO DATA"
                     }
                     output.write((reply + "\r>").toByteArray(Charsets.US_ASCII))

@@ -6,6 +6,7 @@ import com.nico.obd2dash.AuditResourceValues
 import java.io.File
 
 open class Context(val filesDir: File) {
+    val applicationContext: Context get() = this
     private val prefs = SharedPreferences()
     val packageName = "com.nico.obd2dash"
     val packageManager = android.content.pm.PackageManager()

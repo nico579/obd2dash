@@ -3,6 +3,8 @@ package com.nico.obd2dash.ui
 import android.bluetooth.BluetoothDevice
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.nico.obd2dash.ConnectionMode
+import com.nico.obd2dash.BluetoothTransport
 import com.nico.obd2dash.ConnectionState
 import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
@@ -40,6 +44,7 @@ import com.nico.obd2dash.R
  * qu'à changer ce que l'auto-connexion doit viser, pas à déclencher chaque connexion.
  */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun SettingsScreen(
     state: ObdUiState,
     onConnect: (host: String, port: String) -> Unit,
@@ -47,6 +52,10 @@ fun SettingsScreen(
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
     onRefreshBluetoothDevices: () -> Unit,
+    onBluetoothTransportChange: (BluetoothTransport) -> Unit,
+    onStartBleSearch: () -> Unit,
+    onStopBleSearch: () -> Unit,
+    onConnectBleDevice: (BluetoothDevice) -> Unit,
     onSetBigGaugePid: (pid: Int, selected: Boolean) -> Unit,
     onShareLog: (String) -> Unit,
     onDeleteLog: (String) -> Unit,
@@ -118,6 +127,25 @@ fun SettingsScreen(
             )
         } else {
             LaunchedEffect(state.connectionMode) { onRefreshBluetoothDevices() }
+            val stopSearch by rememberUpdatedState(onStopBleSearch)
+            DisposableEffect(Unit) { onDispose { stopSearch() } }
+            Text(stringResource(R.string.settings_bluetooth_transport_title), style = MaterialTheme.typography.titleSmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (transport in BluetoothTransport.entries) {
+                    FilterChip(
+                        selected = state.bluetoothTransport == transport,
+                        onClick = { onBluetoothTransportChange(transport) },
+                        label = {
+                            Text(stringResource(when (transport) {
+                                BluetoothTransport.AUTO -> R.string.settings_bluetooth_auto
+                                BluetoothTransport.CLASSIC -> R.string.settings_bluetooth_classic
+                                BluetoothTransport.BLE -> R.string.settings_bluetooth_ble
+                            }))
+                        }
+                    )
+                }
+            }
+            Text(stringResource(R.string.settings_bluetooth_transport_help), style = MaterialTheme.typography.bodySmall)
             Text(
                 stringResource(R.string.settings_bluetooth_intro),
                 style = MaterialTheme.typography.bodySmall,
@@ -143,6 +171,17 @@ fun SettingsScreen(
                         onClick = { onConnectBluetooth(device) }
                     )
                 }
+            }
+            OutlinedButton(
+                onClick = if (state.bleScanning) onStopBleSearch else onStartBleSearch,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(if (state.bleScanning) R.string.settings_ble_stop else R.string.settings_ble_search))
+            }
+            Text(stringResource(R.string.settings_ble_search_help), style = MaterialTheme.typography.bodySmall)
+            state.bleScanError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            for (device in state.discoveredBleDevices) {
+                BluetoothDeviceRow(device, enabled = true, onClick = { onConnectBleDevice(device) })
             }
         }
 
@@ -241,7 +280,7 @@ private fun BluetoothDeviceRow(device: BluetoothDevice, enabled: Boolean, onClic
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(name, style = MaterialTheme.typography.bodyMedium)
             Text(device.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

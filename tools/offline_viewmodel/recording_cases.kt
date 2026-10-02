@@ -1,4 +1,5 @@
 package com.nico.obd2dash
+import android.app.Application
 
 import android.bluetooth.BluetoothDevice
 import androidx.lifecycle.auditDispatcher
@@ -304,6 +305,93 @@ private suspend fun automaticReadPreservesFullScanDate(dir: File) {
     }
 }
 
+private suspend fun traficDiagnosticRefusals(dir: File) {
+    FakeElm(bitmap = "410000000000", replyOverride = { command ->
+        when (command) {
+            "ATDPN" -> "A5"
+            "0101" -> "7F0112"
+            "03" -> "43000000"
+            "07" -> "7F0711"
+            else -> null
+        }
+    }).use { server ->
+        val vm = withContext(auditDispatcher) { ObdViewModel(Application(dir.apply { mkdirs() })) }
+        try {
+            withContext(auditDispatcher) { vm.connect("127.0.0.1", server.port) }
+            awaitUntil { vm.state.value.connectionState == ConnectionState.CONNECTED }
+            withContext(auditDispatcher) { vm.refreshDtcs() }
+            awaitUntil { !vm.state.value.dtcLoading && vm.state.value.freezeFrameLastSuccessAtMs != null }
+            val state = vm.state.value
+            check(state.milOn == null && state.milLastSuccessAtMs == null)
+            check(state.storedDtcs == null && state.storedDtcsLastSuccessAtMs == null)
+            check(state.pendingDtcs == null && state.pendingDtcsLastSuccessAtMs == null)
+            check(state.readinessLastSuccessAtMs == null)
+            check(state.freezeFrameDtc == null && state.freezeFrame.isEmpty())
+            check(state.dtcHistory.isEmpty() && state.dtcLastSuccessAtMs == null)
+            check(state.diagnosticReadErrors.keys == setOf(DiagnosticRead.MIL, DiagnosticRead.STORED,
+                DiagnosticRead.PENDING, DiagnosticRead.READINESS))
+            check(state.connectionState == ConnectionState.CONNECTED)
+            val commands = synchronized(server.commands) { server.commands.toList() }
+            check(commands.containsAll(listOf("0101", "03", "07", "020200")))
+            File(dir, "commands.txt").writeText(commands.joinToString("\n"))
+        } finally { finish(vm) }
+    }
+}
+
+private suspend fun partialDiagnosticDates(dir: File) {
+    val mil = AtomicReference("410100000000")
+    FakeElm(replyOverride = { command -> if (command == "0101") mil.get() else null }).use { server ->
+        val vm = makeVm(server, dir)
+        try {
+            withContext(auditDispatcher) { vm.refreshDtcs() }
+            awaitUntil { !vm.state.value.dtcLoading && vm.state.value.dtcLastSuccessAtMs != null }
+            val previous = vm.state.value
+            mil.set("7F0112")
+            withContext(auditDispatcher) { vm.refreshDtcs() }
+            awaitUntil { !vm.state.value.dtcLoading && vm.state.value.dtcError != null }
+            val next = vm.state.value
+            check(next.milLastSuccessAtMs == previous.milLastSuccessAtMs)
+            check(next.readinessLastSuccessAtMs == previous.readinessLastSuccessAtMs)
+            check(next.dtcLastSuccessAtMs == previous.dtcLastSuccessAtMs)
+            check(next.storedDtcsLastSuccessAtMs!! > previous.storedDtcsLastSuccessAtMs!!)
+            check(next.pendingDtcsLastSuccessAtMs!! > previous.pendingDtcsLastSuccessAtMs!!)
+            check(next.freezeFrameLastSuccessAtMs!! > previous.freezeFrameLastSuccessAtMs!!)
+            check(next.diagnosticReadErrors.keys == setOf(DiagnosticRead.MIL, DiagnosticRead.READINESS))
+        } finally { finish(vm) }
+    }
+}
+
+private suspend fun temporaryDiagnosticStops(dir: File) {
+    FakeElm(bitmap = "410000000000", replyOverride = { command ->
+        if (command == "0101") "7F0178" else null
+    }).use { server ->
+        val vm = withContext(auditDispatcher) { ObdViewModel(Application(dir.apply { mkdirs() })) }
+        try {
+            withContext(auditDispatcher) { vm.connect("127.0.0.1", server.port) }
+            awaitUntil { vm.state.value.connectionState == ConnectionState.CONNECTED }
+            withContext(auditDispatcher) { vm.refreshDtcs() }
+            awaitUntil { vm.state.value.connectionState == ConnectionState.RECONNECTING }
+            withContext(auditDispatcher) { vm.disconnect() }
+            check(!server.commands.contains("03") && !server.commands.contains("07"))
+        } finally { finish(vm) }
+    }
+}
+
+private suspend fun automaticCodesDespiteMilRefusal(dir: File) {
+    FakeElm(bitmap = "410080100000", replyOverride = { command ->
+        when (command) { "0101" -> "7F0112"; "03" -> "43010087"; else -> null }
+    }).use { server ->
+        val vm = makeVm(server, dir)
+        try {
+            awaitUntil { vm.state.value.storedDtcs == listOf("P0087") }
+            check(vm.state.value.milOn == null && vm.state.value.milLastSuccessAtMs == null)
+            check(vm.state.value.storedDtcsLastSuccessAtMs != null)
+            check(vm.state.value.dtcLastSuccessAtMs == null)
+            check(vm.state.value.connectionState == ConnectionState.CONNECTED)
+        } finally { finish(vm) }
+    }
+}
+
 fun main(args: Array<String>) = runBlocking {
     val root = File(args[0]).apply { mkdirs() }
     val cases: Map<String, suspend (File) -> Unit> = linkedMapOf(
@@ -318,7 +406,11 @@ fun main(args: Array<String>) = runBlocking {
         "manual_diagnostics" to ::manualDiagnostics,
         "stop_restart_during_write" to ::stopAndRestartDuringWrite,
         "mil_retry" to ::milPublishedBeforeDtcRetry,
-        "diagnostic_dates" to ::automaticReadPreservesFullScanDate
+        "diagnostic_dates" to ::automaticReadPreservesFullScanDate,
+        "trafic_diagnostic_refusals" to ::traficDiagnosticRefusals,
+        "partial_diagnostic_dates" to ::partialDiagnosticDates,
+        "temporary_diagnostic_stops" to ::temporaryDiagnosticStops,
+        "automatic_codes_despite_mil_refusal" to ::automaticCodesDespiteMilRefusal
     )
     val selected = args.getOrNull(1)?.let { name -> mapOf(name to cases.getValue(name)) } ?: cases
     var failed = 0

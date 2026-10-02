@@ -11,6 +11,7 @@ Le runner utilise Python standard, un JDK déjà installé (`JAVA_HOME`, sinon
 `~/.jdks/jbr-21.0.11`) et les JAR Kotlin 1.9.24/coroutines 1.8.1 déjà présents dans
 le cache Gradle. `GRADLE_USER_HOME` est respecté. Il ne télécharge rien et ne lance
 ni Gradle ni ADB. `--compile-only` permet de vérifier seulement la compilation ;
+`--compile-timeout` borne sa durée (120 secondes par défaut, mémoire limitée à 768 Mo) ;
 `--timeout` borne l'exécution des scénarios Kotlin (240 secondes par défaut).
 
 Chaque exécution crée son propre dossier sous
@@ -28,7 +29,7 @@ Les préférences du double désactivent la connexion initiale sans cible ; le t
 appelle ensuite explicitement la connexion locale. Le transport Bluetooth du
 double lève une erreur s'il est sollicité.
 
-Les douze scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
+Les seize scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
 même CSV ; arrêt manuel pendant la reconnexion ; connexion sans mesures ; échec de
 connexion ; coupure TCP puis reprise automatique ; adresse Wi-Fi invalide avec une
 session active ; choix Bluetooth sans appareil ; échec du transport Bluetooth
@@ -42,6 +43,11 @@ vérifient la publication du MIL malgré un premier échec des codes, leur relec
 après cet échec (`--case mil_retry`), et la conservation de la date du scan complet
 après une relecture automatique des seuls codes stockés (`--case diagnostic_dates`).
 Ils attendent la cadence MIL réelle de 30 secondes, sans la modifier pour le test.
+Quatre cas supplémentaires vérifient les refus du dialogue standard Trafic sans
+faux « aucun défaut », les dates après une lecture partielle, l'arrêt sur NRC78
+et la lecture automatique de codes stockés malgré un refus du MIL.
+Le double BLE interdit tout accès radio ; les tests unitaires de `BleSerialTransport`
+vérifient séparément les callbacks et les flux avec un pilote GATT simulé.
 
 Les doubles remplacent le contexte Android, la sélection réseau, les préférences,
 les services, le journal applicatif et l'historique DTC. Un exécuteur à un seul

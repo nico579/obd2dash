@@ -107,7 +107,11 @@ data class ObdUiState(
     // ObdViewModel.connectBluetooth) ; bondedDevices n'est rafraîchie qu'à la demande
     // (ouverture du sélecteur), pas un flux continu de l'état du Bluetooth système.
     val bluetoothDeviceName: String? = null,
+    val bluetoothTransport: BluetoothTransport = BluetoothTransport.AUTO,
     val bondedBluetoothDevices: List<BluetoothDevice> = emptyList(),
+    val discoveredBleDevices: List<BluetoothDevice> = emptyList(),
+    val bleScanning: Boolean = false,
+    val bleScanError: String? = null,
     val supportedPids: Set<Int> = emptySet(),
     val dataAvailability: ObdDataAvailability = ObdDataAvailability.NOT_CHECKED,
     val vehicleResponseObserved: Boolean = false,
@@ -143,8 +147,12 @@ data class ObdUiState(
     val storedDtcs: List<String>? = null,
     val storedDtcsLastSuccessAtMs: Long? = null,
     val pendingDtcs: List<String>? = null,
+    val pendingDtcsLastSuccessAtMs: Long? = null,
     val readiness: List<ReadinessMonitor> = emptyList(),
+    val readinessLastSuccessAtMs: Long? = null,
     val freezeFrame: Map<Int, String> = emptyMap(),
+    val freezeFrameLastSuccessAtMs: Long? = null,
+    internal val diagnosticReadErrors: Map<DiagnosticRead, String> = emptyMap(),
     // Code qui a déclenché le freeze frame (mode 02 PID 02) : null si non lu ou non fourni.
     val freezeFrameDtc: String? = null,
     val dtcHistory: List<DtcHistoryEntry> = emptyList(),
@@ -255,9 +263,15 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
         (state.milLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
     sb.appendLine("Dernière lecture des codes stockés réussie : " +
         (state.storedDtcsLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
+    sb.appendLine("Dernière lecture des codes en attente réussie : " +
+        (state.pendingDtcsLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
+    sb.appendLine("Dernière lecture des moniteurs réussie : " +
+        (state.readinessLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
+    sb.appendLine("Dernière lecture de la capture du défaut réussie : " +
+        (state.freezeFrameLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
 
-    // Les sections pending/readiness/freeze frame datent de cette dernière lecture
-    // réussie, pas de la date d'export ci-dessus : sans cette ligne, un ancien résultat
+    // Chaque section garde sa date ; cette ligne indique uniquement un scan complet.
+    // Sans ces dates, un ancien résultat
     // encore affiché après un refresh en échec se lisait comme une lecture actuelle
     // (voir A6). dtcError est celle de la tentative la PLUS RÉCENTE, potentiellement
     // postérieure à ce succès : les deux peuvent cohabiter (échec après un succès passé).
@@ -381,6 +395,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             port = prefs.getString(KEY_PORT, null) ?: "35000",
             connectionMode = savedConnectionMode(),
             bluetoothDeviceName = prefs.getString(KEY_BLUETOOTH_NAME, null),
+            bluetoothTransport = savedBluetoothTransport(),
             bigGaugePids = loadBigGaugePids(DtcHistoryStore.UNKNOWN_VEHICLE)
         )
     )
@@ -390,6 +405,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var connectJob: Job? = null
     private var pollJob: Job? = null
     private var dtcJob: Job? = null
+    @Volatile private var bleScanner: AndroidBleScanner? = null
+    private var bleScanJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var vehicleId: String = DtcHistoryStore.UNKNOWN_VEHICLE
     // Voir VinDecoder.fileTag : préfixe des fichiers d'enregistrement/sondage (voir
@@ -446,6 +463,15 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private fun savedConnectionMode(): ConnectionMode =
         runCatching { ConnectionMode.valueOf(prefs.getString(KEY_CONNECTION_MODE, null) ?: "") }
             .getOrDefault(ConnectionMode.WIFI)
+
+    private fun savedBluetoothTransport(): BluetoothTransport =
+        runCatching { BluetoothTransport.valueOf(prefs.getString(KEY_BLUETOOTH_TRANSPORT, null) ?: "") }
+            .getOrDefault(BluetoothTransport.AUTO)
+
+    fun setBluetoothTransport(transport: BluetoothTransport) {
+        prefs.edit().putString(KEY_BLUETOOTH_TRANSPORT, transport.name).apply()
+        _state.update { it.copy(bluetoothTransport = transport) }
+    }
 
     // Une clé par véhicule (VIN, ou UNKNOWN_VEHICLE si non lu) plutôt qu'un seul réglage
     // global : demande explicite (le choix "gros paramètres" a du sens PAR véhicule, un
@@ -533,10 +559,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
 
     /**
-     * Appareils déjà appairés (voir réglages Bluetooth du téléphone) : cette app ne fait
-     * aucune découverte/appairage elle-même, ce qui évite ACCESS_FINE_LOCATION (nécessaire
-     * pour scanner activement, pas pour lister des appairages déjà faits). Rafraîchie à la
-     * demande (ouverture du sélecteur), pas un flux continu.
+     * Liste des appareils déjà appairés. La recherche BLE non appairée est séparée,
+     * lancée uniquement par son bouton et avec ses propres permissions.
      */
     fun refreshBondedBluetoothDevices() {
         val adapter = bluetoothAdapter()
@@ -550,6 +574,49 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             emptyList()
         }
         _state.update { it.copy(bondedBluetoothDevices = devices) }
+    }
+
+    fun bleScanPermissionDenied() {
+        _state.update { it.copy(bleScanError = getString(R.string.settings_ble_permission_denied)) }
+    }
+
+    fun startBleScan() {
+        stopBleScan()
+        _state.update { it.copy(discoveredBleDevices = emptyList(), bleScanError = null) }
+        try {
+            val scanner = bluetoothAdapter()?.bluetoothLeScanner
+                ?: throw java.io.IOException(getString(R.string.settings_ble_bluetooth_off))
+            val scan = AndroidBleScanner(scanner)
+            bleScanner = scan
+            _state.update { it.copy(bleScanning = true) }
+            scan.start(onDevice = { device ->
+                // Un ancien callback ne peut pas remplir la liste d'une nouvelle recherche.
+                if (bleScanner === scan) _state.update { state ->
+                    if (bleScanner !== scan || state.discoveredBleDevices.any { it.address == device.address }) state
+                    else state.copy(discoveredBleDevices = state.discoveredBleDevices + device)
+                }
+            }, onError = { code ->
+                viewModelScope.launch {
+                    if (bleScanner === scan) {
+                        stopBleScan()
+                        _state.update { it.copy(bleScanError = getString(R.string.settings_ble_scan_failed, code)) }
+                    }
+                }
+            })
+            bleScanJob = viewModelScope.launch { delay(10_000); stopBleScan() }
+        } catch (e: Exception) {
+            stopBleScan()
+            _state.update { it.copy(bleScanError = e.message ?: getString(R.string.settings_ble_bluetooth_off)) }
+        }
+    }
+
+    fun stopBleScan() {
+        bleScanJob?.cancel()
+        bleScanJob = null
+        val scanner = bleScanner
+        bleScanner = null
+        scanner?.stop()
+        _state.update { it.copy(bleScanning = false) }
     }
 
     private fun listRecordings(): List<RecordingFile> = listCsvFiles("recordings")
@@ -776,14 +843,14 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Connexion Bluetooth (RFCOMM/SPP) : voir Elm327Client et ConnectionTarget.Bluetooth.
-     * [device] doit être déjà appairé (voir bondedBluetoothDevices) ; cette fonction ne
-     * fait aucune découverte, seulement la connexion socket. Vérifié sur un vrai
-     * adaptateur Bluetooth le 24/09, voir le commentaire de classe d'Elm327Client.
+     * Connexion classique (appareil appairé) ou BLE (appareil choisi dans la recherche).
+     * Le profil GATT est vérifié avant toute commande ELM. Le BLE Android reste à
+     * valider sur le téléphone avec la sonde physique.
      */
     fun connectBluetooth(device: BluetoothDevice, isAutoRetry: Boolean = false) {
         // Voir connect() : une demande explicite remplace une tentative en cours.
         if (isAutoRetry && _state.value.connectionState == ConnectionState.CONNECTING) return
+        stopBleScan()
         userRequestedDisconnect = false
 
         if (!isAutoRetry) EventLog.log("Connexion Bluetooth demandée (${bluetoothDeviceName(device)})")
@@ -794,11 +861,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             .putString(KEY_BLUETOOTH_NAME, bluetoothDeviceName(device))
             .apply()
         beginConnecting(ConnectionMode.BLUETOOTH, bluetoothDeviceName(device))
+        val transportPreference = _state.value.bluetoothTransport
 
         connectJob?.cancel()
         connectJob = viewModelScope.launch {
             prepareForNewConnection()
-            val c = Elm327Client(ConnectionTarget.Bluetooth(device))
+            val c = Elm327Client(ConnectionTarget.Bluetooth(device, transportPreference), getApplication<Application>())
             finishConnecting(c, isAutoRetry) {
                 c.connect()
                 true
@@ -834,6 +902,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 port = it.port,
                 connectionMode = mode,
                 bluetoothDeviceName = bluetoothName ?: it.bluetoothDeviceName,
+                bluetoothTransport = it.bluetoothTransport,
                 bigGaugePids = it.bigGaugePids,
                 recordings = it.recordings,
                 probes = it.probes,
@@ -1116,7 +1185,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             var lastMilCheckAtMs: Long? = null
             // Une lecture de codes ratée doit être retentée, même si le voyant et
             // le compteur n'ont pas changé depuis la réussite du PID01.
-            var storedRefreshPending = false
+            var storedRefreshPending = true
             // Même logique pour les PID lents : lus dès le premier cycle.
             var lastSlowPollAtMs = 0L
             // Durée des cycles complets, journalisée périodiquement (voir EventLog) : seul
@@ -1221,13 +1290,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                 System.nanoTime() / 1_000_000L - lastMilCheckAtMs > MIL_CHECK_INTERVAL_MS)
                         ) {
                             lastMilCheckAtMs = System.nanoTime() / 1_000_000L
-                            var milReceived = false
+                            val previous = _state.value
+                            var milTurnedOn = false
                             try {
                                 val (mil, count) = c.readMilStatus()
-                                milReceived = true
                                 health.milRead(success = true)
-                                val previous = _state.value
-                                val milTurnedOn = previous.milOn != true && mil
+                                milTurnedOn = previous.milOn != true && mil
                                 // Nombre de codes changé (ou premier relevé de la session sans
                                 // liste déjà lue) : un code stocké SANS voyant (cas réel de
                                 // P0087 le 24/09, voyant éteint) n'apparaissait jusqu'ici qu'en
@@ -1238,7 +1306,19 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                     it.copy(milOn = mil, dtcCount = count, milLastSuccessAtMs = System.currentTimeMillis())
                                 }
                                 if (milTurnedOn || countChanged) storedRefreshPending = true
-                                if (storedRefreshPending) {
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                if (!c.isConnected) throw e
+                                if (health.milRead(success = false)) {
+                                    handleConnectionLost(c, getString(R.string.error_zombie_connection, ZOMBIE_CONNECTION_TIMEOUT_MS / 1000))
+                                    return@launch
+                                }
+                            }
+                            // Le refus MIL ne doit pas empêcher la première lecture 03,
+                            // ni la reprise d'une lecture de codes précédemment ratée.
+                            if (storedRefreshPending && !dtcOperationInProgress) {
+                                try {
                                     // Va chercher les codes réels (readStoredDtcs, "03"), pas
                                     // seulement ce compteur. Volontairement PAS aussi complet
                                     // qu'un refreshDtcs() (pas de pending/readiness/freeze frame
@@ -1247,34 +1327,24 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                     // arrière-plan.
                                     val stored = c.readStoredDtcs()
                                     val history = historyStore.record(vehicleId, stored)
-                                    val detail = stored.joinToString(", ").ifEmpty { "$count code(s) annoncé(s), détail illisible" }
+                                    val count = _state.value.dtcCount
+                                    val detail = stored.joinToString(", ").ifEmpty { "aucun code stocké fourni" }
                                     when {
                                         milTurnedOn -> EventLog.log("Voyant moteur (MIL) allumé pendant le trajet : $detail")
                                         previous.dtcCount != null -> EventLog.log("Nombre de codes stockés passé de ${previous.dtcCount} à $count : ${stored.joinToString(", ").ifEmpty { "aucun" }}")
                                     }
                                     _state.update {
                                         it.copy(
-                                            milOn = mil,
-                                            dtcCount = count,
                                             storedDtcs = stored,
                                             dtcHistory = history,
                                             storedDtcsLastSuccessAtMs = System.currentTimeMillis()
                                         )
                                     }
                                     storedRefreshPending = false
-                                }
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                if (!c.isConnected) throw e
-                                // Ratée ponctuelle traitée comme n'importe quel PID de toPoll
-                                // ci-dessus (voir newValues) : un échec de décodage isolé
-                                // sur cette seule vérification ne doit pas faire perdre toute la
-                                // session. Pour PID01 seul, cette lecture MIL est le seul
-                                // contrôle périodique : une panne persistante doit déconnecter.
-                                if (!milReceived && health.milRead(success = false)) {
-                                    handleConnectionLost(c, getString(R.string.error_zombie_connection, ZOMBIE_CONNECTION_TIMEOUT_MS / 1000))
-                                    return@launch
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    if (!c.isConnected) throw e
                                 }
                             }
                         }
@@ -1380,7 +1450,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val previousJobs = beginExclusiveDiagnostic()
         dtcJob = viewModelScope.launch {
             dtcOperationCount++
-            _state.update { it.copy(dtcLoading = true, dtcError = null) }
+            _state.update { it.copy(dtcLoading = true, dtcError = null, diagnosticReadErrors = emptyMap()) }
             try {
                 // cancel() ne fait que DEMANDER l'arrêt des jobs précédents : sans ce join,
                 // leur propre restauration (ex: ATH0 après une capture headers, cf. A8) peut
@@ -1390,47 +1460,59 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // un appel à stopAutoTest() séparé de stopFapScanAndGetPrevious() perdait la
                 // référence au job de ce dernier avant que l'appelant ait pu le récupérer).
                 previousJobs.forEach { it.join() }
-                val (mil, count) = c.readMilStatus()
-                _state.update {
-                    it.copy(milOn = mil, dtcCount = count, milLastSuccessAtMs = System.currentTimeMillis())
+                val reads = DiagnosticReadSequence({ c.isConnected }) { errors ->
+                    _state.update { it.copy(diagnosticReadErrors = errors) }
                 }
-                val stored = c.readStoredDtcs()
-                val history = historyStore.record(vehicleId, stored)
-                _state.update {
-                    it.copy(storedDtcs = stored, dtcHistory = history, storedDtcsLastSuccessAtMs = System.currentTimeMillis())
+                reads.read(DiagnosticRead.MIL) { c.readMilStatus() }.onSuccess { (mil, count) ->
+                    _state.update {
+                        it.copy(milOn = mil, dtcCount = count, milLastSuccessAtMs = System.currentTimeMillis())
+                    }
                 }
-                val pending = c.readPendingDtcs()
-                val readiness = c.readReadiness() ?: emptyList()
-
-                // Pas de runCatching : readFreezeFrameDtc ne lève que sur erreur de
-                // transport (réponse inattendue = null), traitée comme les autres lectures.
-                val freezeFrameDtc = if (stored.isNotEmpty()) c.readFreezeFrameDtc() else null
-                val freezeFrame = if (stored.isNotEmpty()) {
-                    val supported = _state.value.supportedPids
+                reads.read(DiagnosticRead.STORED) { c.readStoredDtcs() }.onSuccess { stored ->
+                    val history = historyStore.record(vehicleId, stored)
+                    _state.update {
+                        it.copy(storedDtcs = stored, dtcHistory = history, storedDtcsLastSuccessAtMs = System.currentTimeMillis())
+                    }
+                }
+                reads.read(DiagnosticRead.PENDING) { c.readPendingDtcs() }.onSuccess { pending ->
+                    _state.update {
+                        it.copy(pendingDtcs = pending, pendingDtcsLastSuccessAtMs = System.currentTimeMillis())
+                    }
+                }
+                reads.read(DiagnosticRead.READINESS) {
+                    c.readReadiness() ?: throw java.io.IOException("PID01 illisible pour les moniteurs")
+                }.onSuccess { readiness ->
+                    _state.update {
+                        it.copy(readiness = readiness, readinessLastSuccessAtMs = System.currentTimeMillis())
+                    }
+                }
+                // La capture possède son propre service : on peut lire son code
+                // déclencheur même si le service 03 a été refusé. Les mesures ne
+                // sont demandées que lorsqu'une capture a effectivement un code.
+                reads.read(DiagnosticRead.FREEZE_FRAME) {
+                    val trigger = c.readFreezeFrameDtc()
                     val values = mutableMapOf<Int, String>()
-                    for (def in PidCatalog.defs.filter { it.pid in supported }) {
-                        val bytes = c.readFreezeFrameBytes(def.pid)
-                        if (bytes != null && bytes.size >= def.expectedBytes) {
-                            runCatching { def.decode(bytes) }.getOrNull()?.let { values[def.pid] = it }
+                    if (trigger != null) {
+                        val supported = _state.value.supportedPids
+                        for (def in PidCatalog.defs.filter { it.pid in supported }) {
+                            val bytes = c.readFreezeFrameBytes(def.pid)
+                            if (bytes != null && bytes.size >= def.expectedBytes) {
+                                runCatching { def.decode(bytes) }.getOrNull()?.let { values[def.pid] = it }
+                            }
                         }
                     }
-                    values
-                } else {
-                    emptyMap()
+                    trigger to values.toMap()
+                }.onSuccess { (trigger, values) ->
+                    _state.update {
+                        it.copy(freezeFrameDtc = trigger, freezeFrame = values,
+                            freezeFrameLastSuccessAtMs = System.currentTimeMillis())
+                    }
                 }
-
                 _state.update {
                     it.copy(
-                        milOn = mil,
-                        dtcCount = count,
-                        storedDtcs = stored,
-                        pendingDtcs = pending,
-                        readiness = readiness,
-                        freezeFrame = freezeFrame,
-                        freezeFrameDtc = freezeFrameDtc,
-                        dtcHistory = history,
                         dtcLoading = false,
-                        dtcLastSuccessAtMs = System.currentTimeMillis()
+                        dtcError = reads.errorMessage,
+                        dtcLastSuccessAtMs = if (reads.isComplete) System.currentTimeMillis() else it.dtcLastSuccessAtMs
                     )
                 }
             } catch (e: CancellationException) {
@@ -2196,6 +2278,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 port = it.port,
                 connectionMode = it.connectionMode,
                 bluetoothDeviceName = it.bluetoothDeviceName,
+                bluetoothTransport = it.bluetoothTransport,
                 bigGaugePids = it.bigGaugePids,
                 recordings = it.recordings,
                 probes = it.probes,
@@ -2210,6 +2293,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        stopBleScan()
         // Ne PAS passer par disconnect() : viewModelScope est déjà annulé quand onCleared()
         // est appelé (AndroidX ferme le CloseableCoroutineScope avant d'invoquer onCleared),
         // donc un viewModelScope.launch{} ici ne s'exécuterait jamais et le socket ne serait
@@ -2224,6 +2308,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_CONNECTION_MODE = "conn_mode"
         private const val KEY_BLUETOOTH_ADDRESS = "conn_bt_address"
         private const val KEY_BLUETOOTH_NAME = "conn_bt_name"
+        private const val KEY_BLUETOOTH_TRANSPORT = "conn_bt_transport"
         private const val KEY_BIG_GAUGE_PIDS = "big_gauge_pids"
         // Assez pour un coup d'œil rapide en conduisant (voir GaugeRow, ObdUiState.
         // bigGaugePids) sans réduire chaque valeur à une taille illisible sur le

@@ -129,6 +129,7 @@ fun DtcScreen(
         DtcSection(title = stringResource(R.string.dtc_stored_title, state.storedDtcs?.size?.toString() ?: "?"), codes = state.storedDtcs)
         DiagnosticReadDate(R.string.dtc_stored_last_read, state.storedDtcsLastSuccessAtMs)
         DtcSection(title = stringResource(R.string.dtc_pending_title, state.pendingDtcs?.size?.toString() ?: "?"), codes = state.pendingDtcs)
+        DiagnosticReadDate(R.string.dtc_pending_last_read, state.pendingDtcsLastSuccessAtMs)
 
         Text(
             stringResource(R.string.dtc_description_disclaimer),
@@ -136,12 +137,16 @@ fun DtcScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        if (state.freezeFrame.isNotEmpty()) {
+        if (state.freezeFrameLastSuccessAtMs != null || state.freezeFrameDtc != null || state.freezeFrame.isNotEmpty()) {
             HorizontalDivider()
             Text(stringResource(R.string.dtc_freeze_frame_title), style = MaterialTheme.typography.titleMedium)
             state.freezeFrameDtc?.let {
                 Text(stringResource(R.string.dtc_freeze_frame_trigger, it), style = MaterialTheme.typography.bodyMedium)
             }
+            if (state.freezeFrameDtc == null && state.freezeFrameLastSuccessAtMs != null) {
+                Text(stringResource(R.string.dtc_no_freeze_frame), style = MaterialTheme.typography.bodyMedium)
+            }
+            DiagnosticReadDate(R.string.dtc_freeze_frame_last_read, state.freezeFrameLastSuccessAtMs)
             for (def in PidCatalog.defs) {
                 val value = state.freezeFrame[def.pid] ?: continue
                 Row(
@@ -157,6 +162,7 @@ fun DtcScreen(
         if (state.readiness.isNotEmpty()) {
             HorizontalDivider()
             Text(stringResource(R.string.dtc_readiness_title), style = MaterialTheme.typography.titleMedium)
+            DiagnosticReadDate(R.string.dtc_readiness_last_read, state.readinessLastSuccessAtMs)
             for (monitor in state.readiness) {
                 ReadinessRow(monitor)
             }

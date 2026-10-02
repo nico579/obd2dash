@@ -11,9 +11,11 @@ class BluetoothManager { val adapter: BluetoothAdapter? = null }
 class BluetoothAdapter {
     val isEnabled = false
     val bondedDevices = emptySet<BluetoothDevice>()
+    val bluetoothLeScanner: Any? = null
     fun getRemoteDevice(address: String) = BluetoothDevice()
 }
 class BluetoothDevice {
+    val type = 1
     val name: String? = "offline-harness"
     val address = "00:00:00:00:00:00"
     fun createRfcommSocketToServiceRecord(uuid: UUID) = BluetoothSocket()

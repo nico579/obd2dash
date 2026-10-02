@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -19,16 +20,17 @@
          éteint ; permission normale, pas de prompt à l'exécution. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Sonde ELM327 Bluetooth (RFCOMM/SPP), en plus du Wi-Fi (voir ConnectionTarget) :
-         connexion à un appareil déjà appairé dans les réglages du téléphone, jamais de
-         découverte/appairage propre à l'app, donc pas besoin d'ACCESS_FINE_LOCATION
-         (nécessaire pour un scan actif, pas pour lister des appairages existants).
-         BLUETOOTH/BLUETOOTH_ADMIN couvrent Android <=11 (permissions normales, accordées
-         à l'installation) ; BLUETOOTH_CONNECT les remplace depuis Android 12 (permission
-         d'exécution, demandée avant le premier usage, voir MainActivity). -->
+    <!-- Bluetooth classique et BLE. La découverte BLE est lancée par l'utilisateur,
+         bornée à 10 secondes. La localisation est exigée pour le scan Android <=11 ;
+         Android >=12 utilise SCAN/CONNECT sans exploitation de la localisation. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" tools:targetApi="31" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
     <application
         android:name=".Obd2DashApp"

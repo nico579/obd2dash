@@ -1,6 +1,6 @@
 # OBD2 Dash
 
-Application Android (Kotlin, Jetpack Compose) pour se connecter à une sonde ELM327 Wi-Fi ou Bluetooth
+Application Android (Kotlin, Jetpack Compose) pour se connecter à une sonde ELM327 Wi-Fi, Bluetooth classique ou BLE
 et lire les données OBD2 d'un véhicule en direct.
 
 Projet à usage personnel, non publié sur le Play Store : installation
@@ -13,7 +13,8 @@ profil applicable, ses commandes et leurs conditions d'accès ne sont pas valid�
 
 - **Dashboard temps réel** : jauges pour les PID réellement supportés par le véhicule
   connecté (auto-découverte à la connexion, pas de liste figée). Jusqu'à six cadrans
-  choisis dans Réglages, avec grandes valeurs numériques, graduations et aiguilles.
+  choisis dans Réglages, avec grandes valeurs numériques, graduations et aiguilles
+  rouges en mode jour comme en mode nuit.
   Leur grille exploite la surface disponible en portrait comme en paysage ; une
   dernière rangée incomplète utilise toute la largeur. Le paysage ouvre par défaut
   le plein écran, également accessible par le bouton d'agrandissement en portrait.
@@ -28,11 +29,21 @@ profil applicable, ses commandes et leurs conditions d'accès ne sont pas valid�
   véhicule conserve les tentatives de connexion automatiques.
 - **Écran DTC** : codes stockés/en attente, statut MIL, moniteurs de préparation
   (readiness), freeze frame au moment du défaut, historique local par véhicule (indexé
-  par VIN). Les dates distinguent le MIL, les codes stockés et le dernier scan complet.
+  par VIN). Chaque lecture est indépendante : un refus du MIL ne bloque pas les codes
+  stockés/en attente ou le code déclencheur du freeze frame. Les dates distinguent chaque
+  résultat du dernier scan complet ; un service refusé garde son résultat précédent daté
+  ou reste inconnu. Une réponse ambiguë ne confirme jamais une absence de défauts.
   Les CSV conservent aussi les dates de lecture du MIL et des codes : ces états sont
   échantillonnés depuis le cache, sans lecture supplémentaire à chaque ligne.
 - **Détection de protocole** : CAN (ISO 15765-4) ou non-CAN (SAE J1850, ISO 9141-2,
   ISO 14230 KWP2000), pour décoder les DTC correctement dans les deux cas.
+- **Bluetooth classique et BLE** : sélection Auto/Classique/BLE et recherche BLE
+  de dix secondes, uniquement à la demande, pour les sondes non appairées. Le premier
+  profil GATT pris en charge est FFF0/FFF1/FFF2, relevé sur la KONNWEI. L'abonnement
+  aux réponses est confirmé avant les commandes ELM ; les paquets respectent le MTU
+  minimal, sans réémission d'une écriture incertaine. Auto conserve SPP pour un appareil
+  classique/double et choisit BLE pour un appareil BLE seul ; la liste issue de la
+  recherche ouvre explicitement le BLE. La validation radio Android reste à réaliser.
 - **VIN validé** : longueur et alphabet contrôlés, compteur CAN vérifié, assemblage
   du format non-CAN à cinq segments documenté par ELM. Aucun octet intrus n'est retiré
   pour fabriquer une identité ; une réponse ambiguë reste inconnue.
@@ -90,6 +101,7 @@ entier, même lorsqu'une réponse arrive lentement par fragments.
 Si l'hôte configuré est un nom de domaine, sa résolution DNS Java peut dépasser
 la marge de connexion ; cette limite ne concerne pas l'adresse IP habituelle de la sonde.
 Une réponse temporaire « occupé » ou « en attente » ne valide pas une absence de PID.
+Dans la séquence DTC aussi, NRC21/NRC78 ferme la connexion avant toute autre requête.
 La surveillance de connexion tolère un échec MIL isolé et les pauses de diagnostic ;
 elle distingue le cas où PID01 est la seule lecture automatique du polling de mesures.
 
@@ -99,6 +111,9 @@ Il vérifie les pauses, reprises, arrêts manuels et changements de transport ; 
 services et le contexte Android sont remplacés par des doubles de test.
 
 ## Documentation
+
+- [`audit_ble_diagnostic_2026-10-02.md`](audit_ble_diagnostic_2026-10-02.md) :
+  Bluetooth BLE, lectures de diagnostic indépendantes et limite du profil Renault.
 
 - [`architecture_multimarque_2026-09-10_20-17.md`](architecture_multimarque_2026-09-10_20-17.md) :
   étude historique d'un moteur de profils ; les décisions de périmètre qu'elle conserve
