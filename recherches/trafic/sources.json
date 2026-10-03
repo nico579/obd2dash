@@ -1090,6 +1090,33 @@
       "path_in_archive": "Vehicles/TCOM_066.xml",
       "size": 12312,
       "sha256": "bb5ca794db41dbdafc6644cd160a33224eec5c4a4dae567a5de0af0b4217c42f"
+    },
+    {
+      "id": "W094",
+      "artifact": "captures/recherche_sources_20261003/risk_search_R094_R095.json",
+      "retrieved_at_utc": "2026-10-03T10:36:01Z",
+      "origin": "web_search_reduced_notes",
+      "size": 1154,
+      "sha256": "b62a27e9e0f3eca54e540ceda80b1eddd6df4a823a657582d93ba44642ff2259"
+    },
+    {
+      "id": "W096",
+      "artifact": "captures/recherche_sources_20261003/risk_primary_R096.json",
+      "retrieved_at_utc": "2026-10-03T10:37:18Z",
+      "url": "https://www.ime-actia.de/en/vehicle-diagnostics/kwp-2000-on-k-line/",
+      "origin": "web_page_snapshot",
+      "size": 8849,
+      "sha256": "e92b5f167afd9882825848b2ab537cf597c09d12e2b85697c7f19074c9cfbe59"
+    },
+    {
+      "id": "K097",
+      "artifact": "captures/recherche_sources_20261003/manufacturer_profile_policy_R097.kt",
+      "origin": "local_code_snapshot",
+      "revision": "57b8488",
+      "url": "https://github.com/nico579/obd2dash/blob/57b8488/app/src/main/java/com/nico/obd2dash/profiles/ManufacturerProfiles.kt",
+      "analysis_started_at_utc": "2026-10-03T10:40:27.482531+00:00",
+      "size": 13445,
+      "sha256": "9f6a20a8e63741a15b103d0415613f933c6959f372fad55828bb27c40d938708"
     }
   ]
 }

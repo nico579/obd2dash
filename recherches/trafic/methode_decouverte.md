@@ -85,3 +85,30 @@ Une trace de référence ou une définition plus discriminante doit relier
 documentées de lecture sans `10C0`, puis des réponses permettant de vérifier les
 emplacements et conversions. Une nouvelle consultation des catalogues déjà connus
 ne répondrait pas à ces questions.
+
+## Validation sur véhicule et risque
+
+**Il n'est pas nécessaire de retourner maintenant dans le Trafic.** Le choix du
+profil, l'analyse des captures et les tests du décodeur peuvent avancer hors ligne.
+Pour confirmer ensuite le fonctionnement réel, il faudra des réponses de cet ECU,
+issues d'un essai préparé ou de traces existantes applicables.
+
+La [documentation originale ACTIA sur KWP](https://www.ime-actia.de/en/vehicle-diagnostics/kwp-2000-on-k-line/)
+distingue le service de session `10` des services de lecture `21` et d'effacement
+`14`. `10C0` n'est donc pas à lui seul une commande d'effacement ou de reprogrammation.
+Cette source ne décrit toutefois pas le mode `C0` de notre ECU : ses effets restent
+non établis. On ne doit le qualifier ni d'inoffensif ni de mode de programmation
+sur la seule valeur de son paramètre.
+
+**Le risque d'un nouvel essai constructeur n'est pas suffisamment établi pour
+promettre un risque nul.** Aucun essai `10C0` n'est proposé à ce stade. Un éventuel
+essai de lecture devrait porter sur des requêtes connues, avec conditions d'accès
+documentées, véhicule stationné et d'abord moteur arrêté, sans effacement,
+actionneur, écriture ou changement de session. Ces précautions ne constituent pas
+une garantie absolue d'absence de risque.
+
+Le moteur de profils actuel accepte seulement un profil exact, vérifié en rejeu
+et documenté en session par défaut ; son catalogue installé est vide. Cette
+restriction logicielle ne fournit pas une preuve sur les effets d'une commande
+qui serait envoyée par un autre outil. Les recherches de clarification R094–R097
+sont documentaires : aucune commande au véhicule.
