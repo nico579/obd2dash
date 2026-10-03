@@ -5,6 +5,18 @@ vérifiables et éviter de recommencer les mêmes pistes. Ce dossier est suivi p
 Les traces brutes restent dans `captures/`, exclu de Git ; leurs empreintes sont
 conservées dans [sources.json](sources.json).
 
+## Statut — recherche arrêtée
+
+Le **3 octobre 2026**, l'utilisateur demande : « laisse tomber, on va rester sur les véhicules
+récents compatibles ». Les recherches spécifiques au Trafic II sont arrêtées et
+ne seront reprises que sur sa demande explicite. L'application se concentre sur les
+véhicules récents compatibles avec ses lectures OBD standard.
+
+Les résultats ci-dessous sont conservés comme historique. Aucun support de mesures
+constructeur du Trafic n'a été validé ; l'arrêt de la recherche ne signifie pas que
+ce support a été terminé. Les pistes et conditions restantes ne sont plus un plan
+de travail actif.
+
 ## Résultat actuel
 
 Identité effectivement lue : **25 / 037 / 00CB / 1200**, en KWP2000 fast init,
@@ -72,7 +84,7 @@ Les sources primaires archivées le 2 octobre sont enregistrées avec leur URL,
 révision quand elle existe, taille et SHA-256. Les rapports locaux utilisés pour
 reconstituer l'historique sont également référencés dans `sources.json`.
 
-## Pistes à examiner à partir de maintenant
+## Pistes identifiées avant l'arrêt — historique
 
 | ID | Cible précise | Information nouvelle recherchée | Arrêt de la piste |
 | --- | --- | --- | --- |
@@ -239,7 +251,7 @@ ne passent pas les masques de notre capture et n'ont pas de modèle/optimiseur d
 cette base. Cela explique une limite de ce catalogue ; cela ne démontre pas une
 impossibilité générale de lire le camion.
 
-### Suite précise, sans nouvel essai à l'aveugle
+### Conditions identifiées avant l'arrêt — historique
 
 1. Établir quel modèle de mesures s'applique à **25/037/00CB/1200**, avec des critères
    complets ou une trace de référence ; expliquer l'association phase 1 / phases 2/3.

@@ -1,5 +1,10 @@
 # Méthode de recherche et possibilité de généralisation
 
+**Recherche Trafic arrêtée le 3 octobre 2026 à la demande de l'utilisateur.** Ce document
+conserve la méthode et ses limites comme historique. Le périmètre actuel du projet
+porte sur les véhicules récents compatibles avec les lectures OBD standard ;
+les étapes restantes du Trafic ne constituent plus un travail en cours.
+
 État au **3 octobre 2026**. Cette procédure décrit la recherche effectuée et les
 conditions nécessaires pour transformer une définition en support de l'application.
 L'import de la base PyClip obtenue aujourd'hui n'est pas implémenté dans l'application.

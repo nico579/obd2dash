@@ -6,8 +6,13 @@ et lire les données OBD2 d'un véhicule en direct.
 Projet à usage personnel, non publié sur le Play Store : installation
 par sideload uniquement (`adb install` / `gradlew installDebug`). Le socle commun repose
 sur la découverte et la lecture des PID SAE standard disponibles sur le véhicule connecté.
-L'objectif est multimarque. Les lectures constructeur restent désactivées tant qu'un
-profil applicable, ses commandes et leurs conditions d'accès ne sont pas validés.
+Depuis le 3 octobre 2026, le périmètre retenu est **multimarque, pour les véhicules
+récents compatibles avec les lectures OBD standard de l'application**. Les données
+disponibles sont celles effectivement annoncées et lues sur le véhicule connecté ;
+l'année du véhicule seule ne garantit pas la compatibilité.
+Les recherches spécifiques au Trafic II sont arrêtées à la demande de l'utilisateur.
+La priorité porte sur la fiabilité de la connexion, les mesures standard, les
+diagnostics, les enregistrements et le dashboard.
 
 ## Fonctionnalités
 
@@ -113,8 +118,8 @@ services et le contexte Android sont remplacés par des doubles de test.
 ## Documentation
 
 - [`recherches/trafic/README.md`](recherches/trafic/README.md) : journal de recherche
-  Trafic, sources archivées, pistes écartées et prochaines vérifications. À consulter
-  avant de reprendre une recherche constructeur sur ce véhicule.
+  Trafic arrêté le 3 octobre 2026, sources archivées et résultats non validés.
+  Conservé comme historique ; reprise uniquement sur demande explicite de l'utilisateur.
 - [`audit_ble_diagnostic_2026-10-02.md`](audit_ble_diagnostic_2026-10-02.md) :
   Bluetooth BLE, lectures de diagnostic indépendantes et limite du profil Renault.
 
@@ -134,4 +139,5 @@ services et le contexte Android sont remplacés par des doubles de test.
 Mis au point sur une SEAT diesel (CAN 11 bits confirmé). Des essais PC indépendants ont
 établi une liaison KWP avec un Renault Trafic II de 2005 et lu son identité et son VIN
 constructeur, sans changement de session. Ils ne valident pas l'APK sur le Trafic :
-ses mesures constructeur et leur profil exact restent à documenter.
+ses mesures constructeur n'ont pas été validées. Cette recherche est arrêtée ;
+le Trafic ne fait pas partie du périmètre de validation actuel.
