@@ -338,7 +338,9 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(padding),
                                 fullScreen = fullScreen,
                                 onToggleFullScreen = { expandedDashboard = !fullScreen },
-                                onOpenSettings = { showSettings = true }
+                                onOpenSettings = { showSettings = true },
+                                onOpenGraphs = { screen = Screen.GRAPH },
+                                onReorderGauges = { viewModel.reorderBigGaugePids(it) }
                             )
                             Screen.DTC -> DtcScreen(
                                 state = state,

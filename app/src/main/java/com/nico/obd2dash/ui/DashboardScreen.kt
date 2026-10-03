@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -30,12 +32,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,11 +45,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nico.obd2dash.ConnectionIndicator
 import com.nico.obd2dash.ConnectionMode
 import com.nico.obd2dash.ConnectionState
@@ -75,7 +88,9 @@ fun DashboardScreen(
     modifier: Modifier = Modifier,
     fullScreen: Boolean = false,
     onToggleFullScreen: () -> Unit = {},
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onOpenGraphs: () -> Unit = {},
+    onReorderGauges: (List<Int>) -> Unit = {}
 ) {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -87,22 +102,25 @@ fun DashboardScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
     var showRecordings by remember { mutableStateOf(false) }
+    var showReorderHelp by remember { mutableStateOf(false) }
     val connected = state.connectionState == ConnectionState.CONNECTED
-    val primaryDefs = PidCatalog.defs.filter { it.pid in state.bigGaugePids && it.pid in state.supportedPids }
+    val primaryDefs = state.bigGaugePids.filter { it in state.supportedPids }
+        .mapNotNull { pid -> PidCatalog.defs.find { it.pid == pid } }
     val secondaryDefs = PidCatalog.defs.filter { it.pid !in state.bigGaugePids && it.pid in state.supportedPids }
     val canStartRecording = connected && state.dataAvailability == ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE
 
     // Hauteur bornée : les cadrans remplissent la surface restante, sans défilement ni
     // liste de boutons/fichiers qui leur prendrait une partie de l'écran de conduite.
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val sideRail = fullScreen && maxWidth > maxHeight
+        val sideRail = maxWidth > maxHeight
+        val showRecordingCount = !sideRail && maxWidth >= 440.dp
         DashboardChrome(sideRail = sideRail, controls = { leadingModifier ->
             Row(
                 modifier = leadingModifier, verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = if (sideRail) Arrangement.Center else Arrangement.Start
             ) {
                 if (fullScreen) ConnectionIndicator(state.connectionState, state.dataAvailability)
-                if (state.isRecording && !sideRail) {
+                if (state.isRecording && showRecordingCount) {
                     Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error))
                     Text(
                         stringResource(R.string.dashboard_recording_indicator, state.recordingSamples),
@@ -111,32 +129,50 @@ fun DashboardScreen(
                     )
                 }
             }
+            DashboardActionButton(
+                painter = painterResource(R.drawable.ic_chart),
+                label = stringResource(R.string.dashboard_graphs),
+                description = stringResource(R.string.dashboard_graphs),
+                onClick = onOpenGraphs,
+                enabled = connected,
+                prominent = true,
+                modifier = Modifier.width(88.dp)
+            )
             if (canStartRecording || state.isRecording) {
-                IconButton(onClick = onToggleRecording) {
-                    Icon(
-                        painterResource(if (state.isRecording) R.drawable.ic_stop_recording else R.drawable.ic_record),
-                        contentDescription = if (state.isRecording) {
-                            pluralStringResource(R.plurals.dashboard_stop_recording, state.recordingSamples, state.recordingSamples)
-                        } else stringResource(R.string.dashboard_start_recording),
-                        tint = if (state.isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-            IconButton(onClick = onToggleFullScreen) {
-                Icon(
-                    painterResource(if (fullScreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
-                    contentDescription = stringResource(if (fullScreen) R.string.dashboard_exit_fullscreen else R.string.dashboard_enter_fullscreen)
+                DashboardActionButton(
+                    painter = painterResource(if (state.isRecording) R.drawable.ic_stop_recording else R.drawable.ic_record),
+                    label = stringResource(if (state.isRecording) R.string.dashboard_stop_short else R.string.dashboard_record_short),
+                    description = if (state.isRecording) {
+                        pluralStringResource(R.plurals.dashboard_stop_recording, state.recordingSamples, state.recordingSamples)
+                    } else stringResource(R.string.dashboard_start_recording),
+                    onClick = onToggleRecording,
+                    recording = state.isRecording
                 )
             }
+            DashboardActionButton(
+                painter = painterResource(if (fullScreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
+                label = stringResource(R.string.dashboard_screen_short),
+                description = stringResource(if (fullScreen) R.string.dashboard_exit_fullscreen else R.string.dashboard_enter_fullscreen),
+                onClick = onToggleFullScreen
+            )
             Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.dashboard_actions))
-                }
+                DashboardActionButton(
+                    painter = rememberVectorPainter(Icons.Filled.MoreVert),
+                    label = stringResource(R.string.dashboard_menu_short),
+                    description = stringResource(R.string.dashboard_actions),
+                    onClick = { menuExpanded = true }
+                )
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(text = { Text(stringResource(R.string.dashboard_choose_gauges)) }, onClick = {
                         menuExpanded = false
                         onOpenSettings()
                     })
+                    if (primaryDefs.size > 1) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.dashboard_reorder_gauges)) }, onClick = {
+                            menuExpanded = false
+                            showReorderHelp = true
+                        })
+                    }
                     if (secondaryDefs.isNotEmpty()) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.dashboard_other_measurements, secondaryDefs.size)) }, onClick = {
                             menuExpanded = false
@@ -203,10 +239,25 @@ fun DashboardScreen(
                     if (state.vehicleResponseObserved && !state.pidDiscoveryComplete) {
                         Text(stringResource(R.string.dashboard_partial_discovery), style = MaterialTheme.typography.bodySmall)
                     }
-                    InstrumentPanel(primaryDefs, state.values, nowMs, Modifier.weight(1f).fillMaxWidth().padding(bottom = 4.dp))
+                    InstrumentPanel(
+                        primaryDefs, state.values, nowMs,
+                        Modifier.weight(1f).fillMaxWidth().padding(bottom = 4.dp), onReorderGauges
+                    )
                 }
             }
         })
+    }
+    if (showReorderHelp) {
+        AlertDialog(
+            onDismissRequest = { showReorderHelp = false },
+            title = { Text(stringResource(R.string.dashboard_reorder_gauges)) },
+            text = { Text(stringResource(R.string.dashboard_reorder_help)) },
+            confirmButton = {
+                TextButton(onClick = { showReorderHelp = false }, modifier = Modifier.heightIn(min = 56.dp)) {
+                    Text(stringResource(R.string.dashboard_understood))
+                }
+            }
+        )
     }
     if (showDetails || showRecordings) {
         ModalBottomSheet(onDismissRequest = { showDetails = false; showRecordings = false }) {
@@ -244,13 +295,21 @@ private fun DashboardChrome(
     if (sideRail) {
         Row(modifier = Modifier.fillMaxSize()) {
             content(Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp, end = 4.dp))
-            Column(modifier = Modifier.width(48.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
-                controls(Modifier.fillMaxWidth().padding(vertical = 8.dp))
+            Column(
+                modifier = Modifier.width(96.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                controls(Modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, bottom = 4.dp))
             }
         }
     } else {
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 controls(Modifier.weight(1f))
             }
             content(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp))
@@ -258,20 +317,53 @@ private fun DashboardChrome(
     }
 }
 
+/** Commandes lisibles à distance : pictogrammes de 32 dp et cibles de 56 × 64 dp minimum. */
 @Composable
-internal fun InstrumentPanel(defs: List<PidCatalog.Def>, values: Map<Int, GaugeValue>, nowMs: Long, modifier: Modifier = Modifier) {
-    if (defs.isEmpty()) return
-    BoxWithConstraints(modifier) {
-        val grid = remember(defs.size, maxWidth, maxHeight) { dashboardGrid(defs.size, maxWidth.value, maxHeight.value) }
-        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (row in defs.chunked(grid.columns)) {
-                Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (def in row) {
-                        key(def.pid) {
-                            InstrumentGauge(def, values[def.pid], nowMs, Modifier.weight(1f).fillMaxSize())
-                        }
-                    }
-                }
+private fun DashboardActionButton(
+    painter: Painter,
+    label: String,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    prominent: Boolean = false,
+    recording: Boolean = false
+) {
+    val colors = MaterialTheme.colorScheme
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val labelStyle = MaterialTheme.typography.labelMedium.copy(letterSpacing = 0.sp)
+    val labelWidth = remember(label, labelStyle, density) {
+        textMeasurer.measure(label, labelStyle, softWrap = false, maxLines = 1).size.width
+    }
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.width(56.dp).height(64.dp).semantics { contentDescription = description; role = Role.Button },
+        shape = RoundedCornerShape(12.dp),
+        color = when {
+            recording -> colors.errorContainer
+            prominent -> colors.secondaryContainer
+            else -> colors.surfaceVariant
+        },
+        contentColor = when {
+            !enabled -> colors.onSurface.copy(alpha = .38f)
+            else -> colors.onSurface
+        }
+    ) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(4.dp)) {
+            val availableWidth = with(density) { maxWidth.toPx() }
+            val labelScale = if (labelWidth > availableWidth) availableWidth / labelWidth * .98f else 1f
+            Column(
+                Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(painter, contentDescription = null, modifier = Modifier.size(32.dp))
+                Text(
+                    label, modifier = Modifier.clearAndSetSemantics {},
+                    style = labelStyle.copy(fontSize = labelStyle.fontSize * labelScale),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -336,7 +428,7 @@ private fun DashboardPreview() {
             state = ObdUiState(
                 connectionState = ConnectionState.CONNECTED,
                 dataAvailability = ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE,
-                supportedPids = values.keys, bigGaugePids = values.keys,
+                supportedPids = values.keys, bigGaugePids = values.keys.toList(),
                 values = values.mapValues { GaugeValue(it.value, now) }, pidDiscoveryComplete = true
             ),
             onDisconnect = {}, onModeChange = {}, onToggleRecording = {}, onShareRecording = {}, onDeleteRecording = {},

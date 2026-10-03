@@ -1,6 +1,7 @@
 package com.nico.obd2dash.ui
 
 import com.nico.obd2dash.GaugeValue
+import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +9,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DashboardLayoutTest {
+    @Test
+    fun `un cadran peut traverser les rangees dans les deux sens`() {
+        val pids = listOf(12, 13, 5, 4, 66, 11)
+        assertEquals(listOf(13, 5, 4, 66, 11, 12), moveDashboardGauge(pids, 0, 5))
+        assertEquals(listOf(11, 12, 13, 5, 4, 66), moveDashboardGauge(pids, 5, 0))
+        assertEquals(pids, moveDashboardGauge(pids, 0, -1))
+        assertEquals(pids, moveDashboardGauge(pids, 6, 0))
+    }
+
+    @Test
+    fun `le glissement trouve aussi le dernier cadran en rangee incomplete`() {
+        val slots = dashboardSlots(3, 344f, 668f)
+        assertEquals(3, slots.size)
+        assertEquals(344f, slots.last().width, .001f)
+        assertEquals(2, slots.indexOfFirst { it.contains(Offset(20f, 500f)) })
+        assertEquals(2, slots.indexOfFirst { it.contains(Offset(324f, 500f)) })
+        assertEquals(-1, slots.indexOfFirst { it.contains(Offset(172f, 20f)) })
+        assertEquals(-1, slots.indexOfFirst { it.contains(Offset(-1f, 500f)) })
+        assertTrue(dashboardSlots(0, 344f, 668f).isEmpty())
+    }
+
     @Test
     fun `six cadrans utilisent trois colonnes en paysage et deux en portrait`() {
         assertEquals(DashboardGrid(3, 2), dashboardGrid(6, 784f, 308f))

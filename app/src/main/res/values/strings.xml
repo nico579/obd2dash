@@ -54,6 +54,17 @@
     <string name="dashboard_exit_fullscreen">Quitter le plein écran</string>
     <string name="dashboard_actions">Commandes du tableau de bord</string>
     <string name="dashboard_choose_gauges">Choisir les cadrans</string>
+    <string name="dashboard_graphs">Graphiques</string>
+    <string name="dashboard_record_short">REC</string>
+    <string name="dashboard_stop_short">STOP</string>
+    <string name="dashboard_screen_short">Écran</string>
+    <string name="dashboard_menu_short">Menu</string>
+    <string name="dashboard_reorder_gauges">Déplacer les cadrans</string>
+    <string name="dashboard_reorder_help">Maintenez un appui long sur un cadran, puis glissez-le vers la place souhaitée. Relâchez pour enregistrer son nouvel ordre. Cet ordre est mémorisé pour ce véhicule.</string>
+    <string name="dashboard_understood">Compris</string>
+    <string name="dashboard_move_before">Déplacer avant</string>
+    <string name="dashboard_move_after">Déplacer après</string>
+    <string name="dashboard_gauge_position">Position %1$d/%2$d</string>
     <string name="dashboard_other_measurements">Autres mesures (%1$d)</string>
     <string name="dashboard_no_selected_gauges">Aucun cadran sélectionné parmi les mesures disponibles.</string>
     <string name="dashboard_recording_indicator">REC · %1$d</string>
@@ -71,7 +82,7 @@
     <string name="settings_bluetooth_connect_button">Connecter</string>
     <string name="settings_connected_label">Connecté.</string>
     <string name="settings_big_gauges_title">Cadrans du tableau de bord</string>
-    <string name="settings_big_gauges_description">Choisis jusqu\'à 6 paramètres (%1$d/6 sélectionnés). Leur placement s\'adapte à l\'écran. Les autres mesures restent accessibles dans le menu du tableau de bord.</string>
+    <string name="settings_big_gauges_description">Choisis jusqu\'à 6 paramètres (%1$d/6 sélectionnés). Sur le tableau de bord, un appui long suivi d\'un glissement permet de les ordonner. Les autres mesures restent accessibles dans son menu.</string>
     <string name="settings_log_title">Journal (%1$d)</string>
     <string name="settings_log_description">Démarrage, connexions, coupures, activation d\'une fonction, plantage. Un fichier par lancement de l\'application.</string>
 

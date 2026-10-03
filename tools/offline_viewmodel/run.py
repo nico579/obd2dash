@@ -27,6 +27,7 @@ SOURCE_NAMES = (
     "CanHeaderReassembly", "HeaderlessObdResponse", "DtcPayloadDecoder", "VinPayloadDecoder",
     "PollingHealth", "StandardObdAvailability",
     "DiagnosticReadSequence", "BleSerialTransport",
+    "DashboardGaugeOrder",
 )
 
 

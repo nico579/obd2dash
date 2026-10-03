@@ -1,5 +1,6 @@
 package com.nico.obd2dash.ui
 
+import androidx.compose.ui.geometry.Rect
 import kotlin.math.ceil
 import kotlin.math.min
 
@@ -23,6 +24,28 @@ internal fun dashboardGrid(count: Int, width: Float, height: Float, gap: Float =
 }
 
 private data class GridCandidate(val grid: DashboardGrid, val area: Double, val minDiameter: Float, val emptyCells: Int)
+
+/** Positions communes au dessin et au geste : une rangée incomplète garde toute la largeur. */
+internal fun dashboardSlots(count: Int, width: Float, height: Float, gap: Float = 8f): List<Rect> {
+    if (count <= 0 || width <= 0f || height <= 0f) return emptyList()
+    val grid = dashboardGrid(count, width, height, gap)
+    val rowHeight = ((height - gap * (grid.rows - 1)) / grid.rows).coerceAtLeast(0f)
+    return (0 until count).map { index ->
+        val row = index / grid.columns
+        val column = index % grid.columns
+        val rowCount = min(grid.columns, count - row * grid.columns)
+        val cellWidth = ((width - gap * (rowCount - 1)) / rowCount).coerceAtLeast(0f)
+        val left = column * (cellWidth + gap)
+        val top = row * (rowHeight + gap)
+        Rect(left, top, left + cellWidth, top + rowHeight)
+    }
+}
+
+/** Déplacement dans l'ordre de lecture (gauche à droite, puis rangée suivante). */
+internal fun moveDashboardGauge(pids: List<Int>, from: Int, to: Int): List<Int> {
+    if (from !in pids.indices || to !in pids.indices || from == to) return pids
+    return pids.toMutableList().apply { add(to, removeAt(from)) }
+}
 
 /** Sépare l'affichage déjà décodé, sans créer un second décodeur OBD. */
 internal data class DialReading(val number: String, val detail: String, val value: Double?)

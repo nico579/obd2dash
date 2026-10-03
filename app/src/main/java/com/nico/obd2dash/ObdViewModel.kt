@@ -118,12 +118,9 @@ data class ObdUiState(
     val mode01BitmapReceived: Boolean = false,
     val pidDiscoveryComplete: Boolean = false,
     val values: Map<Int, GaugeValue> = emptyMap(),
-    // Paramètres affichés en gros sur le Dashboard (voir GaugeRow), choisis par
-    // l'utilisateur depuis Réglages (jusqu'à MAX_BIG_GAUGE_PIDS) plutôt que le triplet
-    // RPM/vitesse/température fixe d'avant : persisté comme host/port, pour retrouver le
-    // même panneau d'un lancement à l'autre sans redemander à chaque fois. Défaut =
-    // PidCatalog.PRIMARY_PIDS (comportement inchangé tant que rien n'a été personnalisé).
-    val bigGaugePids: Set<Int> = PidCatalog.PRIMARY_PIDS,
+    // Sélection ET ordre des cadrans, persistés par véhicule. Une liste est nécessaire :
+    // l'égalité d'un Set ignorait les déplacements et l'affichage suivait le catalogue.
+    val bigGaugePids: List<Int> = PidCatalog.PRIMARY_PIDS.toList(),
     // PID actuellement suivi par l'écran Graphique, et son historique (voir GraphPoint).
     // Repartent à zéro à chaque nouvelle connexion (comme le reste de l'état) : un
     // historique qui continuerait après une coupure/reconnexion afficherait une tendance
@@ -482,29 +479,36 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     // Repli sur l'ancienne clé globale (jamais scindée par véhicule avant ce correctif) si
     // rien n'est encore enregistré pour CE véhicule précis : évite de perdre un réglage
     // déjà fait par un utilisateur existant simplement parce que la clé a changé de forme.
-    private fun loadBigGaugePids(vehicleId: String): Set<Int> =
-        (prefs.getString(bigGaugePidsKey(vehicleId), null) ?: prefs.getString(KEY_BIG_GAUGE_PIDS, null))
-            ?.split(",")
-            ?.mapNotNull { it.trim().toIntOrNull() }
-            ?.toSet()
-            ?: PidCatalog.PRIMARY_PIDS
+    private fun loadBigGaugePids(vehicleId: String): List<Int> = DashboardGaugeOrder.restore(
+        prefs.getString(bigGaugePidsKey(vehicleId), null) ?: prefs.getString(KEY_BIG_GAUGE_PIDS, null)
+    )
 
     /**
      * Coche/décoche un paramètre pour l'affichage en gros (voir ObdUiState.bigGaugePids),
      * persisté immédiatement comme host/port, sous la clé du véhicule CONNECTÉ (voir
      * vehicleId, mis à jour par finishConnecting()). Refuse silencieusement d'ajouter un
-     * septième paramètre plutôt que de dépasser MAX_BIG_GAUGE_PIDS : l'UI (Réglages)
+     * septième paramètre plutôt que de dépasser DashboardGaugeOrder.MAX_GAUGES : l'UI (Réglages)
      * désactive déjà les cases non cochées une fois le maximum atteint, ce garde-fou
      * n'est là qu'en repli.
      */
     fun setBigGaugePidSelected(pid: Int, selected: Boolean) {
+        if (PidCatalog.defs.none { it.pid == pid }) return
         val current = _state.value.bigGaugePids
         val updated = when {
             !selected -> current - pid
-            pid in current || current.size < MAX_BIG_GAUGE_PIDS -> current + pid
+            pid in current -> current
+            current.size < DashboardGaugeOrder.MAX_GAUGES -> current + pid
             else -> current
         }
         if (updated == current) return
+        prefs.edit().putString(bigGaugePidsKey(vehicleId), updated.joinToString(",")).apply()
+        _state.update { it.copy(bigGaugePids = updated) }
+    }
+
+    fun reorderBigGaugePids(visibleOrder: List<Int>) {
+        val state = _state.value
+        val updated = DashboardGaugeOrder.reorder(state.bigGaugePids, state.supportedPids, visibleOrder)
+        if (updated == state.bigGaugePids) return
         prefs.edit().putString(bigGaugePidsKey(vehicleId), updated.joinToString(",")).apply()
         _state.update { it.copy(bigGaugePids = updated) }
     }
@@ -2310,10 +2314,6 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_BLUETOOTH_NAME = "conn_bt_name"
         private const val KEY_BLUETOOTH_TRANSPORT = "conn_bt_transport"
         private const val KEY_BIG_GAUGE_PIDS = "big_gauge_pids"
-        // Assez pour un coup d'œil rapide en conduisant (voir GaugeRow, ObdUiState.
-        // bigGaugePids) sans réduire chaque valeur à une taille illisible sur le
-        // téléphone si l'utilisateur en choisissait beaucoup plus.
-        private const val MAX_BIG_GAUGE_PIDS = 6
         // ~600 o/échantillon (~40 colonnes max) : à 5s, une session de 2h fait autour de
         // 850 Ko. Assez fin pour une analyse de tendance, sans accumuler des Mo inutiles.
         private const val RECORDING_INTERVAL_MS = 5_000L

@@ -231,7 +231,7 @@ fun SettingsScreen(
                         checked = checked,
                         onCheckedChange = { onSetBigGaugePid(def.pid, it) },
                         // Cases non cochées désactivées une fois le maximum atteint (voir
-                        // ObdViewModel.MAX_BIG_GAUGE_PIDS), plutôt qu'un message d'erreur après
+                        // DashboardGaugeOrder.MAX_GAUGES), plutôt qu'un message d'erreur après
                         // coup : la limite reste visible avant même d'essayer de la dépasser.
                         enabled = checked || state.bigGaugePids.size < 6
                     )

@@ -29,7 +29,7 @@ Les préférences du double désactivent la connexion initiale sans cible ; le t
 appelle ensuite explicitement la connexion locale. Le transport Bluetooth du
 double lève une erreur s'il est sollicité.
 
-Les seize scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
+Les dix-sept scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
 même CSV ; arrêt manuel pendant la reconnexion ; connexion sans mesures ; échec de
 connexion ; coupure TCP puis reprise automatique ; adresse Wi-Fi invalide avec une
 session active ; choix Bluetooth sans appareil ; échec du transport Bluetooth
@@ -46,6 +46,9 @@ Ils attendent la cadence MIL réelle de 30 secondes, sans la modifier pour le te
 Quatre cas supplémentaires vérifient les refus du dialogue standard Trafic sans
 faux « aucun défaut », les dates après une lecture partielle, l'arrêt sur NRC78
 et la lecture automatique de codes stockés malgré un refus du MIL.
+Le cas `--case gauge_order_preferences` vérifie aussi la sauvegarde de l'ordre des
+cadrans par VIN, sa restauration après reconnexion et recréation du ViewModel,
+la conservation des choix indisponibles et le refus d'un déplacement incomplet.
 Le double BLE interdit tout accès radio ; les tests unitaires de `BleSerialTransport`
 vérifient séparément les callbacks et les flux avec un pilote GATT simulé.
 

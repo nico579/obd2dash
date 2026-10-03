@@ -392,6 +392,49 @@ private suspend fun automaticCodesDespiteMilRefusal(dir: File) {
     }
 }
 
+private suspend fun gaugeOrderPreferences(dir: File) {
+    val firstVin = "1D4GP00R55B123456"
+    val secondVin = "1D4GP00R55B123457"
+    fun vinReply(vin: String) = "490201" + vin.map { "%02X".format(it.code) }.joinToString("")
+    FakeElm(bitmap = "410008180000", replyOverride = { if (it == "0902") vinReply(firstVin) else null }).use { first ->
+        FakeElm(bitmap = "410008180000", replyOverride = { if (it == "0902") vinReply(secondVin) else null }).use { second ->
+            val app = Application(dir.apply { mkdirs() })
+            val prefs = app.getSharedPreferences("obd2dash", android.content.Context.MODE_PRIVATE)
+            val vm = withContext(auditDispatcher) { ObdViewModel(app) }
+            val firstOrder = listOf(0x05, 0x0C, 0x0D, 0x42)
+            try {
+                reconnect(vm, first)
+                awaitUntil { vm.state.value.connectionState == ConnectionState.CONNECTED }
+                check(vm.state.value.vin == firstVin)
+                withContext(auditDispatcher) {
+                    vm.setBigGaugePidSelected(0x42, true) // Choix conservé, indisponible dans ce bitmap.
+                    vm.setBigGaugePidSelected(0x42, true) // Pas de doublon après migration Set -> List.
+                    vm.reorderBigGaugePids(listOf(0x05, 0x0C, 0x0D))
+                }
+                check(vm.state.value.bigGaugePids == firstOrder)
+                check(prefs.getString("big_gauge_pids:$firstVin", null) == firstOrder.joinToString(","))
+                withContext(auditDispatcher) { vm.reorderBigGaugePids(listOf(0x0C, 0x0D)) }
+                check(vm.state.value.bigGaugePids == firstOrder) // Geste incomplet refusé.
+                reconnect(vm, second)
+                awaitUntil { vm.state.value.connectionState == ConnectionState.CONNECTED }
+                check(vm.state.value.vin == secondVin)
+                check(vm.state.value.bigGaugePids == PidCatalog.PRIMARY_PIDS.toList())
+                withContext(auditDispatcher) { vm.reorderBigGaugePids(listOf(0x0D, 0x05, 0x0C)) }
+                check(prefs.getString("big_gauge_pids:$firstVin", null) == firstOrder.joinToString(","))
+                reconnect(vm, first)
+                awaitUntil { vm.state.value.connectionState == ConnectionState.CONNECTED }
+                check(vm.state.value.bigGaugePids == firstOrder)
+            } finally { finish(vm) }
+            val restarted = withContext(auditDispatcher) { ObdViewModel(app) }
+            try {
+                reconnect(restarted, first)
+                awaitUntil { restarted.state.value.connectionState == ConnectionState.CONNECTED }
+                check(restarted.state.value.bigGaugePids == firstOrder)
+            } finally { finish(restarted) }
+        }
+    }
+}
+
 fun main(args: Array<String>) = runBlocking {
     val root = File(args[0]).apply { mkdirs() }
     val cases: Map<String, suspend (File) -> Unit> = linkedMapOf(
@@ -410,7 +453,8 @@ fun main(args: Array<String>) = runBlocking {
         "trafic_diagnostic_refusals" to ::traficDiagnosticRefusals,
         "partial_diagnostic_dates" to ::partialDiagnosticDates,
         "temporary_diagnostic_stops" to ::temporaryDiagnosticStops,
-        "automatic_codes_despite_mil_refusal" to ::automaticCodesDespiteMilRefusal
+        "automatic_codes_despite_mil_refusal" to ::automaticCodesDespiteMilRefusal,
+        "gauge_order_preferences" to ::gaugeOrderPreferences
     )
     val selected = args.getOrNull(1)?.let { name -> mapOf(name to cases.getValue(name)) } ?: cases
     var failed = 0
