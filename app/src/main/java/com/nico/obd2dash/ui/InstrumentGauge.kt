@@ -25,10 +25,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.core.content.res.ResourcesCompat
 import com.nico.obd2dash.GaugeValue
 import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.R
@@ -76,6 +78,10 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
     val textBounds = remember { Rect() }
     val regularTypeface = remember { Typeface.create("sans-serif", Typeface.NORMAL) }
     val boldTypeface = remember { Typeface.create("sans-serif-condensed", Typeface.BOLD) }
+    val context = LocalContext.current
+    val segmentTypeface = remember(context) {
+        ResourcesCompat.getFont(context, R.font.dseg7_modern_bold) ?: boldTypeface
+    }
     val tickTypeface = remember { Typeface.create("sans-serif-condensed", Typeface.NORMAL) }
     val rimBrush = remember {
         Brush.linearGradient(listOf(Color(0xFFCBD2D6), Color(0xFF52616C), Color(0xFFB7C0C5)))
@@ -103,9 +109,12 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                     return Offset(c.x + cos(radians).toFloat() * radius, c.y + sin(radians).toFloat() * radius)
                 }
 
-                fun drawCentered(text: String, y: Float, nominalSize: Float, maxWidth: Float, color: Color, bold: Boolean = false, maxHeight: Float = d * .065f) {
+                fun drawCentered(
+                    text: String, y: Float, nominalSize: Float, maxWidth: Float, color: Color,
+                    typeface: Typeface = regularTypeface, maxHeight: Float = d * .065f
+                ) {
                     if (text.isEmpty()) return
-                    paint.typeface = if (bold) boldTypeface else regularTypeface
+                    paint.typeface = typeface
                     paint.color = color.toArgb()
                     paint.textSize = nominalSize
                     val measured = paint.measureText(text)
@@ -156,13 +165,16 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                         }
                     }
                 }
-                drawCentered(label, d * .395f, d * .061f * fontScale, d * .55f, colors.onSurface, bold = true, maxHeight = d * .055f)
+                drawCentered(label, d * .395f, d * .061f * fontScale, d * .55f, colors.onSurface, typeface = boldTypeface, maxHeight = d * .055f)
                 // Affichage entier, au bas du cadran et sous les graduations extrêmes.
                 // L'aiguille utilise toujours la mesure précise, les composites gardent
                 // leurs unités et leur seconde composante arrondie pour l'affichage.
                 val number = if (unavailable) "—" else if (def.pid == 0x4F) displayText else displayReading.number
                 val detail = if (def.pid == 0x4F || unavailable) "" else displayReading.detail
-                drawCentered(number, d * .83f, d * .222f * fontScale, d * .60f, textColor, bold = true, maxHeight = d * .15f)
+                // La police segmentée couvre les entiers signés. Les valeurs composites
+                // et le tiret d'indisponibilité gardent tous leurs caractères lisibles.
+                val numberTypeface = if (number.all { it in '0'..'9' || it == '-' }) segmentTypeface else boldTypeface
+                drawCentered(number, d * .83f, d * .222f * fontScale, d * .60f, textColor, typeface = numberTypeface, maxHeight = d * .15f)
                 drawCentered(detail, d * .94f, d * .065f * fontScale, d * .33f, textColor, maxHeight = d * .05f)
                 val footer = if (status.isNotEmpty()) status else scale?.annotation.orEmpty()
                 drawCentered(footer, d * .61f, d * .052f * fontScale, d * .53f, colors.onSurfaceVariant)

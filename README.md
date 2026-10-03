@@ -21,6 +21,8 @@ diagnostics, les enregistrements et le dashboard.
   choisis dans Réglages, avec grandes valeurs numériques, graduations et aiguilles
   rouges légèrement transparentes, du centre aux graduations et au-dessus des
   textes, en mode jour comme en mode nuit.
+  Les valeurs numériques utilisent des chiffres droits à **sept segments**, comme
+  un afficheur automobile. Les libellés, unités et graduations conservent leur police.
   Les valeurs arrondies sans décimale sont placées au bas du cadran, près du cercle,
   pour dégager le centre et limiter leur recouvrement par l'aiguille. La précision
   des mesures, de l'aiguille, des courbes et des captures est conservée.
@@ -117,6 +119,11 @@ diagnostics, les enregistrements et le dashboard.
 ```
 
 Nécessite le SDK Android (minSdk 26) et un appareil connecté (débogage USB activé).
+
+La police embarquée [DSEG7 Modern Bold](https://github.com/keshikan/DSEG/releases/tag/v0.46)
+(DSEG 0.46), créée par keshikan, est distribuée sous SIL Open Font License 1.1.
+Sa licence est incluse dans l'APK et dans
+[`app/src/main/assets/licenses/DSEG-LICENSE.txt`](app/src/main/assets/licenses/DSEG-LICENSE.txt).
 
 ## Tests
 
