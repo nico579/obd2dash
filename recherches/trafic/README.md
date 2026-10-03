@@ -252,6 +252,29 @@ impossibilité générale de lire le camion.
 **Cette passe apporte enfin le contenu de définitions candidates. Aucun profil
 n'est installé dans l'application et aucune commande n'a été envoyée au véhicule.**
 
+## Clarification du blocage — R098
+
+Le 3 octobre, les **88 définitions d'identification** des quatre modèles obtenus
+sont examinées pour chercher un critère supplémentaire. Les quatre décrivent le
+même décodage des champs principaux : Vdiag (`_NIDIAG`), fournisseur (`_NFOUR`),
+numéro de programme (`_NPROG`) et version logiciel (`_NVERS`). Ils ne fournissent
+pas de valeurs attendues supplémentaires permettant de choisir le bon modèle.
+Cette vérification est archivée sous A098 dans le registre.
+
+**Relire ces mêmes champs `2180` sur le camion ne résout donc pas l'ambiguïté.**
+Les nouveaux fichiers donnent le contenu de mesures candidates, mais l'activation
+des mesures du Trafic reste bloquée par l'absence de preuve suffisante du modèle
+applicable et des conditions d'accès. Cela ne démontre pas que le véhicule serait
+illisible avec un outil adapté ; cela ne garantit pas non plus que notre application
+pourra le prendre en charge.
+
+La donnée qui ferait avancer la recherche est une **définition plus discriminante
+ou une trace de référence du même calculateur**, contenant l'identité complète,
+les échanges de mesures et les conditions de session. Les seuls fichiers actuels,
+un nouveau relevé d'identité identique ou un test de décodage sur des données
+synthétiques ne remplacent pas cette preuve. Aucune nouvelle commande véhicule
+n'a été envoyée ; aucun fonctionnement réel n'est annoncé comme validé.
+
 ## Bilans locaux utilisés
 
 - `captures/recherche_profil_signature_25_037_00CB_1200.md` : signature, profil voisin

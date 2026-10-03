@@ -1117,6 +1117,14 @@
       "analysis_started_at_utc": "2026-10-03T10:40:27.482531+00:00",
       "size": 13445,
       "sha256": "9f6a20a8e63741a15b103d0415613f933c6959f372fad55828bb27c40d938708"
+    },
+    {
+      "id": "A098",
+      "artifact": "captures/recherche_sources_20261003/identity_definitions_R098.json",
+      "origin": "offline_identity_definition_inspection",
+      "analysis_started_at_utc": "2026-10-03T11:05:11.284020+00:00",
+      "size": 98896,
+      "sha256": "805205a9570be6be39fc9c1414a26389f3fbdc04ac65bce9c730ada8572853f8"
     }
   ]
 }
