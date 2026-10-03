@@ -19,19 +19,22 @@ diagnostics, les enregistrements et le dashboard.
 - **Dashboard temps réel** : jauges pour les PID réellement supportés par le véhicule
   connecté (auto-découverte à la connexion, pas de liste figée). Jusqu'à six cadrans
   choisis dans Réglages, avec grandes valeurs numériques, graduations et aiguilles
-  rouges en mode jour comme en mode nuit.
+  rouges légèrement transparentes, du centre aux graduations et au-dessus des
+  textes, en mode jour comme en mode nuit.
   Un **appui long suivi d'un glissement** déplace un cadran dans l'ordre de lecture
   (gauche à droite, puis rangée suivante). L'ordre est enregistré par VIN lorsqu'il
   est lu, avec un réglage commun aux véhicules dont le VIN reste inconnu ;
   les choix existants et les cadrans temporairement indisponibles sont conservés.
-  Leur grille exploite la surface disponible en portrait comme en paysage ; une
-  dernière rangée incomplète utilise toute la largeur. Le paysage ouvre par défaut
-  le plein écran, également accessible par le bouton d'agrandissement en portrait.
-  Les commandes ont des pictogrammes de 32 dp et des cibles d'au moins 56 × 64 dp.
-  Le bouton **Graphiques** reste visible en plein écran et ouvre les courbes dès
-  qu'une connexion est établie. Le bouton d'agrandissement ou Retour rétablit la navigation.
-  Le menu permet de choisir les cadrans, retrouver l'aide au déplacement,
-  consulter les autres mesures et les enregistrements, ou déconnecter la sonde.
+  Leur grille maximise un diamètre identique pour tous les cadrans en portrait
+  comme en paysage ; une dernière rangée incomplète est centrée, sans agrandissement.
+  Une seule barre commune à tous les écrans regroupe **Dashboard, Graphique,
+  enregistrement, plein écran et menu …**. Elle est en bas en portrait ou dans une
+  fenêtre basse, et sur le côté en paysage. Les boutons mesurent 64 dp de haut,
+  avec des pictogrammes de 32 dp. Le paysage ouvre par défaut le plein écran sur
+  les cadrans et les courbes ; le bouton reste accessible en portrait.
+  Le menu … contient **DTC, Sondage, Smoke test et Réglages**, ainsi que l'aide
+  au déplacement, les autres mesures, les enregistrements et la déconnexion.
+  Le choix des cadrans et du mode Wi-Fi/Bluetooth se fait dans Réglages.
   Le bouton d'enregistrement reste accessible, y compris pour arrêter pendant une
   reconnexion. Les échelles sont graphiques et ne constituent pas des seuils d'alerte.
 - **Résultat de découverte explicite** : une sonde joignable ne prouve pas une réponse

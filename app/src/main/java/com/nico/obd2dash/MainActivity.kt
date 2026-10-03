@@ -25,24 +25,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -58,7 +43,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -69,16 +53,16 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.nico.obd2dash.ui.AutoTestScreen
 import com.nico.obd2dash.ui.DashboardScreen
+import com.nico.obd2dash.ui.AppScreen
+import com.nico.obd2dash.ui.AppMenuAction
+import com.nico.obd2dash.ui.ObdAppChrome
+import com.nico.obd2dash.ui.DashboardMenuDialogs
 import com.nico.obd2dash.ui.DtcScreen
 import com.nico.obd2dash.ui.GraphScreen
 import com.nico.obd2dash.ui.Obd2DashTheme
 import com.nico.obd2dash.ui.ProbeScreen
 import com.nico.obd2dash.ui.SettingsScreen
-import com.nico.obd2dash.ui.navBarContainerColor
-import com.nico.obd2dash.ui.topBarContainerColor
 import java.io.File
-
-private enum class Screen { DASHBOARD, DTC, PROBE, GRAPH, AUTO_TEST }
 
 class MainActivity : ComponentActivity() {
 
@@ -148,7 +132,6 @@ class MainActivity : ComponentActivity() {
         viewModel.stopBleScan()
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -164,15 +147,16 @@ class MainActivity : ComponentActivity() {
                     color = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onBackground
                 ) {
-                    var screen by remember { mutableStateOf(Screen.DASHBOARD) }
-                    var showSettings by remember { mutableStateOf(false) }
+                    var screen by rememberSaveable { mutableStateOf(AppScreen.DASHBOARD) }
+                    val showSettings = screen == AppScreen.SETTINGS
+                    var menuDialog by remember { mutableStateOf<AppMenuAction?>(null) }
                     val state by viewModel.state.collectAsState()
                     // Le téléphone posé sur le tableau de bord bénéficie d'emblée de
                     // toute la surface en paysage. Le bouton conserve le choix manuel
                     // lors des rotations, et reste disponible aussi en portrait.
-                    var expandedDashboard by rememberSaveable { mutableStateOf<Boolean?>(null) }
+                    var expandedScreen by rememberSaveable { mutableStateOf<Boolean?>(null) }
                     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-                    val fullScreen = screen == Screen.DASHBOARD && !showSettings && (expandedDashboard ?: landscape)
+                    val fullScreen = expandedScreen ?: (landscape && (screen == AppScreen.DASHBOARD || screen == AppScreen.GRAPH))
 
                     // Écran maintenu allumé seulement pendant l'usage réel "au volant" : connecté
                     // ET sur Dashboard ou Graphique (jauges/courbe en train d'être regardées),
@@ -205,172 +189,97 @@ class MainActivity : ComponentActivity() {
                     }
                     val keepAwake = !showSettings &&
                         state.connectionState == ConnectionState.CONNECTED &&
-                        (screen == Screen.DASHBOARD || screen == Screen.GRAPH)
+                        (screen == AppScreen.DASHBOARD || screen == AppScreen.GRAPH)
                     SideEffect {
                         view.keepScreenOn = keepAwake
                         applyWakeOverLockScreenFlags(window, keepAwake)
                     }
 
-                    // Sans ça, le retour système depuis Réglages ferme l'Activity racine
-                    // (Android <=11) ou la met en arrière-plan (Android 12+) au lieu de
-                    // revenir au Dashboard comme la flèche de la barre du haut (voir audit,
-                    // "Navigation") : le premier cas arrête aussi l'acquisition liée à ce
-                    // ViewModel, contrairement à ce qu'un simple retour d'écran laisse
-                    // attendre.
-                    BackHandler(enabled = showSettings) { showSettings = false }
-                    BackHandler(enabled = fullScreen) { expandedDashboard = false }
+                    BackHandler(enabled = screen != AppScreen.DASHBOARD || fullScreen) {
+                        if (screen != AppScreen.DASHBOARD) screen = AppScreen.DASHBOARD
+                        else expandedScreen = false
+                    }
 
-                    Scaffold(
-                        containerColor = Color.Transparent,
-                        topBar = {
-                            if (!fullScreen) TopAppBar(
-                                colors = TopAppBarDefaults.topAppBarColors(containerColor = topBarContainerColor()),
-                                title = {
-                                    Text(stringResource(if (showSettings) R.string.topbar_title_settings else R.string.app_name))
-                                },
-                                navigationIcon = {
-                                    if (showSettings) {
-                                        IconButton(onClick = { showSettings = false }) {
-                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.topbar_back))
-                                        }
-                                    }
-                                },
-                                actions = {
-                                    ConnectionIndicator(state.connectionState, state.dataAvailability)
-                                    if (!showSettings) {
-                                        IconButton(onClick = { showSettings = true }) {
-                                            Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.topbar_settings_icon))
-                                        }
-                                    }
+                    Scaffold(containerColor = Color.Transparent) { padding ->
+                        ObdAppChrome(
+                            state = state,
+                            screen = screen,
+                            fullScreen = fullScreen,
+                            onNavigate = { screen = it },
+                            onToggleRecording = {
+                                if (state.isRecording) viewModel.stopRecording()
+                                else {
+                                    ensureNotificationPermission()
+                                    viewModel.startRecording()
                                 }
-                            )
-                        },
-                        bottomBar = {
-                            // Chaque onglet ferme aussi Réglages (voir audit, "Navigation") :
-                            // sans ça, screen changeait bien en interne mais l'écran affiché
-                            // restait Réglages (priorité du "if (showSettings)" ci-dessous),
-                            // jusqu'à ce que la flèche de retour soit pressée séparément.
-                            if (!fullScreen) NavigationBar(containerColor = navBarContainerColor()) {
-                                NavigationBarItem(
-                                    selected = screen == Screen.DASHBOARD,
-                                    onClick = { screen = Screen.DASHBOARD; showSettings = false },
-                                    icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-                                    label = { Text(stringResource(R.string.nav_dashboard)) }
+                            },
+                            onToggleFullScreen = { expandedScreen = !fullScreen },
+                            onDisconnect = { viewModel.disconnect() },
+                            onMenuAction = { menuDialog = it },
+                            modifier = Modifier.padding(padding)
+                        ) { contentModifier ->
+                            when (screen) {
+                                AppScreen.DASHBOARD -> DashboardScreen(
+                                    state = state,
+                                    modifier = contentModifier,
+                                    onReorderGauges = { viewModel.reorderBigGaugePids(it) }
                                 )
-                                // DTC/Sondage/Graphique/Smoke test verrouillés tant que CONNECTED
-                                // n'est pas atteint (demande explicite) : seul Dashboard reste
-                                // accessible pendant l'attente initiale ou une reconnexion, ces
-                                // écrans n'ont rien d'exploitable à montrer avant une connexion
-                                // réussie (supportedPids vide, aucune donnée véhicule). Ne force
-                                // pas la navigation si on y est déjà et que la connexion tombe en
-                                // cours de route (RECONNECTING) : seul le résultat d'un NOUVEAU
-                                // tap est bloqué, l'écran déjà affiché gère lui-même ce cas.
-                                val connected = state.connectionState == ConnectionState.CONNECTED
-                                NavigationBarItem(
-                                    selected = screen == Screen.DTC,
-                                    onClick = { screen = Screen.DTC; showSettings = false },
-                                    enabled = connected,
-                                    icon = { Icon(Icons.Filled.Warning, contentDescription = null) },
-                                    label = { Text(stringResource(R.string.nav_dtc)) }
+                                AppScreen.SETTINGS -> SettingsScreen(
+                                    state = state,
+                                    onConnect = { host, port -> viewModel.connect(host, port) },
+                                    onConnectBluetooth = { device -> viewModel.connectBluetooth(device) },
+                                    onHostChange = { viewModel.updateHost(it) },
+                                    onPortChange = { viewModel.updatePort(it) },
+                                    onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
+                                    onBluetoothTransportChange = { viewModel.setBluetoothTransport(it) },
+                                    onStartBleSearch = { ensureBleScanPermissionThenStart() },
+                                    onStopBleSearch = { stopBleSearch() },
+                                    onConnectBleDevice = { device ->
+                                        stopBleSearch()
+                                        viewModel.setBluetoothTransport(BluetoothTransport.BLE)
+                                        viewModel.connectBluetooth(device)
+                                    },
+                                    onSetBigGaugePid = { pid, selected -> viewModel.setBigGaugePidSelected(pid, selected) },
+                                    onShareLog = { path -> shareCsvFile(path, R.string.share_log_title, mimeType = "text/plain") },
+                                    onDeleteLog = { path -> viewModel.deleteLog(path) },
+                                    modifier = contentModifier,
+                                    onConnectionModeChange = { viewModel.switchConnectionMode(it) }
                                 )
-                                NavigationBarItem(
-                                    selected = screen == Screen.PROBE,
-                                    onClick = { screen = Screen.PROBE; showSettings = false },
-                                    enabled = connected,
-                                    icon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                                    label = { Text(stringResource(R.string.nav_probe)) }
+                                AppScreen.DTC -> DtcScreen(
+                                    state = state,
+                                    onRefresh = { viewModel.refreshDtcs() },
+                                    onProbeHeaders = { viewModel.probeHeaderFormat() },
+                                    modifier = contentModifier
                                 )
-                                NavigationBarItem(
-                                    selected = screen == Screen.GRAPH,
-                                    onClick = { screen = Screen.GRAPH; showSettings = false },
-                                    enabled = connected,
-                                    icon = { Icon(painterResource(R.drawable.ic_chart), contentDescription = null) },
-                                    label = { Text(stringResource(R.string.nav_graph)) }
+                                AppScreen.PROBE -> ProbeScreen(
+                                    state = state,
+                                    onStartScan = { startDid, endDid, targetHeader ->
+                                        viewModel.startFapScan(startDid, endDid, targetHeader)
+                                    },
+                                    onStopScan = { viewModel.stopFapScan() },
+                                    onShareProbe = { path -> shareCsvFile(path, R.string.share_probe_title) },
+                                    onDeleteProbe = { path -> viewModel.deleteProbe(path) },
+                                    modifier = contentModifier
                                 )
-                                NavigationBarItem(
-                                    selected = screen == Screen.AUTO_TEST,
-                                    onClick = { screen = Screen.AUTO_TEST; showSettings = false },
-                                    enabled = connected,
-                                    icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                    label = { Text(stringResource(R.string.nav_smoke_test)) }
+                                AppScreen.GRAPH -> GraphScreen(
+                                    state = state,
+                                    onSelectPid = { pid -> viewModel.selectGraphPid(pid) },
+                                    modifier = contentModifier
+                                )
+                                AppScreen.AUTO_TEST -> AutoTestScreen(
+                                    state = state,
+                                    onRun = { viewModel.runAutoTest() },
+                                    onStop = { viewModel.stopAutoTest() },
+                                    modifier = contentModifier
                                 )
                             }
                         }
-                    ) { padding ->
-                        if (showSettings) {
-                            SettingsScreen(
-                                state = state,
-                                onConnect = { host, port -> viewModel.connect(host, port) },
-                                onConnectBluetooth = { device -> viewModel.connectBluetooth(device) },
-                                onHostChange = { viewModel.updateHost(it) },
-                                onPortChange = { viewModel.updatePort(it) },
-                                onRefreshBluetoothDevices = { ensureBluetoothPermissionThenRefresh() },
-                                onBluetoothTransportChange = { viewModel.setBluetoothTransport(it) },
-                                onStartBleSearch = { ensureBleScanPermissionThenStart() },
-                                onStopBleSearch = { stopBleSearch() },
-                                onConnectBleDevice = { device ->
-                                    stopBleSearch()
-                                    viewModel.setBluetoothTransport(BluetoothTransport.BLE)
-                                    viewModel.connectBluetooth(device)
-                                },
-                                onSetBigGaugePid = { pid, selected -> viewModel.setBigGaugePidSelected(pid, selected) },
-                                onShareLog = { path -> shareCsvFile(path, R.string.share_log_title, mimeType = "text/plain") },
-                                onDeleteLog = { path -> viewModel.deleteLog(path) },
-                                modifier = Modifier.padding(padding)
-                            )
-                            return@Scaffold
-                        }
-                        when (screen) {
-                            Screen.DASHBOARD -> DashboardScreen(
-                                state = state,
-                                onDisconnect = { viewModel.disconnect() },
-                                onModeChange = { viewModel.switchConnectionMode(it) },
-                                onToggleRecording = {
-                                    if (state.isRecording) {
-                                        viewModel.stopRecording()
-                                    } else {
-                                        ensureNotificationPermission()
-                                        viewModel.startRecording()
-                                    }
-                                },
-                                onShareRecording = { path -> shareCsvFile(path, R.string.share_recording_title) },
-                                onDeleteRecording = { path -> viewModel.deleteRecording(path) },
-                                modifier = Modifier.padding(padding),
-                                fullScreen = fullScreen,
-                                onToggleFullScreen = { expandedDashboard = !fullScreen },
-                                onOpenSettings = { showSettings = true },
-                                onOpenGraphs = { screen = Screen.GRAPH },
-                                onReorderGauges = { viewModel.reorderBigGaugePids(it) }
-                            )
-                            Screen.DTC -> DtcScreen(
-                                state = state,
-                                onRefresh = { viewModel.refreshDtcs() },
-                                onProbeHeaders = { viewModel.probeHeaderFormat() },
-                                modifier = Modifier.padding(padding)
-                            )
-                            Screen.PROBE -> ProbeScreen(
-                                state = state,
-                                onStartScan = { startDid, endDid, targetHeader ->
-                                    viewModel.startFapScan(startDid, endDid, targetHeader)
-                                },
-                                onStopScan = { viewModel.stopFapScan() },
-                                onShareProbe = { path -> shareCsvFile(path, R.string.share_probe_title) },
-                                onDeleteProbe = { path -> viewModel.deleteProbe(path) },
-                                modifier = Modifier.padding(padding)
-                            )
-                            Screen.GRAPH -> GraphScreen(
-                                state = state,
-                                onSelectPid = { pid -> viewModel.selectGraphPid(pid) },
-                                modifier = Modifier.padding(padding)
-                            )
-                            Screen.AUTO_TEST -> AutoTestScreen(
-                                state = state,
-                                onRun = { viewModel.runAutoTest() },
-                                onStop = { viewModel.stopAutoTest() },
-                                modifier = Modifier.padding(padding)
-                            )
-                        }
                     }
+                    DashboardMenuDialogs(
+                        state, menuDialog, onDismiss = { menuDialog = null },
+                        onShareRecording = { path -> shareCsvFile(path, R.string.share_recording_title) },
+                        onDeleteRecording = { path -> viewModel.deleteRecording(path) }
+                    )
                 }
             }
         }
@@ -410,16 +319,15 @@ private fun applyWakeOverLockScreenFlags(window: Window, active: Boolean) {
  * palette générée par le thème (qui n'est pas forcément vert/rouge par défaut).
  *
  * CONNECTING/RECONNECTING clignotent (convention voyant de bord : clignotant = en cours,
- * fixe = état stabilisé) ; c'est désormais le seul signal de connexion en cours, le
- * Dashboard n'affiche plus son propre bloc "occupé" séparé (voir DashboardScreen, qui
- * masquait la liste des enregistrements pendant une reconnexion).
+ * fixe = état stabilisé). Le voyant est intégré au bouton Dashboard de la barre
+ * de commandes commune.
  *
  * Juste le voyant, sans libellé à côté (le texte dupliquait ce que dit déjà la couleur et
  * encombrait la barre du haut) : le libellé survit comme contentDescription pour
  * l'accessibilité (lecteur d'écran), simplement plus affiché visuellement.
  */
 @Composable
-internal fun ConnectionIndicator(state: ConnectionState, availability: ObdDataAvailability) {
+internal fun ConnectionIndicator(state: ConnectionState, availability: ObdDataAvailability, modifier: Modifier = Modifier) {
     // Connecté réutilise directement le turquoise fonctionnel de l'appli (colorScheme.primary,
     // déjà utilisé par Wi-Fi/Bluetooth/Partager) plutôt qu'un vert isolé : un seul "cette
     // couleur = actif/bon" dans toute l'appli, qui s'assombrit aussi cohéremment la nuit avec
@@ -450,8 +358,7 @@ internal fun ConnectionIndicator(state: ConnectionState, availability: ObdDataAv
         label = "connectionIndicatorAlpha"
     )
     Box(
-        modifier = Modifier
-            .padding(end = 16.dp)
+        modifier = modifier
             .size(16.dp)
             .clip(CircleShape)
             // alpha AVANT background : un modifier n'affecte que ce qui vient après lui

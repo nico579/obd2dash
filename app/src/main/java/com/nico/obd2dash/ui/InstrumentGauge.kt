@@ -60,7 +60,7 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
     val colors = MaterialTheme.colorScheme
     val textColor = if (stale || unavailable) colors.onSurfaceVariant else colors.onSurface
     val arcColor = if (stale) colors.onSurfaceVariant else colors.primary
-    val needleColor = Color(0xFFF04444).copy(alpha = if (stale) .65f else 1f)
+    val needleColor = Color(0xFFF04444).copy(alpha = if (stale) .5f else .78f)
     val status = when {
         unavailable -> stringResource(R.string.dashboard_gauge_unavailable)
         stale -> stringResource(R.string.dashboard_gauge_stale)
@@ -153,19 +153,6 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                             )
                         }
                     }
-                    if (!unavailable && reading.value != null) {
-                        // Aiguille courte sur la couronne : elle ne traverse jamais les chiffres.
-                        val angle = 135f + fraction * 270f
-                        val tip = polar(d * .42f, angle)
-                        val base = polar(d * .34f, angle)
-                        val sideways = polar(d * .014f, angle + 90) - c
-                        needle.reset()
-                        needle.moveTo(tip.x, tip.y)
-                        needle.lineTo(base.x + sideways.x, base.y + sideways.y)
-                        needle.lineTo(base.x - sideways.x, base.y - sideways.y)
-                        needle.close()
-                        drawPath(needle, needleColor)
-                    }
                 }
                 drawCentered(label, d * .395f, d * .061f * fontScale, d * .55f, colors.onSurface, bold = true, maxHeight = d * .055f)
                 // Les valeurs composites gardent leur seconde composante, dans la ligne de
@@ -176,6 +163,20 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                 drawCentered(detail, d * .667f, d * .075f * fontScale, d * .60f, textColor)
                 val footer = if (status.isNotEmpty()) status else scale?.annotation.orEmpty()
                 drawCentered(footer, d * .79f, d * .052f * fontScale, d * .53f, colors.onSurfaceVariant)
+                if (scale != null && !unavailable && reading.value != null) {
+                    // Dessin après les textes : l'aiguille part du centre et passe
+                    // devant les chiffres, avec une légère transparence.
+                    val angle = 135f + fraction * 270f
+                    val tip = polar(d * .42f, angle)
+                    val sideways = polar(d * .012f, angle + 90) - c
+                    needle.reset()
+                    needle.moveTo(tip.x, tip.y)
+                    needle.lineTo(c.x + sideways.x, c.y + sideways.y)
+                    needle.lineTo(c.x - sideways.x, c.y - sideways.y)
+                    needle.close()
+                    drawPath(needle, needleColor)
+                    drawCircle(needleColor, radius = d * .018f, center = c)
+                }
             }
         }
     }

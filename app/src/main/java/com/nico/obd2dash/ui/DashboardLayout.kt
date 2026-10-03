@@ -9,35 +9,33 @@ internal data class DashboardGrid(val columns: Int, val rows: Int)
 
 internal fun dashboardGrid(count: Int, width: Float, height: Float, gap: Float = 8f): DashboardGrid {
     if (count <= 0 || width <= 0f || height <= 0f) return DashboardGrid(1, 1)
-    // Maximiser la surface utile des cadrans. Une dernière rangée incomplète occupe
-    // toute la largeur : pour trois cadrans en portrait, le troisième peut être plus
-    // grand au lieu de laisser une case vide. À surface égale, préférer le plus grand
-    // diamètre minimal, puis le moins de cases vides.
+    // Maximiser un diamètre COMMUN. Une rangée incomplète ne doit jamais agrandir
+    // ses cadrans par rapport aux autres rangées.
     return (1..count).map { columns ->
         val rows = ceil(count.toDouble() / columns).toInt()
         val rowHeight = ((height - gap * (rows - 1)) / rows).coerceAtLeast(0f)
-        val rowCounts = (0 until rows).map { min(columns, count - it * columns) }
-        val diameters = rowCounts.map { min((width - gap * (it - 1)) / it, rowHeight).coerceAtLeast(0f) }
-        val area = rowCounts.indices.sumOf { (rowCounts[it] * diameters[it] * diameters[it]).toDouble() }
-        GridCandidate(DashboardGrid(columns, rows), area, diameters.minOrNull()!!, columns * rows - count)
-    }.maxWithOrNull(compareBy<GridCandidate> { it.area }.thenBy { it.minDiameter }.thenBy { -it.emptyCells })!!.grid
+        val diameter = min((width - gap * (columns - 1)) / columns, rowHeight).coerceAtLeast(0f)
+        GridCandidate(DashboardGrid(columns, rows), diameter, columns * rows - count)
+    }.maxWithOrNull(compareBy<GridCandidate> { it.diameter }.thenBy { -it.emptyCells })!!.grid
 }
 
-private data class GridCandidate(val grid: DashboardGrid, val area: Double, val minDiameter: Float, val emptyCells: Int)
+private data class GridCandidate(val grid: DashboardGrid, val diameter: Float, val emptyCells: Int)
 
-/** Positions communes au dessin et au geste : une rangée incomplète garde toute la largeur. */
+/** Carrés de même taille pour le dessin et le geste ; la dernière rangée est centrée. */
 internal fun dashboardSlots(count: Int, width: Float, height: Float, gap: Float = 8f): List<Rect> {
     if (count <= 0 || width <= 0f || height <= 0f) return emptyList()
     val grid = dashboardGrid(count, width, height, gap)
     val rowHeight = ((height - gap * (grid.rows - 1)) / grid.rows).coerceAtLeast(0f)
+    val cellWidth = ((width - gap * (grid.columns - 1)) / grid.columns).coerceAtLeast(0f)
+    val diameter = min(cellWidth, rowHeight)
     return (0 until count).map { index ->
         val row = index / grid.columns
         val column = index % grid.columns
         val rowCount = min(grid.columns, count - row * grid.columns)
-        val cellWidth = ((width - gap * (rowCount - 1)) / rowCount).coerceAtLeast(0f)
-        val left = column * (cellWidth + gap)
-        val top = row * (rowHeight + gap)
-        Rect(left, top, left + cellWidth, top + rowHeight)
+        val rowWidth = rowCount * cellWidth + gap * (rowCount - 1)
+        val left = (width - rowWidth) / 2 + column * (cellWidth + gap) + (cellWidth - diameter) / 2
+        val top = row * (rowHeight + gap) + (rowHeight - diameter) / 2
+        Rect(left, top, left + diameter, top + diameter)
     }
 }
 

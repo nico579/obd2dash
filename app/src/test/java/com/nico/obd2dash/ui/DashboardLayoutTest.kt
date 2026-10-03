@@ -20,14 +20,31 @@ class DashboardLayoutTest {
 
     @Test
     fun `le glissement trouve aussi le dernier cadran en rangee incomplete`() {
-        val slots = dashboardSlots(3, 344f, 668f)
-        assertEquals(3, slots.size)
-        assertEquals(344f, slots.last().width, .001f)
-        assertEquals(2, slots.indexOfFirst { it.contains(Offset(20f, 500f)) })
-        assertEquals(2, slots.indexOfFirst { it.contains(Offset(324f, 500f)) })
+        val slots = dashboardSlots(5, 344f, 668f)
+        assertEquals(5, slots.size)
+        assertEquals(slots.first().width, slots.last().width, .001f)
+        assertEquals(172f, slots.last().center.x, .001f)
+        assertEquals(4, slots.indexOfFirst { it.contains(slots.last().center) })
         assertEquals(-1, slots.indexOfFirst { it.contains(Offset(172f, 20f)) })
         assertEquals(-1, slots.indexOfFirst { it.contains(Offset(-1f, 500f)) })
         assertTrue(dashboardSlots(0, 344f, 668f).isEmpty())
+    }
+
+    @Test
+    fun `tous les cadrans gardent le meme diametre sans deborder ni se chevaucher`() {
+        for ((width, height) in listOf(320f to 540f, 344f to 668f, 784f to 308f, 560f to 220f)) {
+            for (count in 1..6) {
+                val slots = dashboardSlots(count, width, height)
+                assertEquals(count, slots.size)
+                for ((index, slot) in slots.withIndex()) {
+                    assertEquals(slots.first().width, slot.width, .001f)
+                    assertEquals(slot.width, slot.height, .001f)
+                    assertTrue(slot.left >= -.001f && slot.top >= -.001f)
+                    assertTrue(slot.right <= width + .001f && slot.bottom <= height + .001f)
+                    assertTrue(slots.take(index).none { it.overlaps(slot) })
+                }
+            }
+        }
     }
 
     @Test
@@ -37,8 +54,8 @@ class DashboardLayoutTest {
     }
 
     @Test
-    fun `trois cadrans en portrait utilisent aussi la largeur`() {
-        assertEquals(DashboardGrid(2, 2), dashboardGrid(3, 344f, 668f))
+    fun `trois cadrans choisissent le plus grand diametre commun`() {
+        assertEquals(DashboardGrid(1, 3), dashboardGrid(3, 344f, 668f))
         assertEquals(DashboardGrid(3, 1), dashboardGrid(3, 784f, 308f))
     }
 

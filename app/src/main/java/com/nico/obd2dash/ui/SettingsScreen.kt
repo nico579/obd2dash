@@ -59,7 +59,8 @@ fun SettingsScreen(
     onSetBigGaugePid: (pid: Int, selected: Boolean) -> Unit,
     onShareLog: (String) -> Unit,
     onDeleteLog: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onConnectionModeChange: (ConnectionMode) -> Unit = {}
 ) {
     // Pas de bouton "Se connecter" ici (demande explicite) : le polling/l'auto-connexion
     // tournent déjà en continu (voir ObdViewModel.startAutoReconnectLoop), donc pas besoin
@@ -99,9 +100,17 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        // Le choix Wi-Fi/Bluetooth lui-même vit sur Dashboard (voir DashboardScreen.ModeButton),
-        // visible dès le premier lancement plutôt que caché derrière l'icône Réglages : ici,
-        // seuls les détails du transport DÉJÀ choisi (adresse/port, ou appareil Bluetooth).
+        Text(stringResource(R.string.settings_connection_mode), style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (mode in ConnectionMode.entries) {
+                FilterChip(
+                    selected = state.connectionMode == mode,
+                    onClick = { onConnectionModeChange(mode) },
+                    label = { Text(if (mode == ConnectionMode.WIFI) "Wi-Fi" else "Bluetooth") },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
         if (state.connectionMode == ConnectionMode.WIFI) {
             // Bordure/fond explicites (retour direct : les champs paraissaient "mous" avec le
             // contour outline très discret d'origine) ; le focus reste sur colorScheme.primary,
