@@ -521,6 +521,52 @@ class Elm327TransportTest {
     }
 
     @Test
+    fun `les alertes utilisent uniquement des lectures 01 sans suffixe meme si adapte accepte une reponse unique`() = runBlocking {
+        val replies = mapOf("01001" to "410000100000", "0165" to "41650808",
+            "0190" to "41900C0000", "0191" to "41910200000000", "0194" to ("41940101" + "00".repeat(10)))
+        withElm(reply = { command, out ->
+            replies[command]?.let { out.reply(it) } ?: standardReply(command, out)
+        }) { client, server ->
+            client.detectResponseCountSupport()
+            assertTrue(client.supportsResponseCount)
+            val statuses = StandardWarningLight.entries.map { client.readStandardWarning(it) }
+            assertEquals(listOf(StandardWarningStatus.ON, StandardWarningStatus.CONTINUOUS,
+                StandardWarningStatus.SHORT, StandardWarningStatus.ON), statuses)
+            assertEquals(listOf("01001", "0165", "0190", "0191", "0194"), server.commands.filter { !it.startsWith("AT") })
+        }
+    }
+
+    @Test
+    fun `une alerte refusee laisse la prochaine lecture standard possible`() = runBlocking {
+        withElm(reply = { command, out ->
+            when (command) {
+                "0165" -> out.reply("7F0112")
+                "0190" -> out.reply("4190000000")
+                else -> standardReply(command, out)
+            }
+        }) { client, server ->
+            try { client.readStandardWarning(StandardWarningLight.GLOW_PLUG); fail("Refus ignoré") } catch (_: IOException) { }
+            assertTrue(client.isConnected)
+            assertEquals(StandardWarningStatus.OFF, client.readStandardWarning(StandardWarningLight.WWH_VEHICLE_MI))
+            assertEquals(listOf("0165", "0190"), server.commands.filter { !it.startsWith("AT") })
+        }
+    }
+
+    @Test
+    fun `une reponse temporaire a une alerte ferme avant toute lecture suivante`() = runBlocking {
+        for (response in listOf("7F0121", "7F0178", "41650800\r7F0178")) {
+            withElm(reply = { command, out ->
+                if (command == "0165") out.reply(response) else standardReply(command, out)
+            }) { client, server ->
+                try { client.readStandardWarning(StandardWarningLight.GLOW_PLUG); fail("Réponse temporaire acceptée") } catch (_: IOException) { }
+                assertFalse(client.isConnected)
+                try { client.readStandardWarning(StandardWarningLight.NOX_WARNING); fail("Lecture après fermeture") } catch (_: IOException) { }
+                assertEquals(listOf("0165"), server.commands.filter { !it.startsWith("AT") })
+            }
+        }
+    }
+
+    @Test
     fun `sequence continue apres refus MIL et refuse format DTC ambigu du Trafic`() = runBlocking {
         withElm(reply = { command, out ->
             when (command) {

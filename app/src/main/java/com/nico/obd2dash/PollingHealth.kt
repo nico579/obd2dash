@@ -24,7 +24,8 @@ internal class PollingHealth(
     }
 
     /**
-     * PID01 seul : compter depuis le premier échec, pas depuis le dernier succès.
+     * Statuts seuls (MIL, ou autres alertes sans PID01) : compter depuis le premier
+     * échec, pas depuis le dernier succès.
      * Les 30 s entre deux contrôles MIL normaux dépassent déjà le seuil de 15 s.
      * Lorsque d'autres mesures sont attendues, elles seules pilotent ce verdict.
      */

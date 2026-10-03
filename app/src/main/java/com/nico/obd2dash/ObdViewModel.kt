@@ -141,6 +141,9 @@ data class ObdUiState(
     val milOn: Boolean? = null,
     val dtcCount: Int? = null,
     val milLastSuccessAtMs: Long? = null,
+    val milLastAttemptAtMs: Long? = null,
+    val milReadError: String? = null,
+    val standardWarnings: Map<StandardWarningLight, StandardWarningReading> = emptyMap(),
     val storedDtcs: List<String>? = null,
     val storedDtcsLastSuccessAtMs: Long? = null,
     val pendingDtcs: List<String>? = null,
@@ -165,9 +168,8 @@ data class ObdUiState(
     // Diagnostic ponctuel pour préparer le fix multi-ECU (finding 3), pas une donnée
     // du véhicule. À retirer une fois ce format confirmé. Voir Elm327Client.probeHeaderFormat.
     val headerProbeResult: String? = null,
-    // Enregistrement CSV à intervalle régulier (départ/arrêt manuel), pour analyse externe
-    // dans la durée. N'interroge pas la sonde : échantillonne les valeurs déjà lues par le
-    // polling, aucune commande supplémentaire sur le fil.
+    // Le CSV échantillonne le cache du polling. Pendant REC, ce dernier relit les
+    // voyants toutes les 5 s au lieu de 30 s ; aucune requête depuis le writer CSV.
     val isRecording: Boolean = false,
     val recordingSamples: Int = 0,
     // Distinct de errorMessage (réservé à la connexion, affiché uniquement hors CONNECTED
@@ -258,6 +260,14 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
     )
     sb.appendLine("Dernière lecture MIL réussie : " +
         (state.milLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
+    state.milReadError?.let { sb.appendLine("Dernière tentative MIL en échec : $it") }
+    for (light in supportedStandardWarningLights(state.supportedPids)) {
+        val reading = state.standardWarnings[light]
+        sb.appendLine("${light.csvLabel} : ${standardWarningText(light, reading?.status)}")
+        sb.appendLine("Dernière lecture ${light.csvLabel} réussie : " +
+            (reading?.lastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
+        reading?.error?.let { sb.appendLine("Dernière tentative ${light.csvLabel} en échec : $it") }
+    }
     sb.appendLine("Dernière lecture des codes stockés réussie : " +
         (state.storedDtcsLastSuccessAtMs?.let { timestampFormat.format(Date(it)) } ?: "jamais"))
     sb.appendLine("Dernière lecture des codes en attente réussie : " +
@@ -374,6 +384,9 @@ internal fun recordingDiagnosticFields(state: ObdUiState, formatTime: (Long) -> 
         state.storedDtcsLastSuccessAtMs?.let(formatTime).orEmpty())
 }
 
+internal fun recordingMilAttemptFields(state: ObdUiState, formatTime: (Long) -> String): List<String> =
+    listOf(state.milLastAttemptAtMs?.let(formatTime).orEmpty(), state.milReadError.orEmpty())
+
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     // Pas de stringResource() ici : ce ViewModel n'est pas @Composable. getApplication()
@@ -416,6 +429,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var recordingJob: Job? = null
     private var recordingWriter: BufferedWriter? = null
     private var recordingColumns: List<PidCatalog.Def> = emptyList()
+    private var recordingWarningLights: List<StandardWarningLight> = emptyList()
 
     // Job dédié, pas dtcJob : runAutoTest() déclenche lui-même startRecording()/
     // startFapScan() en cours de séquence, qui gèrent déjà dtcJob pour leur propre
@@ -1155,6 +1169,22 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     @Volatile private var dtcOperationCount = 0
     private val dtcOperationInProgress: Boolean get() = dtcOperationCount > 0
 
+    private suspend fun readMilAndPublish(c: Elm327Client): Pair<Boolean, Int> {
+        try {
+            val status = c.readMilStatus()
+            val readAt = System.currentTimeMillis()
+            _state.update { it.copy(milOn = status.first, dtcCount = status.second,
+                milLastSuccessAtMs = readAt, milLastAttemptAtMs = readAt, milReadError = null) }
+            return status
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _state.update { it.copy(milLastAttemptAtMs = System.currentTimeMillis(),
+                milReadError = e.message ?: "Lecture impossible") }
+            throw e
+        }
+    }
+
     private fun startPolling(c: Elm327Client, supported: Set<Int>) {
         // CONTEXT_ONLY_PIDS (PID4F/PID50) sont déjà lus une fois dans connect() et
         // n'évoluent pas pendant la session : les réinterroger ici ne changerait jamais
@@ -1164,6 +1194,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             it.pid in supported && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS && it.pid !in PidCatalog.SLOW_PIDS
         }
         val slowPids = PidCatalog.defs.filter { it.pid in supported && it.pid in PidCatalog.SLOW_PIDS }
+        val warningLights = supportedStandardWarningLights(supported)
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
             // Filet de sécurité contre une sonde "zombie" : constaté sur capture réelle
@@ -1181,12 +1212,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 measurementsExpected = fastPids.isNotEmpty() || slowPids.isNotEmpty(),
                 failureTimeoutMs = ZOMBIE_CONNECTION_TIMEOUT_MS
             )
-            // null : un premier relevé MIL arrive dès le
-            // premier cycle eligible plutot que d'attendre un plein MIL_CHECK_INTERVAL_MS,
-            // pour qu'un enregistrement court (smoke test, trajet bref) ait quand meme une
-            // colonne MIL renseignee des le debut (voir capturer les defauts pendant
-            // l'enregistrement, ci-dessous).
+            // Premier relevé immédiat ; dates monotones des tentatives pour la cadence.
             var lastMilCheckAtMs: Long? = null
+            val lastWarningChecks = mutableMapOf<StandardWarningLight, Long>()
             // Une lecture de codes ratée doit être retentée, même si le voyant et
             // le compteur n'ont pas changé depuis la réussite du PID01.
             var storedRefreshPending = true
@@ -1282,22 +1310,17 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                             return@launch
                         }
 
-                        // Surveillance MIL en arrière-plan, à un rythme bien plus lent que le
-                        // reste du cycle (voir MIL_CHECK_INTERVAL_MS) : sert à capturer un
-                        // nouveau défaut PENDANT un enregistrement en cours au lieu de dépendre
-                        // de l'utilisateur pour aller manuellement sur l'écran DTC (le CSV
-                        // n'avait jusqu'ici aucune colonne reflétant l'état du voyant). Revérifié
-                        // comme les PID ci-dessus : dtcOperationInProgress a pu devenir vrai
-                        // entre le début du cycle et ce point.
+                        // 30 s hors capture, 5 s pendant REC (plus la durée du cycle).
+                        // Toutes ces requêtes restent sérialisées dans le polling, et
+                        // suspendues pendant une opération diagnostique exclusive.
                         if (0x01 in supported && !dtcOperationInProgress &&
-                            (lastMilCheckAtMs == null ||
-                                System.nanoTime() / 1_000_000L - lastMilCheckAtMs > MIL_CHECK_INTERVAL_MS)
+                            warningPollDue(lastMilCheckAtMs, System.nanoTime() / 1_000_000L, _state.value.isRecording)
                         ) {
                             lastMilCheckAtMs = System.nanoTime() / 1_000_000L
                             val previous = _state.value
                             var milTurnedOn = false
                             try {
-                                val (mil, count) = c.readMilStatus()
+                                val (mil, count) = readMilAndPublish(c)
                                 health.milRead(success = true)
                                 milTurnedOn = previous.milOn != true && mil
                                 // Nombre de codes changé (ou premier relevé de la session sans
@@ -1306,9 +1329,6 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                 // rafraîchissant l'écran DTC à la main.
                                 val countChanged = count != previous.dtcCount &&
                                     (previous.dtcCount != null || previous.storedDtcs == null)
-                                _state.update {
-                                    it.copy(milOn = mil, dtcCount = count, milLastSuccessAtMs = System.currentTimeMillis())
-                                }
                                 if (milTurnedOn || countChanged) storedRefreshPending = true
                             } catch (e: CancellationException) {
                                 throw e
@@ -1351,6 +1371,46 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                     if (!c.isConnected) throw e
                                 }
                             }
+                        }
+                        var warningAttempted = false
+                        var warningSucceeded = false
+                        for (light in warningLights) {
+                            if (dtcOperationInProgress) break
+                            // PID65 peut être annoncé pour les rapports de boîte sans
+                            // fournir le préchauffage. Ne pas répéter un non-support explicite.
+                            if (_state.value.standardWarnings[light]?.status == StandardWarningStatus.NOT_SUPPORTED) continue
+                            val nowMs = System.nanoTime() / 1_000_000L
+                            if (!warningPollDue(lastWarningChecks[light], nowMs, _state.value.isRecording)) continue
+                            lastWarningChecks[light] = nowMs
+                            warningAttempted = true
+                            try {
+                                val status = c.readStandardWarning(light)
+                                val readAt = System.currentTimeMillis()
+                                _state.update {
+                                    it.copy(standardWarnings = it.standardWarnings +
+                                        (light to StandardWarningReading(status, readAt, readAt)))
+                                }
+                                warningSucceeded = true
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                val attemptedAt = System.currentTimeMillis()
+                                _state.update {
+                                    val previous = it.standardWarnings[light] ?: StandardWarningReading()
+                                    it.copy(standardWarnings = it.standardWarnings + (light to previous.copy(
+                                        lastAttemptAtMs = attemptedAt,
+                                        error = e.message ?: "Lecture impossible"
+                                    )))
+                                }
+                                if (!c.isConnected) throw e
+                            }
+                        }
+                        // Sans mesures ni PID01, la réponse d'une alerte annoncée permet
+                        // encore de distinguer un dialogue vivant d'une sonde muette.
+                        if (0x01 !in supported && warningAttempted && !dtcOperationInProgress &&
+                            health.milRead(success = warningSucceeded)) {
+                            handleConnectionLost(c, getString(R.string.error_zombie_connection, ZOMBIE_CONNECTION_TIMEOUT_MS / 1000))
+                            return@launch
                         }
                     } catch (e: CancellationException) {
                         throw e
@@ -1467,11 +1527,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 val reads = DiagnosticReadSequence({ c.isConnected }) { errors ->
                     _state.update { it.copy(diagnosticReadErrors = errors) }
                 }
-                reads.read(DiagnosticRead.MIL) { c.readMilStatus() }.onSuccess { (mil, count) ->
-                    _state.update {
-                        it.copy(milOn = mil, dtcCount = count, milLastSuccessAtMs = System.currentTimeMillis())
-                    }
-                }
+                reads.read(DiagnosticRead.MIL) { readMilAndPublish(c) }
                 reads.read(DiagnosticRead.STORED) { c.readStoredDtcs() }.onSuccess { stored ->
                     val history = historyStore.record(vehicleId, stored)
                     _state.update {
@@ -1848,7 +1904,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * automatique à la connexion : un test de 30s ne doit pas laisser un fichier).
      * N'envoie AUCUNE commande à la sonde : échantillonne périodiquement les valeurs déjà
      * mises à jour par [startPolling], donc aucun risque de contention avec le polling ou
-     * un refresh DTC en cours. Colonnes figées au démarrage (PID supportés à cet instant).
+     * un refresh DTC en cours. Le polling rapproche ses lectures de voyants pendant REC.
+     * Colonnes figées au démarrage (PID supportés à cet instant).
      */
     fun startRecording() {
         if (_state.value.isRecording) return
@@ -1856,6 +1913,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             _state.value.dataAvailability != ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE) return
         val columns = PidCatalog.defs.filter { it.pid in _state.value.supportedPids }
         if (columns.isEmpty()) return
+        val warnings = supportedStandardWarningLights(_state.value.supportedPids)
 
         val dir = File(getApplication<Application>().filesDir, "recordings").apply { mkdirs() }
         val baseName = "obd_${vehicleFileTag}_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
@@ -1872,8 +1930,16 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         try {
-            writeSessionMetadata(writer)
-            writer.write(csvRow(listOf("Horodatage", "État", "MIL", "Codes stockés", "Lecture MIL", "Lecture codes stockés") + columns.map { it.label }))
+            val announced = (if (0x01 in _state.value.supportedPids) listOf("MIL (PID01)") else emptyList()) +
+                warnings.map { "%s (PID%02X)".format(Locale.ROOT, it.csvLabel, it.pid) }
+            writeSessionMetadata(writer, listOf(
+                "Alertes automatiques annoncées" to announced.joinToString(", ").ifEmpty { "aucune" },
+                "Portée alertes" to "États OBD standard ; aucune lecture des voyants ABS, airbag, frein ou autres modules constructeur.",
+                "Cadence lecture alertes" to "5 s visées pendant REC, plus la durée des lectures ; les allumages brefs peuvent être manqués.",
+                "Dates alertes" to "Valeur = dernière lecture réussie ; Lecture = sa date ; Tentative/Erreur = dernier essai. La date de ligne est celle de l'échantillon."
+            ))
+            writer.write(csvRow(listOf("Horodatage", "État", "MIL", "Codes stockés", "Lecture MIL", "Lecture codes stockés",
+                "Tentative MIL", "Erreur MIL") + recordingWarningHeaders(warnings) + columns.map { it.label }))
             writer.newLine()
             writer.flush()
         } catch (e: Exception) {
@@ -1887,6 +1953,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
         EventLog.log("Démarrage de l'enregistrement ($baseName.csv)")
         recordingColumns = columns
+        recordingWarningLights = warnings
         recordingWriter = writer
         _state.update { it.copy(isRecording = true, recordingSamples = 0, recordingError = null) }
         // Effort raisonnable, pas une condition bloquante : démarré depuis un bouton
@@ -1916,11 +1983,13 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // de CETTE boucle : un arrêt puis un nouveau départ ne doit jamais rediriger
         // sa fin de ligne/son flush vers le nouveau fichier.
         val writer = recordingWriter ?: return
+        val columns = recordingColumns
+        val warnings = recordingWarningLights
         // Colonnes réellement mesurées par le polling (voir startPolling) : les PID
         // "contexte" (CONTEXT_ONLY_PIDS) sont lus une fois à la connexion et jamais
         // périmés par design, ils ne comptent donc pas dans "combien de mesures
         // dynamiques cette ligne a obtenu" (voir B3 ci-dessous).
-        val dynamicColumns = recordingColumns.filter { it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
+        val dynamicColumns = columns.filter { it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
         recordingJob = viewModelScope.launch {
             val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
             val diagnosticTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.FRANCE)
@@ -1928,7 +1997,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 delay(RECORDING_INTERVAL_MS)
                 val snapshot = _state.value
                 val now = System.currentTimeMillis()
-                val cells = recordingColumns.map { def ->
+                val cells = columns.map { def ->
                     val value = snapshot.values[def.pid]
                     // CONTEXT_ONLY_PIDS exclus de la limite d'âge : lus une seule fois à
                     // la connexion par design (voir startPolling), ils dépasseraient ce
@@ -1950,8 +2019,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // ligne normale, ni une ligne partiellement vide se confondre avec une
                 // ligne complète (voir B3) : une coupure réseau (RECONNECTING) produit le
                 // même trou de mesures, pour la même raison.
-                val freshDynamicCount = recordingColumns.indices.count { i ->
-                    recordingColumns[i].pid !in PidCatalog.CONTEXT_ONLY_PIDS && cells[i].isNotEmpty()
+                val freshDynamicCount = columns.indices.count { i ->
+                    columns[i].pid !in PidCatalog.CONTEXT_ONLY_PIDS && cells[i].isNotEmpty()
                 }
                 val etat = when {
                     dtcOperationInProgress -> "pause diagnostic"
@@ -1962,7 +2031,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 // Aucune requête ici : chaque état cache sa propre date de lecture.
                 // Celle-ci peut être antérieure à la date d'échantillonnage de la ligne.
                 val row = listOf(timestampFormat.format(Date(now)), etat) +
-                    recordingDiagnosticFields(snapshot) { diagnosticTimeFormat.format(Date(it)) } + cells
+                    recordingDiagnosticFields(snapshot) { diagnosticTimeFormat.format(Date(it)) } +
+                    recordingMilAttemptFields(snapshot) { diagnosticTimeFormat.format(Date(it)) } +
+                    recordingWarningFields(warnings, snapshot.standardWarnings) { diagnosticTimeFormat.format(Date(it)) } + cells
                 val written = withContext(Dispatchers.IO) {
                     runCatching {
                         writer.write(csvRow(row))
@@ -2317,12 +2388,6 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         // ~600 o/échantillon (~40 colonnes max) : à 5s, une session de 2h fait autour de
         // 850 Ko. Assez fin pour une analyse de tendance, sans accumuler des Mo inutiles.
         private const val RECORDING_INTERVAL_MS = 5_000L
-        // Bien plus lent que RECORDING_INTERVAL_MS : le MIL/nombre de codes stockés ne
-        // change pas d'une seconde à l'autre comme le régime ou la vitesse, une commande
-        // PID01 de plus à chaque cycle rapide serait un coût réseau inutile pour une
-        // surveillance qui reste utile même vérifiée toutes les 30s (voir la colonne MIL
-        // du CSV, ObdViewModel.startPolling/resumeRecordingLoop).
-        private const val MIL_CHECK_INTERVAL_MS = 30_000L
         // Intervalle de relecture des PidCatalog.SLOW_PIDS, en temps et non en nombre de
         // cycles (voir startPolling) : un cycle dure de quelques centaines de ms à 2-3s selon
         // l'adaptateur. 5s + un cycle reste sous SLOW_VALUE_UNAVAILABLE_AFTER_MS (20s) et

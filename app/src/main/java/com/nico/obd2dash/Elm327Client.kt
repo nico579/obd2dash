@@ -603,6 +603,58 @@ class Elm327Client internal constructor(
         return parseMilStatus(sendDiagnosticRaw("0101"))
     }
 
+    /** Lecture standard seulement, sans suffixe limitant le nombre de calculateurs. */
+    suspend fun readStandardWarning(light: StandardWarningLight): StandardWarningStatus =
+        parseStandardWarning(sendDiagnosticRaw("01%02X".format(Locale.ROOT, light.pid)), light)
+
+    internal fun parseStandardWarning(response: String, light: StandardWarningLight): StandardWarningStatus {
+        val prefix = "41%02X".format(Locale.ROOT, light.pid)
+        val description = "PID%02X (%s)".format(Locale.ROOT, light.pid, light.csvLabel)
+        val payloads = responsePayloads(response, prefix)
+        if (hasNegativeResponse(response, 0x01)) {
+            throw IOException("$description : un calculateur a refusé la lecture")
+        }
+        if (payloads.isEmpty()) throw IOException("$description : aucune réponse valide")
+        if (payloads.any { it.length != prefix.length + light.dataBytes * 2 }) {
+            throw IOException("$description : longueur invalide (${light.dataBytes} octets attendus)")
+        }
+        val statuses = payloads.map { payload ->
+            val bytes = payload.substring(prefix.length).chunked(2).map { it.toInt(16) }
+            when (light) {
+                StandardWarningLight.GLOW_PLUG -> when {
+                    bytes[0] and 0x08 == 0 -> StandardWarningStatus.NOT_SUPPORTED
+                    bytes[1] and 0x08 != 0 -> StandardWarningStatus.ON
+                    else -> StandardWarningStatus.OFF
+                }
+                StandardWarningLight.NOX_WARNING -> when {
+                    bytes[0] and 0x01 == 0 -> StandardWarningStatus.NOT_SUPPORTED
+                    bytes[1] and 0x01 != 0 -> StandardWarningStatus.ON
+                    else -> StandardWarningStatus.OFF
+                }
+                StandardWarningLight.WWH_VEHICLE_MI, StandardWarningLight.WWH_ECU_MI -> {
+                    val mode = if (light == StandardWarningLight.WWH_VEHICLE_MI) (bytes[0] shr 2) and 0x0F
+                        else bytes[0] and 0x0F
+                    when (mode) {
+                        0 -> StandardWarningStatus.OFF
+                        1 -> StandardWarningStatus.ON_DEMAND
+                        2 -> StandardWarningStatus.SHORT
+                        3 -> StandardWarningStatus.CONTINUOUS
+                        0x0F -> StandardWarningStatus.UNAVAILABLE
+                        else -> throw IOException("$description : mode MI en erreur ou réservé (0x%X)".format(Locale.ROOT, mode))
+                    }
+                }
+            }
+        }
+        // Un calculateur sans cette fonction ne masque pas celui qui la fournit.
+        // Les autres divergences restent inconnues : aucun choix du premier répondant,
+        // ni conversion arbitraire d'un mode WWH calculateur en état du combiné.
+        val supported = statuses.filter { it != StandardWarningStatus.NOT_SUPPORTED }.distinct()
+        if (supported.size > 1) {
+            throw IOException("$description : états contradictoires entre calculateurs (${supported.joinToString { it.csvText }})")
+        }
+        return supported.singleOrNull() ?: StandardWarningStatus.NOT_SUPPORTED
+    }
+
     private suspend fun sendDiagnosticRaw(command: String): String {
         val connection = transport ?: throw IOException("Non connecté")
         val response = sendRaw(command)

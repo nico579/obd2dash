@@ -17,9 +17,9 @@ internal fun standardObdAvailability(
     else -> ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE
 }
 
-/** Only announced measurements have a reason to be polled automatically. */
+/** Only announced measurements or documented warning states are polled automatically. */
 internal fun hasAutomaticObdReads(supportedPids: Set<Int>): Boolean =
-    0x01 in supportedPids || PidCatalog.defs.any {
+    0x01 in supportedPids || supportedStandardWarningLights(supportedPids).isNotEmpty() || PidCatalog.defs.any {
         it.pid in supportedPids && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS
     }
 

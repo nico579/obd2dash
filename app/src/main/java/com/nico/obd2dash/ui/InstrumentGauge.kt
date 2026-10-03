@@ -43,6 +43,8 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
     val (text, stale) = staleness(def.pid, value, nowMs)
     val unavailable = text == "--"
     val reading = remember(text) { dialReading(text) }
+    val displayText = remember(text) { integerDialText(text) }
+    val displayReading = remember(displayText) { dialReading(displayText) }
     val scale = remember(def.pid, reading.value) { dialScale(def.pid)?.including(reading.value) }
     val tickLabels = remember(scale) {
         scale?.let { s ->
@@ -66,7 +68,7 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
         stale -> stringResource(R.string.dashboard_gauge_stale)
         else -> ""
     }
-    val description = listOf(def.label, if (unavailable) status else text, if (stale) status else "")
+    val description = listOf(def.label, if (unavailable) status else displayText, if (stale) status else "")
         .filter { it.isNotEmpty() }.joinToString(", ")
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
     val label = dialLabel(def.pid, def.label)
@@ -155,14 +157,15 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                     }
                 }
                 drawCentered(label, d * .395f, d * .061f * fontScale, d * .55f, colors.onSurface, bold = true, maxHeight = d * .055f)
-                // Les valeurs composites gardent leur seconde composante, dans la ligne de
-                // détail. Leur valeur numérique et leur unité ne sont jamais recalculées.
-                val number = if (unavailable) "—" else if (def.pid == 0x4F) text else reading.number
-                val detail = if (def.pid == 0x4F || unavailable) "" else reading.detail
-                drawCentered(number, d * .535f, d * .222f * fontScale, d * .60f, textColor, bold = true, maxHeight = d * .19f)
-                drawCentered(detail, d * .667f, d * .075f * fontScale, d * .60f, textColor)
+                // Affichage entier, au bas du cadran et sous les graduations extrêmes.
+                // L'aiguille utilise toujours la mesure précise, les composites gardent
+                // leurs unités et leur seconde composante arrondie pour l'affichage.
+                val number = if (unavailable) "—" else if (def.pid == 0x4F) displayText else displayReading.number
+                val detail = if (def.pid == 0x4F || unavailable) "" else displayReading.detail
+                drawCentered(number, d * .83f, d * .222f * fontScale, d * .60f, textColor, bold = true, maxHeight = d * .15f)
+                drawCentered(detail, d * .94f, d * .065f * fontScale, d * .33f, textColor, maxHeight = d * .05f)
                 val footer = if (status.isNotEmpty()) status else scale?.annotation.orEmpty()
-                drawCentered(footer, d * .79f, d * .052f * fontScale, d * .53f, colors.onSurfaceVariant)
+                drawCentered(footer, d * .61f, d * .052f * fontScale, d * .53f, colors.onSurfaceVariant)
                 if (scale != null && !unavailable && reading.value != null) {
                     // Dessin après les textes : l'aiguille part du centre et passe
                     // devant les chiffres, avec une légère transparence.

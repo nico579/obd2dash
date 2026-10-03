@@ -1,6 +1,8 @@
 package com.nico.obd2dash.ui
 
 import androidx.compose.ui.geometry.Rect
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.ceil
 import kotlin.math.min
 
@@ -49,6 +51,12 @@ internal fun moveDashboardGauge(pids: List<Int>, from: Int, to: Int): List<Int> 
 internal data class DialReading(val number: String, val detail: String, val value: Double?)
 
 private val readingPattern = Regex("""^(-?\d+(?:[.,]\d+)?)(.*)$""")
+private val decimalDisplayPattern = Regex("""-?\d+[.,]\d+""")
+
+/** Arrondi visuel uniquement ; le cache, l'aiguille, les courbes et le CSV restent précis. */
+internal fun integerDialText(text: String): String = decimalDisplayPattern.replace(text) { match ->
+    BigDecimal(match.value.replace(',', '.')).setScale(0, RoundingMode.HALF_UP).toPlainString()
+}
 
 internal fun dialReading(text: String): DialReading {
     val match = readingPattern.matchEntire(text.trim()) ?: return DialReading(text, "", null)

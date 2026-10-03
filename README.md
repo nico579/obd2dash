@@ -21,6 +21,9 @@ diagnostics, les enregistrements et le dashboard.
   choisis dans Réglages, avec grandes valeurs numériques, graduations et aiguilles
   rouges légèrement transparentes, du centre aux graduations et au-dessus des
   textes, en mode jour comme en mode nuit.
+  Les valeurs arrondies sans décimale sont placées au bas du cadran, près du cercle,
+  pour dégager le centre et limiter leur recouvrement par l'aiguille. La précision
+  des mesures, de l'aiguille, des courbes et des captures est conservée.
   Un **appui long suivi d'un glissement** déplace un cadran dans l'ordre de lecture
   (gauche à droite, puis rangée suivante). L'ordre est enregistré par VIN lorsqu'il
   est lu, avec un réglage commun aux véhicules dont le VIN reste inconnu ;
@@ -50,6 +53,20 @@ diagnostics, les enregistrements et le dashboard.
   ou reste inconnu. Une réponse ambiguë ne confirme jamais une absence de défauts.
   Les CSV conservent aussi les dates de lecture du MIL et des codes : ces états sont
   échantillonnés depuis le cache, sans lecture supplémentaire à chaque ligne.
+- **Alertes automatiques dans les captures** : MIL, voyant de préchauffage (PID65),
+  activation de l'alerte NOx (PID94) et modes d'indication de défaut WWH-OBD
+  véhicule/calculateur (PID90/91), selon les paramètres annoncés et les réponses.
+  Les alertes sont relues dès le premier cycle, puis toutes les 30 s hors capture
+  ou à une cadence visée de 5 s pendant REC, plus le temps des lectures sérialisées.
+  Chaque état conserve sa date de lecture et la date/erreur du dernier essai ;
+  une lecture manquante n'est jamais assimilée à un voyant éteint.
+  Les colonnes supplémentaires sont figées au démarrage du CSV. Un non-support
+  explicite du préchauffage ou de l'alerte NOx arrête sa relecture pour cette connexion.
+  Les modes WWH et l'alerte NOx restent des états OBD, sans conversion en une icône
+  précise du combiné. Une régénération FAP n'est pas un voyant FAP allumé.
+  ABS, airbag, frein, pression d'huile, charge batterie et les autres voyants des
+  modules constructeur ne sont pas lus. Les allumages plus courts que la cadence
+  peuvent échapper à la capture. Aucune saisie manuelle de voyant n'est ajoutée.
 - **Détection de protocole** : CAN (ISO 15765-4) ou non-CAN (SAE J1850, ISO 9141-2,
   ISO 14230 KWP2000), pour décoder les DTC correctement dans les deux cas.
 - **Bluetooth classique et BLE** : sélection Auto/Classique/BLE et recherche BLE
@@ -132,6 +149,8 @@ services et le contexte Android sont remplacés par des doubles de test.
   Conservé comme historique ; reprise uniquement sur demande explicite de l'utilisateur.
 - [`audit_ble_diagnostic_2026-10-02.md`](audit_ble_diagnostic_2026-10-02.md) :
   Bluetooth BLE, lectures de diagnostic indépendantes et limite du profil Renault.
+- [`audit_voyants_2026-10-03.md`](audit_voyants_2026-10-03.md) : définitions des
+  alertes standard, protection contre les faux états éteints et validation du CSV.
 
 - [`architecture_multimarque_2026-09-10_20-17.md`](architecture_multimarque_2026-09-10_20-17.md) :
   étude historique d'un moteur de profils ; les décisions de périmètre qu'elle conserve

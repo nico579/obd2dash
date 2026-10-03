@@ -43,6 +43,13 @@ class StandardObdAvailabilityTest {
     }
 
     @Test
+    fun `une alerte annoncee declenche une lecture sans inventer une mesure numerique`() {
+        assertTrue(hasAutomaticObdReads(setOf(0x65)))
+        assertTrue(hasAutomaticObdReads(setOf(0x94)))
+        assertEquals(ObdDataAvailability.NO_STANDARD_MEASUREMENTS, standardObdAvailability(true, setOf(0x65, 0x94)))
+    }
+
+    @Test
     fun `empty standard support report does not invent vehicle health`() {
         val report = buildDiagnosticReport(ObdUiState(
             connectionState = ConnectionState.CONNECTED,

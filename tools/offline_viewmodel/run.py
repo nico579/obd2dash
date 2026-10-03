@@ -28,6 +28,7 @@ SOURCE_NAMES = (
     "PollingHealth", "StandardObdAvailability",
     "DiagnosticReadSequence", "BleSerialTransport",
     "DashboardGaugeOrder",
+    "StandardWarningLights",
 )
 
 

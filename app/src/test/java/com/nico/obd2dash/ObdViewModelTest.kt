@@ -86,6 +86,26 @@ class ObdViewModelTest {
     }
 
     @Test
+    fun `une tentative MIL ratee conserve la date du resultat precedent dans la capture`() {
+        val state = ObdUiState(milOn = false, milLastSuccessAtMs = 1000, milLastAttemptAtMs = 7000, milReadError = "NO DATA")
+        assertEquals(listOf("éteint", "", "1000", ""), recordingDiagnosticFields(state) { it.toString() })
+        assertEquals(listOf("7000", "NO DATA"), recordingMilAttemptFields(state) { it.toString() })
+        assertTrue(buildDiagnosticReport(state).contains("Dernière tentative MIL en échec : NO DATA"))
+    }
+
+    @Test
+    fun `le rapport inclut uniquement les alertes annoncees et leurs echecs dates`() {
+        val light = StandardWarningLight.NOX_WARNING
+        val state = ObdUiState(supportedPids = setOf(light.pid), standardWarnings = mapOf(light to
+            StandardWarningReading(StandardWarningStatus.ON, 1000, 7000, "Réponse tronquée")))
+        val report = buildDiagnosticReport(state)
+        assertTrue(report.contains("Alerte NOx : active"))
+        assertTrue(report.contains("Dernière lecture Alerte NOx réussie :"))
+        assertTrue(report.contains("Dernière tentative Alerte NOx en échec : Réponse tronquée"))
+        assertFalse(report.contains("Préchauffage"))
+    }
+
+    @Test
     fun `buildDiagnosticReport marque une valeur live perimee`() {
         val old = GaugeValue("830 rpm", updatedAtMs = 0L) // horodatage tres ancien par construction
         val state = ObdUiState(values = mapOf(0x0C to old))

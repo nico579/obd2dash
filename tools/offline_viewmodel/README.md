@@ -29,7 +29,7 @@ Les préférences du double désactivent la connexion initiale sans cible ; le t
 appelle ensuite explicitement la connexion locale. Le transport Bluetooth du
 double lève une erreur s'il est sollicité.
 
-Les dix-sept scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
+Les dix-neuf scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
 même CSV ; arrêt manuel pendant la reconnexion ; connexion sans mesures ; échec de
 connexion ; coupure TCP puis reprise automatique ; adresse Wi-Fi invalide avec une
 session active ; choix Bluetooth sans appareil ; échec du transport Bluetooth
@@ -42,13 +42,21 @@ sur ce writer ; il ne modifie pas les sources applicatives. Les deux nouveaux ca
 vérifient la publication du MIL malgré un premier échec des codes, leur relecture
 après cet échec (`--case mil_retry`), et la conservation de la date du scan complet
 après une relecture automatique des seuls codes stockés (`--case diagnostic_dates`).
-Ils attendent la cadence MIL réelle de 30 secondes, sans la modifier pour le test.
+Ils utilisent la cadence MIL réelle : 5 secondes en capture, 30 secondes hors REC.
 Quatre cas supplémentaires vérifient les refus du dialogue standard Trafic sans
 faux « aucun défaut », les dates après une lecture partielle, l'arrêt sur NRC78
 et la lecture automatique de codes stockés malgré un refus du MIL.
 Le cas `--case gauge_order_preferences` vérifie aussi la sauvegarde de l'ordre des
 cadrans par VIN, sa restauration après reconnexion et recréation du ViewModel,
 la conservation des choix indisponibles et le refus d'un déplacement incomplet.
+`--case automatic_warning_capture` vérifie les alertes annoncées, leur relecture
+pendant REC, les changements d'état, erreurs puis reprises, les horodatages CSV,
+l'absence de commandes constructeur et la conservation des colonnes après une
+reconnexion dont les nouvelles alertes restent inconnues.
+`--case warning_diagnostic_pause` maintient un diagnostic exclusif autour d'une
+échéance CSV de cinq secondes ; les nouvelles lectures d'alerte sont suspendues,
+la ligne indique la pause et le polling reprend ensuite. La commande individuelle
+reste sous l'échéance de transport, sans ajuster les constantes applicatives.
 Le double BLE interdit tout accès radio ; les tests unitaires de `BleSerialTransport`
 vérifient séparément les callbacks et les flux avec un pilote GATT simulé.
 

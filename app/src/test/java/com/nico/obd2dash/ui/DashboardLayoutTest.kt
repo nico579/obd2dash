@@ -102,6 +102,24 @@ class DashboardLayoutTest {
     }
 
     @Test
+    fun `les cadrans arrondissent a un entier avec les deux separateurs decimaux`() {
+        assertEquals("38 %", integerDialText("38,4 %"))
+        assertEquals("134 kPa", integerDialText("133.5 kPa"))
+        assertEquals("-3 %", integerDialText("-2,5 %"))
+        assertEquals("0 °C", integerDialText("-0,2 °C"))
+        assertEquals("1728 rpm", integerDialText("1728 rpm"))
+    }
+
+    @Test
+    fun `l'arrondi visuel garde les composites et ne modifie pas la mesure precise`() {
+        val raw = "0,450 V · -5,6 %"
+        assertEquals("0 V · -6 %", integerDialText(raw))
+        assertEquals(.45, dialReading(raw).value!!, .00001)
+        assertEquals("10 / 20 V / 256 mA", integerDialText("10,00 / 20,0 V / 255,5 mA"))
+        for (text in listOf("--", "NO DATA", "N/A", "", "non lu")) assertEquals(text, integerDialText(text))
+    }
+
+    @Test
     fun `une lecture absente ou un message ne devient pas zero`() {
         for (text in listOf("--", "NO DATA", "NO DATA 0", "", "N/A")) {
             assertNull(dialReading(text).value)

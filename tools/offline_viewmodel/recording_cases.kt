@@ -8,6 +8,7 @@ import java.io.BufferedWriter
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -252,10 +253,11 @@ private suspend fun stopAndRestartDuringWrite(dir: File) {
 
 private suspend fun milPublishedBeforeDtcRetry(dir: File) {
     val storedAttempts = AtomicInteger()
+    val allowStoredSuccess = AtomicBoolean(false)
     FakeElm(bitmap = "410080100000", replyOverride = { command ->
         when (command) {
             "0101" -> "410181000000"
-            "03" -> if (storedAttempts.incrementAndGet() == 1) "NO DATA" else "43010087"
+            "03" -> { storedAttempts.incrementAndGet(); if (allowStoredSuccess.get()) "43010087" else "NO DATA" }
             else -> null
         }
     }).use { server ->
@@ -271,8 +273,9 @@ private suspend fun milPublishedBeforeDtcRetry(dir: File) {
             val initialCsv = csvFile(dir).readText()
             check(initialCsv.contains("\"Lecture MIL\";\"Lecture codes stockés\""))
             check(initialCsv.contains("\"allumé\";\"1 annoncé(s), détail non lu\""))
+            allowStoredSuccess.set(true)
             awaitUntil(timeoutMs = 35_000) { vm.state.value.storedDtcs == listOf("P0087") }
-            check(storedAttempts.get() == 2) { "A failed code read was not retried" }
+            check(storedAttempts.get() >= 2) { "A failed code read was not retried" }
             check(vm.state.value.storedDtcsLastSuccessAtMs != null)
             check(vm.state.value.dtcLastSuccessAtMs == null) { "An automatic code read became a full scan" }
             check(vm.state.value.pendingDtcs == null)
@@ -392,6 +395,147 @@ private suspend fun automaticCodesDespiteMilRefusal(dir: File) {
     }
 }
 
+private fun warningBitmap(command: String, pids: Set<Int>): String? {
+    if (command !in listOf("0100", "0120", "0140", "0160", "0180")) return null
+    val base = command.takeLast(2).toInt(16)
+    val bitmap = pids.filter { it > base && it <= base + 32 }.fold(0L) { bits, pid ->
+        bits or (1L shl (32 - (pid - base)))
+    }
+    return "41%02X%08X".format(base, bitmap)
+}
+
+private fun captureTable(file: File): Pair<List<String>, List<List<String>>> {
+    val lines = file.readLines()
+    val header = lines.indexOfFirst { it.startsWith("\"Horodatage\";") }
+    check(header >= 0)
+    fun cells(line: String) = Regex("\"((?:\"\"|[^\"])*)\"(?:;|$)").findAll(line)
+        .map { it.groupValues[1].replace("\"\"", "\"") }.toList()
+    val columns = cells(lines[header])
+    val rows = lines.drop(header + 1).filter { it.isNotBlank() }.map(::cells)
+    check(rows.all { it.size == columns.size }) { "CSV columns shifted during recording/reconnection" }
+    return columns to rows
+}
+
+private suspend fun automaticWarningCapture(dir: File) {
+    val pids = setOf(0x01, 0x0C, 0x20, 0x40, 0x60, 0x65, 0x80, 0x90, 0x91, 0x94)
+    val phase = AtomicInteger(0)
+    FakeElm(replyOverride = { command ->
+        warningBitmap(command, pids) ?: when (command) {
+            "0101" -> when (phase.get()) { 0 -> "410100000000"; 2 -> "7F0112"; else -> "410181000000" }
+            "03" -> if (phase.get() == 0) "4300" else "43010087"
+            "0165" -> when (phase.get()) { 0, 3 -> "41650808"; 1 -> "41650800"; else -> "NO DATA" }
+            "0190" -> "41900C0000"
+            "0191" -> "41910200000000"
+            "0194" -> when (phase.get()) { 1 -> "41940100" + "00".repeat(10); 2 -> "41940100"; else -> "41940101" + "00".repeat(10) }
+            else -> null
+        }
+    }).use { server -> FakeElm().use { next ->
+        val vm = makeVm(server, dir)
+        try {
+            val glow = StandardWarningLight.GLOW_PLUG
+            val nox = StandardWarningLight.NOX_WARNING
+            awaitUntil { vm.state.value.standardWarnings.size == 4 }
+            val initial = vm.state.value
+            check(initial.standardWarnings[glow]?.status == StandardWarningStatus.ON)
+            check(initial.standardWarnings[nox]?.status == StandardWarningStatus.ON)
+            check(initial.standardWarnings[StandardWarningLight.WWH_VEHICLE_MI]?.status == StandardWarningStatus.CONTINUOUS)
+            check(initial.standardWarnings[StandardWarningLight.WWH_ECU_MI]?.status == StandardWarningStatus.SHORT)
+            start(vm)
+            awaitUntil { vm.state.value.recordingSamples > 0 }
+            val file = csvFile(dir)
+            val columns = captureTable(file).first
+            fun index(label: String) = columns.indexOf(label).also { check(it >= 0) }
+            check("ABS" !in columns && "Airbag" !in columns)
+            check(columns.take(6) == listOf("Horodatage", "État", "MIL", "Codes stockés", "Lecture MIL", "Lecture codes stockés"))
+            check(columns.last() == PidCatalog.defs.single { it.pid == 0x0C }.label)
+            check(captureTable(file).second.any { it[index("Préchauffage")] == "allumé" && it[index("Alerte NOx")] == "active" })
+
+            phase.set(1)
+            awaitUntil { vm.state.value.standardWarnings[glow]?.status == StandardWarningStatus.OFF &&
+                vm.state.value.milOn == true && vm.state.value.storedDtcs == listOf("P0087") }
+            awaitUntil { captureTable(file).second.any { it[index("Préchauffage")] == "éteint" &&
+                it[index("Alerte NOx")] == "inactive" && it[index("MIL")] == "allumé" && it[index("Codes stockés")] == "P0087" } }
+            phase.set(2)
+            awaitUntil { vm.state.value.standardWarnings[glow]?.error != null && vm.state.value.standardWarnings[nox]?.error != null &&
+                vm.state.value.milReadError != null }
+            val failed = vm.state.value
+            // Une réponse déjà en vol lors du changement de phase peut encore réussir.
+            // Comparer après le premier échec confirmé, puis un nouvel échec réel.
+            awaitUntil { (vm.state.value.milLastAttemptAtMs ?: 0) > (failed.milLastAttemptAtMs ?: 0) &&
+                (vm.state.value.standardWarnings[glow]?.lastAttemptAtMs ?: 0) > (failed.standardWarnings[glow]?.lastAttemptAtMs ?: 0) &&
+                (vm.state.value.standardWarnings[nox]?.lastAttemptAtMs ?: 0) > (failed.standardWarnings[nox]?.lastAttemptAtMs ?: 0) }
+            val repeatedFailure = vm.state.value
+            check(repeatedFailure.standardWarnings[glow]?.lastSuccessAtMs == failed.standardWarnings[glow]?.lastSuccessAtMs)
+            check(repeatedFailure.standardWarnings[nox]?.lastSuccessAtMs == failed.standardWarnings[nox]?.lastSuccessAtMs)
+            check(repeatedFailure.milLastSuccessAtMs == failed.milLastSuccessAtMs)
+            check(failed.connectionState == ConnectionState.CONNECTED) { "An unsupported lamp read blocked the other measurements" }
+            awaitUntil { captureTable(file).second.any { it[index("Erreur Préchauffage")].isNotEmpty() &&
+                it[index("Erreur Alerte NOx")].isNotEmpty() && it[index("Erreur MIL")].isNotEmpty() } }
+            val errorRow = captureTable(file).second.last { it[index("Erreur Préchauffage")].isNotEmpty() }
+            val date = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", java.util.Locale.FRANCE)
+            check(errorRow[index("Préchauffage")] == "éteint")
+            check(date.parse(errorRow[index("Lecture Préchauffage")])!!.before(date.parse(errorRow[index("Tentative Préchauffage")])))
+
+            phase.set(3)
+            awaitUntil { vm.state.value.standardWarnings[glow]?.status == StandardWarningStatus.ON &&
+                vm.state.value.standardWarnings[glow]?.error == null && vm.state.value.milReadError == null &&
+                vm.state.value.standardWarnings[nox]?.status == StandardWarningStatus.ON && vm.state.value.standardWarnings[nox]?.error == null }
+            awaitUntil { captureTable(file).second.any { it[index("Préchauffage")] == "allumé" && it[index("MIL")] == "allumé" &&
+                it[index("Erreur Préchauffage")].isEmpty() && it[index("Erreur MIL")].isEmpty() } }
+            check(vm.state.value.pendingDtcs == null && vm.state.value.dtcLastSuccessAtMs == null)
+            val samples = vm.state.value.recordingSamples
+            reconnect(vm, next)
+            awaitUntil { vm.state.value.connectionState == ConnectionState.CONNECTED && vm.state.value.values.isNotEmpty() }
+            check(vm.state.value.standardWarnings.isEmpty()) { "Warning states leaked into the next connection" }
+            awaitUntil { vm.state.value.recordingSamples > samples }
+            check(csvFile(dir) == file)
+            check(captureTable(file).first == columns)
+            val resumed = captureTable(file).second.last()
+            check(resumed[index("Préchauffage")] == "non lu" && resumed[index("Lecture Préchauffage")].isEmpty())
+            check(next.commands.none { it in listOf("0101", "0165", "0190", "0191", "0194") })
+            val commands = synchronized(server.commands) { server.commands.toList() }
+            check(commands.filter { !it.startsWith("AT") }.all {
+                it.startsWith("01") || it in listOf("03", "0902", "STI", "STDI")
+            })
+            check(commands.none { it in listOf("01651", "01901", "01911", "01941") })
+            File(dir, "commands.txt").writeText(commands.joinToString("\n"))
+        } finally { finish(vm) }
+    } }
+}
+
+private suspend fun warningDiagnosticPause(dir: File) {
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val pids = setOf(0x0C, 0x20, 0x40, 0x60, 0x65)
+    FakeElm(replyOverride = { command ->
+        warningBitmap(command, pids) ?: when (command) {
+            "0165" -> "41650808"
+            "03" -> { entered.countDown(); check(release.await(15, TimeUnit.SECONDS)); "4300" }
+            else -> null
+        }
+    }).use { server ->
+        val vm = makeVm(server, dir)
+        try {
+            awaitUntil { vm.state.value.standardWarnings.isNotEmpty() }
+            val before = vm.state.value.standardWarnings[StandardWarningLight.GLOW_PLUG]?.lastSuccessAtMs
+            start(vm)
+            // Le diagnostic couvre l'échéance CSV/alerte de 5 s sans dépasser
+            // l'échéance de transport de 3 s sur une commande individuelle.
+            delay(RECORDING_WARNING_INTERVAL_MS - 1_000)
+            withContext(auditDispatcher) { vm.refreshDtcs() }
+            awaitUntil { entered.count == 0L }
+            val commandsBefore = synchronized(server.commands) { server.commands.toList() }
+            delay(1_600)
+            check(synchronized(server.commands) { server.commands.toList() } == commandsBefore) { "Warning polling ran during an exclusive diagnostic" }
+            check(captureTable(csvFile(dir)).second.any { it[1] == "pause diagnostic" })
+            release.countDown()
+            awaitUntil { !vm.state.value.dtcLoading &&
+                (vm.state.value.standardWarnings[StandardWarningLight.GLOW_PLUG]?.lastSuccessAtMs ?: 0) > (before ?: 0) }
+            check(vm.state.value.isRecording)
+        } finally { release.countDown(); finish(vm) }
+    }
+}
+
 private suspend fun gaugeOrderPreferences(dir: File) {
     val firstVin = "1D4GP00R55B123456"
     val secondVin = "1D4GP00R55B123457"
@@ -454,13 +598,15 @@ fun main(args: Array<String>) = runBlocking {
         "partial_diagnostic_dates" to ::partialDiagnosticDates,
         "temporary_diagnostic_stops" to ::temporaryDiagnosticStops,
         "automatic_codes_despite_mil_refusal" to ::automaticCodesDespiteMilRefusal,
-        "gauge_order_preferences" to ::gaugeOrderPreferences
+        "gauge_order_preferences" to ::gaugeOrderPreferences,
+        "automatic_warning_capture" to ::automaticWarningCapture,
+        "warning_diagnostic_pause" to ::warningDiagnosticPause
     )
     val selected = args.getOrNull(1)?.let { name -> mapOf(name to cases.getValue(name)) } ?: cases
     var failed = 0
     for ((name, runCase) in selected) {
         try {
-            withTimeout(40_000) { runCase(File(root, name)) }
+            withTimeout(if (name == "automatic_warning_capture") 60_000 else 40_000) { runCase(File(root, name)) }
             println("PASS $name")
         } catch (e: Throwable) {
             failed++
