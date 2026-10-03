@@ -430,6 +430,666 @@
         "D04",
         "D05"
       ]
+    },
+    {
+      "id": "W033",
+      "artifact": "captures/recherche_sources_20261003/web_R033_R036.json",
+      "origin": "web_search_snapshot",
+      "retrieved_at_utc": "2026-10-03T02:40:55Z",
+      "action_ids": [
+        "R033",
+        "R034",
+        "R035",
+        "R036"
+      ],
+      "size": 23193,
+      "sha256": "9a60a0114ded9706b24350f0e5bb7195f56da1229eb2b33a38c8dc1376d748d9"
+    },
+    {
+      "id": "G037",
+      "artifact": "captures/recherche_sources_20261003/github_R037.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"VB0\" \"EDC\" in:path",
+      "retrieved_at_utc": "2026-10-03T02:42:55.047737+00:00",
+      "sha256": "ae0b33be7cfd57d156b78e1cd73ae249c68455f1ea2c071a10ad2f99b699699f",
+      "size": 14882,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G038",
+      "artifact": "captures/recherche_sources_20261003/github_R038.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"EDC15\" \"X83\" in:file",
+      "retrieved_at_utc": "2026-10-03T02:42:56.440877+00:00",
+      "sha256": "ebb1b866ea60785d87a1928dd37d0f0aaec0802f2580d4fa33c4e2d86fad3d5f",
+      "size": 10477,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G039",
+      "artifact": "captures/recherche_sources_20261003/github_R039.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"G9U\" \"KWP\" in:file",
+      "retrieved_at_utc": "2026-10-03T02:43:00.947980+00:00",
+      "sha256": "43ba71fc84609a114ff488e7c39eff018a2179e270865b6849f5c6b6fe8ec159",
+      "size": 8957,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G040",
+      "artifact": "captures/recherche_sources_20261003/github_R040.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"25\" \"037\" \"00CB\" \"1200\" extension:xml",
+      "retrieved_at_utc": "2026-10-03T02:43:02.582133+00:00",
+      "sha256": "58af3d83f050f752b5e79f779e2b20ca34260f3c86d4840a0b8feba942faaad5",
+      "size": 9901,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "M041",
+      "artifact": "captures/recherche_sources_20261003/metadata_R041.json",
+      "url": "https://api.github.com/search/repositories",
+      "target": "ddt4all in:name,description fork:false",
+      "retrieved_at_utc": "2026-10-03T02:45:59.167877+00:00",
+      "sha256": "2dcd70f41d55fa6160397ebdf390350fdd2b4f2a717c985bba2af1a747e0296e",
+      "size": 7041,
+      "origin": "github_repository_search"
+    },
+    {
+      "id": "M042",
+      "artifact": "captures/recherche_sources_20261003/metadata_R042.json",
+      "url": "https://api.github.com/search/repositories",
+      "target": "pyclip in:name,description fork:false",
+      "retrieved_at_utc": "2026-10-03T02:46:54.807099+00:00",
+      "sha256": "a9abf4daeb5c95fa38afb2790d2c0512e7fce79966045e3b8084ac56d009cce1",
+      "size": 8727,
+      "origin": "github_repository_search"
+    },
+    {
+      "id": "M043",
+      "artifact": "captures/recherche_sources_20261003/metadata_R043.json",
+      "url": "https://api.github.com/search/repositories",
+      "target": "renault diagnostic in:description fork:false",
+      "retrieved_at_utc": "2026-10-03T02:46:56.070264+00:00",
+      "sha256": "c3ad4193f28dbeb72f4a77fd0b3957f69b17c571e97318ef833ff2cadff2ceb8",
+      "size": 3329,
+      "origin": "github_repository_search"
+    },
+    {
+      "id": "M044",
+      "artifact": "captures/recherche_sources_20261003/metadata_R044.json",
+      "url": "https://api.github.com/repos/MellotronScratch/renaultstuff/git/trees/72546d6590a9f454713b73023c57dacf36e1d25b",
+      "target": "MellotronScratch/renaultstuff@72546d6590a9f454713b73023c57dacf36e1d25b",
+      "retrieved_at_utc": "2026-10-03T02:46:56.930198+00:00",
+      "sha256": "d2677cbf1d511503a0010cb04b6013cf283a5c4d9ec1716f646688a2960ec7a4",
+      "size": 6632,
+      "origin": "github_tree_read"
+    },
+    {
+      "id": "W045",
+      "artifact": "captures/recherche_sources_20261003/mirrors_R045_R046.json",
+      "origin": "web_extracted_pages_snapshot",
+      "retrieved_at_utc": "2026-10-03T02:46:00Z",
+      "size": 54614,
+      "sha256": "4d0df0c2ef4d9afc40115f0199d5d9e69fe4b57409d0127a3477b655c538b560"
+    },
+    {
+      "id": "T047",
+      "artifact": "captures/recherche_sources_20261003/repository_R047.json",
+      "url": "https://github.com/KarelSvo/ddt4all-5.6.0/tree/fcca5f3fda971c12d71926ca6826be2799452bbc",
+      "revision": "fcca5f3fda971c12d71926ca6826be2799452bbc",
+      "retrieved_at_utc": "2026-10-03T02:50:00.220262+00:00",
+      "sha256": "58aaa9d935329e8636b4354eff38ea99dcd2f41ddf89003b22145380facfcb46",
+      "size": 44844,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "T048",
+      "artifact": "captures/recherche_sources_20261003/repository_R048.json",
+      "url": "https://github.com/dimoroz772/DDT4ALL/tree/41968a8f9983eb70cff26b63cb522d62c528221f",
+      "revision": "41968a8f9983eb70cff26b63cb522d62c528221f",
+      "retrieved_at_utc": "2026-10-03T02:50:01.555552+00:00",
+      "sha256": "3ac46455f8aad8cc08173055b4f1d35015fb01a33c78c50f75ad1f5340f1991c",
+      "size": 7234,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "T049",
+      "artifact": "captures/recherche_sources_20261003/repository_R049.json",
+      "url": "https://github.com/Marianpol/pyclip/tree/a047e5c89c5de12d165d698d8859908022187cc9",
+      "revision": "a047e5c89c5de12d165d698d8859908022187cc9",
+      "retrieved_at_utc": "2026-10-03T02:50:02.605410+00:00",
+      "sha256": "7dbc12c73d409f0ff616dbc8836675747a9d053479d60ab34d619558c5c08d95",
+      "size": 7765,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "T050",
+      "artifact": "captures/recherche_sources_20261003/repository_R050.json",
+      "url": "https://github.com/andru666/pyclip3/tree/19654344f7a39fb37e76518812256adb08f3dd76",
+      "revision": "19654344f7a39fb37e76518812256adb08f3dd76",
+      "retrieved_at_utc": "2026-10-03T02:50:03.636476+00:00",
+      "sha256": "4f925f5674f2bce69490c1e2daf803ea204ac3ac1686ac4100d4e5e6202e98bb",
+      "size": 23518,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "T051",
+      "artifact": "captures/recherche_sources_20261003/repository_R051.json",
+      "url": "https://github.com/Marchand-Nicolas/clio2-fixer/tree/d2a95fe3b4d4550b2b30727cae9fe52ceed245df",
+      "revision": "d2a95fe3b4d4550b2b30727cae9fe52ceed245df",
+      "retrieved_at_utc": "2026-10-03T02:50:04.725460+00:00",
+      "sha256": "540a411d03269e91d27e05506a394ab6b25e60ffbbd5ba8dec8f25b261518464",
+      "size": 4300,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "T056",
+      "artifact": "captures/recherche_sources_20261003/repository_R056.json",
+      "url": "https://github.com/fernandovpz/ddt4all",
+      "revision": null,
+      "retrieved_at_utc": "2026-10-03T02:53:40.753377+00:00",
+      "sha256": "c8cb84daa0d639cc1fa3c6137737ffe79e4ec9aaf12979c95364f12f9368786c",
+      "size": 415,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "T057",
+      "artifact": "captures/recherche_sources_20261003/repository_R057.json",
+      "url": "https://github.com/dsgnmga/ddt4all",
+      "revision": null,
+      "retrieved_at_utc": "2026-10-03T02:53:41.357685+00:00",
+      "sha256": "8faf4647682bf13624e449ea01b4ed072d05d20889633cfda148328f7100c098",
+      "size": 411,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "T058",
+      "artifact": "captures/recherche_sources_20261003/repository_R058.json",
+      "url": "https://github.com/kexsan/ddt4all/tree/fb2dfee62acd3d3efa52b615ad7cd042b30cebd0",
+      "revision": "fb2dfee62acd3d3efa52b615ad7cd042b30cebd0",
+      "retrieved_at_utc": "2026-10-03T02:53:41.954979+00:00",
+      "sha256": "a08fefc9f344325101440ba5d21c3fb86d240c719790262051b9521ce7f8a4ab",
+      "size": 1324,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "T059",
+      "artifact": "captures/recherche_sources_20261003/repository_R059.json",
+      "url": "https://github.com/dragons7778/ddt4all_20190709/tree/7b009cf73cfa8949509295f2fa631dc1ca48fff9",
+      "revision": "7b009cf73cfa8949509295f2fa631dc1ca48fff9",
+      "retrieved_at_utc": "2026-10-03T02:53:42.949299+00:00",
+      "sha256": "25f099787abbe5f67541090fcb1bfac2dcc53b80917abf2204f12e2946cdb39f",
+      "size": 955,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "C060",
+      "url": "https://raw.githubusercontent.com/KarelSvo/ddt4all-5.6.0/fcca5f3fda971c12d71926ca6826be2799452bbc/README.md",
+      "final_url": "https://raw.githubusercontent.com/KarelSvo/ddt4all-5.6.0/fcca5f3fda971c12d71926ca6826be2799452bbc/README.md",
+      "artifact": "captures/recherche_sources_20261003/primary_R060.txt",
+      "revision": "fcca5f3fda971c12d71926ca6826be2799452bbc",
+      "sha256": "5d4d801211609edeb716f939d61f25f94ab9d68e8b544200f5f3563d32c29a90",
+      "size": 5087,
+      "retrieved_at_utc": "2026-10-03T03:01:32.393422+00:00",
+      "origin": "pinned_public_source_read"
+    },
+    {
+      "id": "C061",
+      "url": "https://raw.githubusercontent.com/Marianpol/pyclip/a047e5c89c5de12d165d698d8859908022187cc9/mod_zip.py",
+      "final_url": "https://raw.githubusercontent.com/Marianpol/pyclip/a047e5c89c5de12d165d698d8859908022187cc9/mod_zip.py",
+      "artifact": "captures/recherche_sources_20261003/primary_R061.txt",
+      "revision": "a047e5c89c5de12d165d698d8859908022187cc9",
+      "sha256": "d54dec424b3bad6cf0c7a04acdd4333007f5c284cb0e0d12d73ad85cbb9bb2e2",
+      "size": 2629,
+      "retrieved_at_utc": "2026-10-03T03:01:32.703998+00:00",
+      "origin": "pinned_public_source_read"
+    },
+    {
+      "id": "C062",
+      "url": "https://raw.githubusercontent.com/andru666/pyclip3/19654344f7a39fb37e76518812256adb08f3dd76/mod_zip.py",
+      "final_url": "https://raw.githubusercontent.com/andru666/pyclip3/19654344f7a39fb37e76518812256adb08f3dd76/mod_zip.py",
+      "artifact": "captures/recherche_sources_20261003/primary_R062.txt",
+      "revision": "19654344f7a39fb37e76518812256adb08f3dd76",
+      "sha256": "b227d26110da75cc2aef6593bbe3f62bed7aa3a508c7ecac104e8c27b2755b92",
+      "size": 2692,
+      "retrieved_at_utc": "2026-10-03T03:01:32.954258+00:00",
+      "origin": "pinned_public_source_read"
+    },
+    {
+      "id": "C063",
+      "url": "https://raw.githubusercontent.com/Marchand-Nicolas/clio2-fixer/d2a95fe3b4d4550b2b30727cae9fe52ceed245df/README.md",
+      "final_url": "https://raw.githubusercontent.com/Marchand-Nicolas/clio2-fixer/d2a95fe3b4d4550b2b30727cae9fe52ceed245df/README.md",
+      "artifact": "captures/recherche_sources_20261003/primary_R063.txt",
+      "revision": "d2a95fe3b4d4550b2b30727cae9fe52ceed245df",
+      "sha256": "8c307cc8e1cad1a354507f53a22e4ad3b7d4c459a9c95ad429c23ea48d742f63",
+      "size": 3555,
+      "retrieved_at_utc": "2026-10-03T03:01:33.268765+00:00",
+      "origin": "pinned_public_source_read"
+    },
+    {
+      "id": "C064",
+      "url": "https://raw.githubusercontent.com/Marchand-Nicolas/clio2-fixer/d2a95fe3b4d4550b2b30727cae9fe52ceed245df/ecu/GPL_2000___A8.50.json",
+      "final_url": "https://raw.githubusercontent.com/Marchand-Nicolas/clio2-fixer/d2a95fe3b4d4550b2b30727cae9fe52ceed245df/ecu/GPL_2000___A8.50.json",
+      "artifact": "captures/recherche_sources_20261003/primary_R064.txt",
+      "revision": "d2a95fe3b4d4550b2b30727cae9fe52ceed245df",
+      "sha256": "972b1cf9fee76762db85457d3389ec4d4a5d5bc13d7fb9103ae84db37cc2b4f1",
+      "size": 80646,
+      "retrieved_at_utc": "2026-10-03T03:01:33.602143+00:00",
+      "origin": "pinned_public_source_read"
+    },
+    {
+      "id": "C065",
+      "url": "https://raw.githubusercontent.com/kexsan/ddt4all/fb2dfee62acd3d3efa52b615ad7cd042b30cebd0/README.md",
+      "final_url": "https://raw.githubusercontent.com/kexsan/ddt4all/fb2dfee62acd3d3efa52b615ad7cd042b30cebd0/README.md",
+      "artifact": "captures/recherche_sources_20261003/primary_R065.txt",
+      "revision": "fb2dfee62acd3d3efa52b615ad7cd042b30cebd0",
+      "sha256": "628dab5cad1fcb7077979b6543ddfcf98c0432a4a0f8a8031ff1ce57cb475bc2",
+      "size": 3209,
+      "retrieved_at_utc": "2026-10-03T03:01:33.902970+00:00",
+      "origin": "pinned_public_source_read"
+    },
+    {
+      "id": "W052",
+      "artifact": "captures/recherche_sources_20261003/web_R052_R055.json",
+      "origin": "web_search_snapshot",
+      "retrieved_at_utc": "2026-10-03T02:53:38Z",
+      "action_ids": [
+        "R052",
+        "R053",
+        "R054",
+        "R055"
+      ],
+      "size": 26043,
+      "sha256": "0a19ea020b447d92a420624563c26feed6925fffe0918fcd0994696c84bc74fa"
+    },
+    {
+      "id": "T066",
+      "artifact": "captures/recherche_sources_20261003/repository_R066.json",
+      "url": "https://github.com/KarelSvo/ddt4all-5.6.0/tree/b560651ccc354a6c8b6b1885d63ebc28b6f875ce",
+      "revision": "b560651ccc354a6c8b6b1885d63ebc28b6f875ce",
+      "retrieved_at_utc": "2026-10-03T03:03:22.238387+00:00",
+      "sha256": "b7a28b967b2ca31d1e61a2479c1b629087c187654418ec81f95ab8201d38bbd6",
+      "size": 43300,
+      "origin": "public_repository_tree_snapshot"
+    },
+    {
+      "id": "M067",
+      "artifact": "captures/recherche_sources_20261003/release_R067.json",
+      "url": "https://api.github.com/repos/KarelSvo/ddt4all-5.6.0/releases/tags/5.6.0",
+      "origin": "github_release_metadata",
+      "retrieved_at_utc": "2026-10-03T03:03:24.500845+00:00",
+      "size": 4463,
+      "sha256": "a064b2706b9a56cfd4a7e1e75d5fa03e2eb3e749384c91d4c055f0a7e4614668"
+    },
+    {
+      "id": "W068",
+      "artifact": "captures/recherche_sources_20261003/web_R068_R071.json",
+      "origin": "web_search_snapshot",
+      "retrieved_at_utc": "2026-10-03T03:08:13Z",
+      "action_ids": [
+        "R068",
+        "R069",
+        "R070",
+        "R071"
+      ],
+      "size": 35191,
+      "sha256": "99e651a33b601a39c12fca5e418a117057eefc94521062df3197cdd83a80a39f"
+    },
+    {
+      "id": "G073",
+      "artifact": "captures/recherche_sources_20261003/github_R073.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"Uces.xml\" in:path",
+      "retrieved_at_utc": "2026-10-03T03:13:06.036387+00:00",
+      "sha256": "a8650e7a871eb04cef6b2272c6b1bdde57536bc45ddc65a91e4296c1e9901a16",
+      "size": 10683,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "G074",
+      "artifact": "captures/recherche_sources_20261003/github_R074.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"pyrendata\" in:path",
+      "retrieved_at_utc": "2026-10-03T03:13:07.097953+00:00",
+      "sha256": "12af6e7eab0f5062db6abde843eb630741c615585de4ce0840824da7924c1fe3",
+      "size": 160,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "W072",
+      "artifact": "captures/recherche_sources_20261003/web_R072.json",
+      "url": "https://4pda.to/forum/index.php?showtopic=944879&st=3040",
+      "retrieved_at_utc": "2026-10-03T03:10:44Z",
+      "origin": "web_tool_snapshot",
+      "size": 1017,
+      "sha256": "6c08586989de7c914c302847a1db8d330b8a953cbee4108d26b4e8b25c7c6632"
+    },
+    {
+      "id": "W075",
+      "artifact": "captures/recherche_sources_20261003/web_R075_R077.json",
+      "url": "https://4pda.to/forum/index.php?showtopic=944879&st=8040",
+      "retrieved_at_utc": "2026-10-03T03:13:07Z",
+      "origin": "web_search_snapshot",
+      "scope": "Résultats indexés du sujet original PyClip, dont annonce andru666 du 24 octobre 2023 ; archive non téléchargée.",
+      "size": 15853,
+      "sha256": "5f522b688571245345b8f0d830de60b4658a7c90ef25f1014bac75f42a825a0a"
+    },
+    {
+      "id": "G083",
+      "artifact": "captures/recherche_sources_20261003/github_R083.json",
+      "url": "https://api.github.com/search/code",
+      "query": "\"EcuRenault/Uces.xml\" in:path",
+      "retrieved_at_utc": "2026-10-03T03:18:40.099021+00:00",
+      "sha256": "ac61fa97d5db921979bfc61c0a7db54156c6507691e6d69d6210484c4932f67c",
+      "size": 170,
+      "origin": "github_code_index_response"
+    },
+    {
+      "id": "W078",
+      "artifact": "captures/recherche_sources_20261003/web_R078_R080.json",
+      "retrieved_at_utc": "2026-10-03T03:18:06Z",
+      "origin": "web_search_snapshot",
+      "url": "https://4pda.to/forum/index.php?showtopic=944879&st=8040",
+      "lead_url": "https://www.renaultfanclub.com/threads/turkce-pyclip-ve-datasi.112250/page-2",
+      "size": 13294,
+      "sha256": "5b8692c681803096263a63d4ca2bfc4d20197583bce5d527376d329c7fd5ff7f"
+    },
+    {
+      "id": "W081",
+      "artifact": "captures/recherche_sources_20261003/web_R081.json",
+      "url": "https://www.renaultfanclub.com/threads/turkce-pyclip-ve-datasi.112250/page-2",
+      "retrieved_at_utc": "2026-10-03T03:18:36Z",
+      "origin": "web_page_snapshot",
+      "size": 8950,
+      "sha256": "c02cf03a59462087a78f65d265188675c12d0b22b86f6cbf928252a592034c40"
+    },
+    {
+      "id": "M082",
+      "artifact": "captures/recherche_sources_20261003/release_R082.json",
+      "url": "https://api.github.com/repos/andru666/pyclip3/releases?per_page=100",
+      "retrieved_date_local": "2026-10-03",
+      "timestamp_precision": "date_only",
+      "origin": "github_api_output_snapshot",
+      "size": 271,
+      "sha256": "d5bdb5f26b61e2dfd4261fba8da080928282a836b490257f455cccedb2ace89e"
+    },
+    {
+      "id": "W084",
+      "artifact": "captures/recherche_sources_20261003/web_R084.json",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "retrieved_at_utc": "2026-10-03T03:18:49Z",
+      "origin": "web_page_snapshot",
+      "size": 406,
+      "sha256": "dccf5129d0657863861bccd7f35db6276f84c43d2eb48312e406b46b2d2f4fa7"
+    },
+    {
+      "id": "A092",
+      "artifact": "captures/recherche_sources_20261003/history_search_R092.json",
+      "retrieved_at_utc": "2026-10-03T03:28:37Z",
+      "origin": "local_bounded_text_search",
+      "size": 332,
+      "sha256": "d2ddf91f96663c90e2c2efb2b4dedce2d62c23d197f644cc592395d1ca992bb7"
+    },
+    {
+      "id": "A085",
+      "artifact": "captures/recherche_sources_20261003/archive_R085.json",
+      "origin": "public_download_metadata",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "retrieved_at_utc": "2026-10-03T03:19:56.712143+00:00",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 450,
+      "sha256": "253a1797163c4df005a8e53c14f9a863ca2c157ceb7c8d41ba6e0456fa2290fa"
+    },
+    {
+      "id": "W085",
+      "artifact": "captures/recherche_sources_20261003/oldrenault_public_response.html",
+      "origin": "public_download_form",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "retrieved_at_utc": "2026-10-03T03:19:56.712143+00:00",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 2488,
+      "sha256": "a4c9f5ac79cba891c9dd52e4bcaac2c48ef0afae4bc1885b2ff1c92260b4c18d"
+    },
+    {
+      "id": "A086",
+      "artifact": "captures/recherche_sources_20261003/archive_R086.json",
+      "origin": "public_download_metadata",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "retrieved_at_utc": "2026-10-03T03:20:36.310091+00:00",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 609,
+      "sha256": "18ec81be2facc23ee546fa8fa8df012c9598bb165f5e6c92be04ceb59a6a6072"
+    },
+    {
+      "id": "D237",
+      "artifact": "captures/recherche_sources_20261003/pyrendata_237_and_Lada_and_OldRenault.zip",
+      "origin": "third_party_public_database_archive",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "retrieved_at_utc": "2026-10-03T03:20:36.310091+00:00",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 81317636,
+      "sha256": "3a32c3e07606d9b5c28d000607aa8e13e57d0ddf9d511000a5183bae611dae47"
+    },
+    {
+      "id": "I237",
+      "artifact": "captures/recherche_sources_20261003/oldrenault_inventory_R087.json",
+      "origin": "zip_directory_inventory",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 1153197,
+      "sha256": "d391a9fea005930dbfafd5fddbe1758802a79df65df386eb89883ebfc63d9e0f",
+      "analysis_started_at_utc": "2026-10-03T03:21:18.650181+00:00"
+    },
+    {
+      "id": "U237",
+      "artifact": "captures/recherche_sources_20261003/oldrenault_Uces.xml",
+      "origin": "archived_database_catalog",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "retrieved_at_utc": "2026-10-03T03:21:18.650181+00:00",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 3127053,
+      "sha256": "99a44ffc619c4270033969f03f256d768a01dc9567aef97a3cc34e4e37a26b03"
+    },
+    {
+      "id": "A087",
+      "artifact": "captures/recherche_sources_20261003/oldrenault_summary_R087.json",
+      "origin": "offline_archive_inspection",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 1585,
+      "sha256": "07ef54071d8bb936e1439e7c6032d30dd06b9b4054e6e59b534e271423151b27",
+      "analysis_started_at_utc": "2026-10-03T03:21:18.650181+00:00"
+    },
+    {
+      "id": "A088",
+      "artifact": "captures/recherche_sources_20261003/comparison_R088.json",
+      "origin": "offline_identity_mask_comparison",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 60171,
+      "sha256": "c2b6f174644f2b002a1c91956c82f13d658ae3e769671fdc9ba1063d33c7f828",
+      "analysis_started_at_utc": "2026-10-03T03:26:58.076023+00:00"
+    },
+    {
+      "id": "A089",
+      "artifact": "captures/recherche_sources_20261003/models_R089.json",
+      "origin": "offline_model_inspection",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 99323,
+      "sha256": "1dad012a2fdb418e96a88dad30f4caddf1e27ee482427aedf57bec0fbe6f2796",
+      "analysis_started_at_utc": "2026-10-03T03:25:39.716648+00:00"
+    },
+    {
+      "id": "A090",
+      "artifact": "captures/recherche_sources_20261003/readings_R090.json",
+      "origin": "offline_measurement_mapping",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 17629,
+      "sha256": "5e3fb05c52ae52d3a2088358e59e2bea2b4cf64ed87a0659f998bd6867a50dd5",
+      "analysis_started_at_utc": "2026-10-03T03:26:57.607083+00:00"
+    },
+    {
+      "id": "A091",
+      "artifact": "captures/recherche_sources_20261003/core_readings_R091.json",
+      "origin": "offline_candidate_comparison",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "provenance_status": "Publication tierce ; authenticité Renault et droits de réutilisation non établis.",
+      "size": 20742,
+      "sha256": "a2e0272e5100f4f61fda9c12da4832a9dc8faec9ae537f3653a2687e3358a16f",
+      "analysis_started_at_utc": "2026-10-03T03:28:36.985650+00:00"
+    },
+    {
+      "id": "F23015",
+      "artifact": "captures/recherche_sources_20261003/FG0110192.xml",
+      "origin": "archived_model_xml",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "23015",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 141606,
+      "sha256": "7ae46f6a8b400a12e975e80083bb8db72854cac15500e7720be46fae3fbf7bc0"
+    },
+    {
+      "id": "P23015",
+      "artifact": "captures/recherche_sources_20261003/SG0110192.p",
+      "origin": "archived_optimizer_binary",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "23015",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 206087,
+      "sha256": "efe27b3288533c540c2f85d5ef2ef63cb33505a676b3bc0e79041f98f0416388"
+    },
+    {
+      "id": "J23015",
+      "artifact": "captures/recherche_sources_20261003/SG0110192_strings.json",
+      "origin": "statically_inspected_unicode_pairs",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "23015",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 211134,
+      "sha256": "a6a0197dba026826c26ea14c41ae1ac43eb4204fa66dc512e78f58f07876f12f"
+    },
+    {
+      "id": "F10496",
+      "artifact": "captures/recherche_sources_20261003/FG0110496.xml",
+      "origin": "archived_model_xml",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "10496",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 170152,
+      "sha256": "a76b033f713a3b6594bc87b24c03f7290b9656baefceaa0517cb120556a58495"
+    },
+    {
+      "id": "P10496",
+      "artifact": "captures/recherche_sources_20261003/SG0110496.p",
+      "origin": "archived_optimizer_binary",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "10496",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 242442,
+      "sha256": "93aaddd19ee626eedd5f27cb93a4d45f6b1fc24d6d1afe5546cbb626018c36f4"
+    },
+    {
+      "id": "J10496",
+      "artifact": "captures/recherche_sources_20261003/SG0110496_strings.json",
+      "origin": "statically_inspected_unicode_pairs",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "10496",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 247687,
+      "sha256": "1ef1f0111bbe3e0a56d8659930aa48c21cca0fe237bb5aeeb6444eac391e4688"
+    },
+    {
+      "id": "F12433",
+      "artifact": "captures/recherche_sources_20261003/FG0110304.xml",
+      "origin": "archived_model_xml",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "12433",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 155285,
+      "sha256": "e9829b43460ccd81ba013b698fbb98635362e730cb8be9f66578a596023305a4"
+    },
+    {
+      "id": "P12433",
+      "artifact": "captures/recherche_sources_20261003/SG0110304.p",
+      "origin": "archived_optimizer_binary",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "12433",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 217735,
+      "sha256": "3d1d5f8a3745ea75a1658463477b36234170f1f1595a2a8873f022f6c00ddac9"
+    },
+    {
+      "id": "J12433",
+      "artifact": "captures/recherche_sources_20261003/SG0110304_strings.json",
+      "origin": "statically_inspected_unicode_pairs",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "12433",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 222572,
+      "sha256": "3c4d5264427f2fd820804a40abe5fd6dd5ac4ad43bc4bf9125ffeb6484390ca6"
+    },
+    {
+      "id": "F12499",
+      "artifact": "captures/recherche_sources_20261003/FG0112263.xml",
+      "origin": "archived_model_xml",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "12499",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 201833,
+      "sha256": "ca78ebf4ab0ee033d909f2747b8a21d0aa901746fcf7fb4781a31c7af5523b5a"
+    },
+    {
+      "id": "P12499",
+      "artifact": "captures/recherche_sources_20261003/SG0112263.p",
+      "origin": "archived_optimizer_binary",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "12499",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 233207,
+      "sha256": "b0cf2936878c70ffe13de8c30e136c94aeacc5924f1331572dd947310401a82d"
+    },
+    {
+      "id": "J12499",
+      "artifact": "captures/recherche_sources_20261003/SG0112263_strings.json",
+      "origin": "statically_inspected_unicode_pairs",
+      "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+      "database_entry": "12499",
+      "archive_source": "D237",
+      "extracted_offline": true,
+      "size": 238368,
+      "sha256": "127aac19b49e1535249fcea0aaeb46457a969b968f0bac28ea05d7c86918aa64"
+    },
+    {
+      "id": "A093",
+      "artifact": "captures/recherche_sources_20261003/vehicles_R093.json",
+      "origin": "offline_vehicle_association_inspection",
+      "analysis_started_at_utc": "2026-10-03T03:35:39.696350+00:00",
+      "archive_source": "D237",
+      "size": 4712,
+      "sha256": "0c80bd303a979727712b0d2b24d857df8eb8ed1886ec61685a3414934eb21885"
+    },
+    {
+      "id": "V066",
+      "artifact": "captures/recherche_sources_20261003/oldrenault_TCOM_066.xml",
+      "origin": "archived_vehicle_definition",
+      "archive_source": "D237",
+      "path_in_archive": "Vehicles/TCOM_066.xml",
+      "size": 12312,
+      "sha256": "bb5ca794db41dbdafc6644cd160a33224eec5c4a4dae567a5de0af0b4217c42f"
     }
   ]
 }

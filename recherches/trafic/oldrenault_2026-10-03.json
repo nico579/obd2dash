@@ -1,0 +1,448 @@
+{
+  "date_local": "2026-10-03",
+  "vehicle_commands_sent": 0,
+  "archive": {
+    "name": "pyrendata_237_and_Lada_and_OldRenault.zip",
+    "url": "https://drive.google.com/file/d/1pcm8q1O_mnqeh-E7dmCWtMwFjWcJJmfK/view?usp=drive_link",
+    "source_id": "D237",
+    "size": 81317636,
+    "sha256": "3a32c3e07606d9b5c28d000607aa8e13e57d0ddf9d511000a5183bae611dae47"
+  },
+  "captured_identity": {
+    "diag_decimal": 25,
+    "supplier": "037",
+    "software": "00CB",
+    "version": "1200",
+    "source_id": "L04"
+  },
+  "catalog": {
+    "entries": 2516,
+    "edc15_entries_compared": 47,
+    "declared_mask_matches": [
+      "23015",
+      "10496",
+      "12433",
+      "12499"
+    ],
+    "source_ids": [
+      "U237",
+      "A088"
+    ]
+  },
+  "candidates": [
+    {
+      "id": "23015",
+      "doc": "EDC15C_CB",
+      "model_id": "FG0110192.xml",
+      "optimizer_id": "SG0110192.xml",
+      "fast_init_address": "7A",
+      "session": {
+        "request": "10C0",
+        "response": "50",
+        "mode": "1"
+      },
+      "checks": [
+        {
+          "rank_after_service": 16,
+          "payload_offset": 17,
+          "mask_hex": "FF",
+          "expected_hex": "CB",
+          "actual_hex": "CB",
+          "passes": true
+        }
+      ],
+      "exact_four_field_identity_declared": false
+    },
+    {
+      "id": "10496",
+      "doc": "INJ_EDC15_X83_19_A",
+      "model_id": "FG0110496.XML",
+      "optimizer_id": "SG0110496.XML",
+      "fast_init_address": "7A",
+      "session": {
+        "request": "10C0",
+        "response": "50",
+        "mode": "1"
+      },
+      "checks": [
+        {
+          "rank_after_service": 6,
+          "payload_offset": 7,
+          "mask_hex": "FF",
+          "expected_hex": "19",
+          "actual_hex": "19",
+          "passes": true
+        },
+        {
+          "rank_after_service": 16,
+          "payload_offset": 17,
+          "mask_hex": "FF",
+          "expected_hex": "CB",
+          "actual_hex": "CB",
+          "passes": true
+        },
+        {
+          "rank_after_service": 17,
+          "payload_offset": 18,
+          "mask_hex": "FF",
+          "expected_hex": "12",
+          "actual_hex": "12",
+          "passes": true
+        }
+      ],
+      "exact_four_field_identity_declared": false
+    },
+    {
+      "id": "12433",
+      "doc": "EDC15C_Vdiag19_VB0_IMA",
+      "model_id": "FG0110304.XML",
+      "optimizer_id": "SG0110304.XML",
+      "fast_init_address": "7A",
+      "session": {
+        "request": "10C0",
+        "response": "50",
+        "mode": "1"
+      },
+      "checks": [
+        {
+          "rank_after_service": 6,
+          "payload_offset": 7,
+          "mask_hex": "FF",
+          "expected_hex": "19",
+          "actual_hex": "19",
+          "passes": true
+        },
+        {
+          "rank_after_service": 16,
+          "payload_offset": 17,
+          "mask_hex": "FF",
+          "expected_hex": "CB",
+          "actual_hex": "CB",
+          "passes": true
+        }
+      ],
+      "exact_four_field_identity_declared": false
+    },
+    {
+      "id": "12499",
+      "doc": "EDC 15C  - Vd 19- X83 B2",
+      "model_id": "FG0112263.XML",
+      "optimizer_id": "SG0112263.XML",
+      "fast_init_address": "7A",
+      "session": {
+        "request": "10C0",
+        "response": "50",
+        "mode": "1"
+      },
+      "checks": [
+        {
+          "rank_after_service": 16,
+          "payload_offset": 17,
+          "mask_hex": "FF",
+          "expected_hex": "CB",
+          "actual_hex": "CB",
+          "passes": true
+        },
+        {
+          "rank_after_service": 6,
+          "payload_offset": 7,
+          "mask_hex": "FF",
+          "expected_hex": "19",
+          "actual_hex": "19",
+          "passes": true
+        }
+      ],
+      "exact_four_field_identity_declared": false
+    }
+  ],
+  "candidate_10496": {
+    "model_database_name": "INJECTION EDC15 X83II ph2-0012-19",
+    "counts": {
+      "Parameter": 105,
+      "State": 51,
+      "Default": 50,
+      "Identification": 22,
+      "Command": 31
+    },
+    "non_freeze_frame_parameters": 57,
+    "freeze_frame_parameters": 48,
+    "measurement_mapping_source": "A091",
+    "selected_measurements": [
+      {
+        "code": "PR055",
+        "name": "P006",
+        "label": "REGIME MOTEUR",
+        "unit": "tr/min",
+        "formula": "_REGMOY",
+        "sources": [
+          {
+            "mnemonic": "_REGMOY",
+            "data_type": {
+              "littleEndian": "0",
+              "type": "UNUM16",
+              "bitsLength": "16"
+            },
+            "request": "21AA",
+            "declared_response_prefix": "61",
+            "location": {
+              "name": "_REGMOY",
+              "startByte": "15",
+              "startBit": "0",
+              "rOffset": "0"
+            }
+          }
+        ]
+      },
+      {
+        "code": "PR089",
+        "name": "P005",
+        "label": "VITESSE VEHICULE",
+        "unit": "km/h",
+        "formula": "0.01 * _VITESSE",
+        "sources": [
+          {
+            "mnemonic": "_VITESSE",
+            "data_type": {
+              "littleEndian": "0",
+              "type": "UNUM16",
+              "bitsLength": "16"
+            },
+            "request": "21AA",
+            "declared_response_prefix": "61",
+            "location": {
+              "name": "_VITESSE",
+              "startByte": "17",
+              "startBit": "0",
+              "rOffset": "0"
+            }
+          }
+        ]
+      },
+      {
+        "code": "PR064",
+        "name": "P010",
+        "label": "TEMPERATURE D'EAU",
+        "unit": "°C",
+        "formula": "0.1 * _TEAU - 273",
+        "sources": [
+          {
+            "mnemonic": "_TEAU",
+            "data_type": {
+              "littleEndian": "0",
+              "type": "UNUM16",
+              "bitsLength": "16"
+            },
+            "request": "21A9",
+            "declared_response_prefix": "61",
+            "location": {
+              "name": "_TEAU",
+              "startByte": "3",
+              "startBit": "0",
+              "rOffset": "0"
+            }
+          }
+        ]
+      },
+      {
+        "code": "PR058",
+        "name": "P011",
+        "label": "TEMPERATURE D'AIR",
+        "unit": "°C",
+        "formula": "0.1 * _TAIR - 273",
+        "sources": [
+          {
+            "mnemonic": "_TAIR",
+            "data_type": {
+              "littleEndian": "0",
+              "type": "UNUM16",
+              "bitsLength": "16"
+            },
+            "request": "21A9",
+            "declared_response_prefix": "61",
+            "location": {
+              "name": "_TAIR",
+              "startByte": "5",
+              "startBit": "0",
+              "rOffset": "0"
+            }
+          }
+        ]
+      },
+      {
+        "code": "PR038",
+        "name": "P015",
+        "label": "PRESSION RAIL",
+        "unit": "bar",
+        "formula": "(1.0 * _PCARB) /10",
+        "sources": [
+          {
+            "mnemonic": "_PCARB",
+            "data_type": {
+              "littleEndian": "0",
+              "type": "UNUM16",
+              "bitsLength": "16"
+            },
+            "request": "21A9",
+            "declared_response_prefix": "61",
+            "location": {
+              "name": "_PCARB",
+              "startByte": "13",
+              "startBit": "0",
+              "rOffset": "0"
+            }
+          }
+        ]
+      },
+      {
+        "code": "PR041",
+        "name": "P019",
+        "label": "PRESSION SURALIMENTATION",
+        "unit": "mbar",
+        "formula": "_PSURAL",
+        "sources": [
+          {
+            "mnemonic": "_PSURAL",
+            "data_type": {
+              "littleEndian": "0",
+              "type": "UNUM16",
+              "bitsLength": "16"
+            },
+            "request": "21A9",
+            "declared_response_prefix": "61",
+            "location": {
+              "name": "_PSURAL",
+              "startByte": "11",
+              "startBit": "0",
+              "rOffset": "0"
+            }
+          }
+        ]
+      },
+      {
+        "code": "PR132",
+        "name": "P024",
+        "label": "DEBIT D'AIR",
+        "unit": "kg/h",
+        "formula": "0.1 * _DAIR",
+        "sources": [
+          {
+            "mnemonic": "_DAIR",
+            "data_type": {
+              "littleEndian": "0",
+              "type": "UNUM16",
+              "bitsLength": "16"
+            },
+            "request": "21A9",
+            "declared_response_prefix": "61",
+            "location": {
+              "name": "_DAIR",
+              "startByte": "15",
+              "startBit": "0",
+              "rOffset": "0"
+            }
+          }
+        ]
+      },
+      {
+        "code": "PR074",
+        "name": "P048",
+        "label": "TENSION BATTERIE",
+        "unit": "V",
+        "formula": "(1.0 * (20.4*_UBAT)) /1000",
+        "sources": [
+          {
+            "mnemonic": "_UBAT",
+            "data_type": {
+              "littleEndian": "0",
+              "type": "UNUM16",
+              "bitsLength": "16"
+            },
+            "request": "21A9",
+            "declared_response_prefix": "61",
+            "location": {
+              "name": "_UBAT",
+              "startByte": "19",
+              "startBit": "0",
+              "rOffset": "0"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Les masques publiés ne contrôlent pas les quatre champs complets de l'identité.",
+    "Plusieurs modèles passent les masques et leur requête PR089 diffère.",
+    "Le titre interne du modèle 10496 cite X83II ph2, alors que le camion est phase 1 ; ce titre ne suffit pas pour choisir le profil.",
+    "La base déclare StartDiagSession 10C0 ; accès en session par défaut non documenté et non testé.",
+    "Aucune réponse 21A9/21AA de ce véhicule validée ; aucune de ces commandes envoyée pendant cette recherche.",
+    "Publication tierce : authenticité constructeur et droits de réutilisation non établis.",
+    "TCOM_130 rattache 10496 aux phases 2/3 ; les deux autres variantes Trafic sont sous TCOM_199 TRAFIC II B2. La fiche TCOM_066 ne référence aucun de ces candidats."
+  ],
+  "exact_measurement_profile_validated": false,
+  "installed_in_application": false,
+  "next_evidence_needed": [
+    "Critères complets ou trace de référence reliant 25/037/00CB/1200 au modèle de mesures.",
+    "Conditions documentées pour les lectures sans session 10C0.",
+    "Réponses de référence et vérification des unités, offsets et conversions."
+  ],
+  "vehicle_associations": {
+    "source_id": "A093",
+    "vehicle_files_examined": 122,
+    "matches": [
+      {
+        "path": "Vehicles/TCOM_089.xml",
+        "vehicle_attributes": {
+          "TCOM": "089",
+          "codetext": "6107",
+          "defaultText": "X65 CLIO THALIA SYMBOL + X76 KANGOO BETAVERSION",
+          "indexTopo": "0",
+          "vehTypeCode": ""
+        },
+        "nodes": [
+          {
+            "name": "23015",
+            "doc": "EDC15C_CB"
+          }
+        ]
+      },
+      {
+        "path": "Vehicles/TCOM_130.xml",
+        "vehicle_attributes": {
+          "TCOM": "130",
+          "codetext": "8956",
+          "defaultText": "TRAFICIIp2/3",
+          "indexTopo": "28",
+          "vehTypeCode": "X83"
+        },
+        "nodes": [
+          {
+            "name": "10496",
+            "doc": "INJ_EDC15_X83_19_A"
+          }
+        ]
+      },
+      {
+        "path": "Vehicles/TCOM_199.xml",
+        "vehicle_attributes": {
+          "TCOM": "199",
+          "codetext": "65910",
+          "defaultText": "TRAFIC II B2",
+          "indexTopo": "0",
+          "vehTypeCode": "T2B2"
+        },
+        "nodes": [
+          {
+            "name": "12433",
+            "doc": "EDC15C_Vdiag19_VB0_IMA"
+          },
+          {
+            "name": "12499",
+            "doc": "EDC 15C  - Vd 19- X83 B2"
+          }
+        ]
+      }
+    ],
+    "tcom066_candidates_present": []
+  }
+}
