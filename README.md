@@ -21,10 +21,12 @@ diagnostics, les enregistrements et le dashboard.
   choisis dans Réglages, avec grandes valeurs numériques, graduations et aiguilles
   rouges légèrement transparentes, du centre aux graduations et au-dessus des
   textes, en mode jour comme en mode nuit.
-  Les valeurs numériques utilisent des chiffres droits à **sept segments**, comme
+  Les valeurs numériques utilisent des chiffres rouges à **sept segments**, comme
   un afficheur automobile. Les libellés, unités et graduations conservent leur police.
-  Les valeurs arrondies sans décimale sont placées au bas du cadran, près du cercle,
-  pour dégager le centre et limiter leur recouvrement par l'aiguille. La précision
+  Les valeurs arrondies sans décimale sont agrandies et placées dans la partie basse
+  du cadran, avec une marge entre leur unité et le cercle. Les aiguilles sont plus
+  épaisses pour rester visibles sur le tableau de bord. La zone des valeurs reste
+  dégagée des chiffres de graduation qui pourraient les chevaucher. La précision
   des mesures, de l'aiguille, des courbes et des captures est conservée.
   Un **appui long suivi d'un glissement** déplace un cadran dans l'ordre de lecture
   (gauche à droite, puis rangée suivante). L'ordre est enregistré par VIN lorsqu'il

@@ -2,6 +2,7 @@ package com.nico.obd2dash.ui
 
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -63,8 +64,10 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
     )
     val colors = MaterialTheme.colorScheme
     val textColor = if (stale || unavailable) colors.onSurfaceVariant else colors.onSurface
+    val instrumentRed = Color(0xFFF04444)
+    val valueColor = if (stale || unavailable) colors.onSurfaceVariant else instrumentRed
     val arcColor = if (stale) colors.onSurfaceVariant else colors.primary
-    val needleColor = Color(0xFFF04444).copy(alpha = if (stale) .5f else .78f)
+    val needleColor = instrumentRed.copy(alpha = if (stale) .5f else .78f)
     val status = when {
         unavailable -> stringResource(R.string.dashboard_gauge_unavailable)
         stale -> stringResource(R.string.dashboard_gauge_stale)
@@ -76,6 +79,7 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
     val label = dialLabel(def.pid, def.label)
     val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER } }
     val textBounds = remember { Rect() }
+    val valueBounds = remember { RectF() }
     val regularTypeface = remember { Typeface.create("sans-serif", Typeface.NORMAL) }
     val boldTypeface = remember { Typeface.create("sans-serif-condensed", Typeface.BOLD) }
     val context = LocalContext.current
@@ -109,13 +113,8 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                     return Offset(c.x + cos(radians).toFloat() * radius, c.y + sin(radians).toFloat() * radius)
                 }
 
-                fun drawCentered(
-                    text: String, y: Float, nominalSize: Float, maxWidth: Float, color: Color,
-                    typeface: Typeface = regularTypeface, maxHeight: Float = d * .065f
-                ) {
-                    if (text.isEmpty()) return
+                fun fitText(text: String, nominalSize: Float, maxWidth: Float, typeface: Typeface, maxHeight: Float) {
                     paint.typeface = typeface
-                    paint.color = color.toArgb()
                     paint.textSize = nominalSize
                     val measured = paint.measureText(text)
                     if (measured > maxWidth) paint.textSize *= maxWidth / measured
@@ -126,9 +125,33 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                         paint.textSize *= maxHeight / textBounds.height()
                         paint.getTextBounds(text, 0, text.length, textBounds)
                     }
+                }
+
+                fun drawCentered(
+                    text: String, y: Float, nominalSize: Float, maxWidth: Float, color: Color,
+                    typeface: Typeface = regularTypeface, maxHeight: Float = d * .065f
+                ) {
+                    if (text.isEmpty()) return
+                    fitText(text, nominalSize, maxWidth, typeface, maxHeight)
+                    paint.color = color.toArgb()
                     val baseline = y - (textBounds.top + textBounds.bottom) / 2f
                     drawContext.canvas.nativeCanvas.drawText(text, c.x, baseline, paint)
                 }
+
+                val number = if (unavailable) "—" else if (def.pid == 0x4F) displayText else displayReading.number
+                val detail = if (def.pid == 0x4F || unavailable) "" else displayReading.detail
+                // La police segmentée couvre les entiers signés. Les valeurs composites
+                // et le tiret d'indisponibilité gardent tous leurs caractères lisibles.
+                val numberTypeface = if (number.all { it in '0'..'9' || it == '-' }) segmentTypeface else boldTypeface
+                val valueY = d * .76f
+                val valueSize = d * .27f * fontScale
+                val valueWidth = d * .56f
+                val valueHeight = d * .19f
+                fitText(number, valueSize, valueWidth, numberTypeface, valueHeight)
+                val halfWidth = paint.measureText(number) / 2f
+                val halfHeight = textBounds.height() / 2f
+                valueBounds.set(c.x - halfWidth, valueY - halfHeight, c.x + halfWidth, valueY + halfHeight)
+                valueBounds.inset(-d * .012f, -d * .012f)
 
                 if (scale != null) {
                     val tickCount = scale.divisions * 4
@@ -159,23 +182,25 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                             paint.typeface = tickTypeface
                             paint.color = colors.onSurface.toArgb()
                             paint.textSize = d * .057f * fontScale.coerceAtMost(1.2f)
-                            drawContext.canvas.nativeCanvas.drawText(
-                                numberText, position.x, position.y - (paint.ascent() + paint.descent()) / 2, paint
-                            )
+                            val baseline = position.y - (paint.ascent() + paint.descent()) / 2
+                            val left = position.x - paint.measureText(numberText) / 2f
+                            paint.getTextBounds(numberText, 0, numberText.length, textBounds)
+                            // Garder les traits de graduation, mais réserver les chiffres
+                            // de la valeur : un libellé entier est omis s'il les chevauche.
+                            if (!valueBounds.intersects(left + textBounds.left, baseline + textBounds.top,
+                                    left + textBounds.right, baseline + textBounds.bottom)) {
+                                drawContext.canvas.nativeCanvas.drawText(numberText, position.x, baseline, paint)
+                            }
                         }
                     }
                 }
                 drawCentered(label, d * .395f, d * .061f * fontScale, d * .55f, colors.onSurface, typeface = boldTypeface, maxHeight = d * .055f)
-                // Affichage entier, au bas du cadran et sous les graduations extrêmes.
+                // Affichage entier dans la partie basse du cadran, avec une marge
+                // pour agrandir les chiffres et séparer leur unité du cercle.
                 // L'aiguille utilise toujours la mesure précise, les composites gardent
                 // leurs unités et leur seconde composante arrondie pour l'affichage.
-                val number = if (unavailable) "—" else if (def.pid == 0x4F) displayText else displayReading.number
-                val detail = if (def.pid == 0x4F || unavailable) "" else displayReading.detail
-                // La police segmentée couvre les entiers signés. Les valeurs composites
-                // et le tiret d'indisponibilité gardent tous leurs caractères lisibles.
-                val numberTypeface = if (number.all { it in '0'..'9' || it == '-' }) segmentTypeface else boldTypeface
-                drawCentered(number, d * .83f, d * .222f * fontScale, d * .60f, textColor, typeface = numberTypeface, maxHeight = d * .15f)
-                drawCentered(detail, d * .94f, d * .065f * fontScale, d * .33f, textColor, maxHeight = d * .05f)
+                drawCentered(number, valueY, valueSize, valueWidth, valueColor, typeface = numberTypeface, maxHeight = valueHeight)
+                drawCentered(detail, d * .90f, d * .065f * fontScale, d * .33f, textColor, maxHeight = d * .05f)
                 val footer = if (status.isNotEmpty()) status else scale?.annotation.orEmpty()
                 drawCentered(footer, d * .61f, d * .052f * fontScale, d * .53f, colors.onSurfaceVariant)
                 if (scale != null && !unavailable && reading.value != null) {
@@ -183,14 +208,14 @@ internal fun InstrumentGauge(def: PidCatalog.Def, value: GaugeValue?, nowMs: Lon
                     // devant les chiffres, avec une légère transparence.
                     val angle = 135f + fraction * 270f
                     val tip = polar(d * .42f, angle)
-                    val sideways = polar(d * .012f, angle + 90) - c
+                    val sideways = polar(d * .017f, angle + 90) - c
                     needle.reset()
                     needle.moveTo(tip.x, tip.y)
                     needle.lineTo(c.x + sideways.x, c.y + sideways.y)
                     needle.lineTo(c.x - sideways.x, c.y - sideways.y)
                     needle.close()
                     drawPath(needle, needleColor)
-                    drawCircle(needleColor, radius = d * .018f, center = c)
+                    drawCircle(needleColor, radius = d * .020f, center = c)
                 }
             }
         }
