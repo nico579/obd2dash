@@ -3,4 +3,5 @@
     <files-path name="enregistrements" path="recordings/" />
     <files-path name="sondages" path="probes/" />
     <files-path name="journal" path="logs/" />
+    <cache-path name="mises_a_jour" path="updates/" />
 </paths>

@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Mises à jour GitHub : autorisation explicite et confirmation par Android. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
@@ -35,6 +37,8 @@
     <application
         android:name=".Obd2DashApp"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="OBD2 Dash"
@@ -59,7 +63,7 @@
         <!-- Depuis Android 7, un chemin de fichier brut ne peut plus être partagé
              directement à une autre app (StrictMode) : il faut un fournisseur de contenu
              dédié qui distribue des accès temporaires et limités (ici : uniquement le
-             sous-dossier des enregistrements CSV, cf. res/xml/file_paths.xml). -->
+             dossiers CSV/journaux et cache APK des mises à jour, cf. res/xml/file_paths.xml). -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

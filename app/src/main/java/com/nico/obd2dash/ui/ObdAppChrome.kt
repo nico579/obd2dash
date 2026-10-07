@@ -53,7 +53,7 @@ import com.nico.obd2dash.ObdUiState
 import com.nico.obd2dash.PidCatalog
 import com.nico.obd2dash.R
 
-internal enum class AppScreen { DASHBOARD, GRAPH, DTC, PROBE, AUTO_TEST, SETTINGS }
+internal enum class AppScreen { DASHBOARD, GRAPH, DTC, PROBE, AUTO_TEST, SETTINGS, UPDATES }
 internal enum class AppMenuAction { MEASUREMENTS, RECORDINGS, REORDER_HELP }
 
 /** Une seule zone de commandes, partagée par toutes les pages et le plein écran. */
@@ -128,11 +128,12 @@ internal fun ObdAppChrome(
                         AppScreen.DTC to R.string.nav_dtc,
                         AppScreen.PROBE to R.string.nav_probe,
                         AppScreen.AUTO_TEST to R.string.nav_smoke_test,
-                        AppScreen.SETTINGS to R.string.topbar_title_settings
+                        AppScreen.SETTINGS to R.string.topbar_title_settings,
+                        AppScreen.UPDATES to R.string.updates_title
                     )) {
                         DropdownMenuItem(
                             text = { Text(stringResource(label)) },
-                            enabled = connected || destination == AppScreen.SETTINGS,
+                            enabled = connected || destination == AppScreen.SETTINGS || destination == AppScreen.UPDATES,
                             onClick = { menuExpanded = false; onNavigate(destination) },
                             modifier = Modifier.testTag("menu_${destination.name.lowercase()}")
                         )

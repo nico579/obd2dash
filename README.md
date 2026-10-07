@@ -3,8 +3,9 @@
 Application Android (Kotlin, Jetpack Compose) pour se connecter à une sonde ELM327 Wi-Fi, Bluetooth classique ou BLE
 et lire les données OBD2 d'un véhicule en direct.
 
-Projet à usage personnel, non publié sur le Play Store : installation
-par sideload uniquement (`adb install` / `gradlew installDebug`). Le socle commun repose
+Projet à usage personnel, non publié sur le Play Store : première installation
+par APK (`adb install` / `gradlew installDebug`), puis mises à jour depuis le menu de l’application.
+Le socle commun repose
 sur la découverte et la lecture des PID SAE standard disponibles sur le véhicule connecté.
 Depuis le 3 octobre 2026, le périmètre retenu est **multimarque, pour les véhicules
 récents compatibles avec les lectures OBD standard de l'application**. Les données
@@ -39,7 +40,7 @@ diagnostics, les enregistrements et le dashboard.
   fenêtre basse, et sur le côté en paysage. Les boutons mesurent 64 dp de haut,
   avec des pictogrammes de 32 dp. Le paysage ouvre par défaut le plein écran sur
   les cadrans et les courbes ; le bouton reste accessible en portrait.
-  Le menu … contient **DTC, Sondage, Smoke test et Réglages**, ainsi que l'aide
+  Le menu … contient **DTC, Sondage, Smoke test, Réglages et Mises à jour**, ainsi que l'aide
   au déplacement, les autres mesures, les enregistrements et la déconnexion.
   Le choix des cadrans et du mode Wi-Fi/Bluetooth se fait dans Réglages.
   Le bouton d'enregistrement reste accessible, y compris pour arrêter pendant une
@@ -50,6 +51,32 @@ diagnostics, les enregistrements et le dashboard.
   retrouve ses points et sa sélection lorsque le même VIN est confirmé après la
   reconnexion. Si le véhicule change ou si son identité ne peut plus être vérifiée,
   l'historique est effacé avant les nouvelles mesures.
+- **Mises à jour** : le menu **… → Mises à jour** vérifie la dernière release stable
+  du dépôt GitHub, affiche les versions installée/publiée et permet de télécharger
+  l’APK avec progression et annulation, puis de lancer l’installation Android.
+  La première fois, Android demande d’autoriser OBD2 Dash à installer ses mises à jour ;
+  une fois l’autorisation accordée, appuyer de nouveau sur **Installer la mise à jour**.
+  Android conserve la confirmation d’installation. Les réglages et captures restent
+  en place. L’installation est bloquée pendant REC, un sondage ou un Smoke test ;
+  la vérification et le téléchargement restent disponibles.
+  Le fichier doit correspondre à la taille et au SHA-256 publiés par GitHub, au paquet
+  installé, à ses signataires et à une version strictement plus récente, avec le même
+  numéro de version que la publication. Le cache est revalidé avant installation.
+  Les téléchargements utilisent HTTPS, avec redirections limitées aux hôtes GitHub,
+  sans modifier le réseau de la sonde. Internet est nécessaire ; les interruptions
+  et fichiers invalides donnent un message et permettent un nouvel essai.
+  Le dépôt GitHub est **privé** : configurer **Accès GitHub** avec un jeton personnel
+  à permissions fines, propriétaire `nico579`, seul dépôt `obd2dash`, permission
+  **Contents: read-only**. Le bouton de création ouvre les réglages GitHub ; le jeton
+  est saisi uniquement dans l’application, chiffré avec Android Keystore et exclu des
+  sauvegardes/transferts Android. Aucun secret n’est embarqué dans l’APK ni écrit au
+  journal. Le jeton reste sur l’hôte API GitHub du dépôt et ne suit pas les redirections
+  vers le CDN. Son expiration/refus permet de le remplacer ; il peut aussi être supprimé.
+  Les permissions de lecture nécessaires aux releases sont documentées par
+  [GitHub](https://docs.github.com/en/rest/releases/assets#get-a-release-asset).
+  L’APK doit être installé une première fois par le PC ou manuellement pour obtenir
+  ce nouveau menu. Un miroir d’APK public serait une autre diffusion, à décider explicitement.
+  [Détails et validation de la mise à jour 0.17](mises_a_jour_2026-10-07.md).
 - **Résultat de découverte explicite** : une sonde joignable ne prouve pas une réponse
   véhicule ; un bitmap PID nul confirme une réponse sans fournir de mesures standard.
   Dans ce dernier cas, l'app affiche la limite et ne lance pas de polling vide, de

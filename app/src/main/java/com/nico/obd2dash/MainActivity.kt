@@ -2,10 +2,13 @@ package com.nico.obd2dash
 
 import android.Manifest
 import android.content.Intent
+import android.content.ClipData
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.net.Uri
+import android.provider.Settings
 import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -29,6 +32,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +54,10 @@ import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.ViewModelProvider
+import com.nico.obd2dash.updates.AppUpdateViewModel
+import com.nico.obd2dash.updates.updateInstallationBlocked
+import com.nico.obd2dash.ui.AppUpdatesScreen
 import com.nico.obd2dash.ui.AutoTestScreen
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.AppScreen
@@ -66,7 +74,63 @@ import java.io.File
 class MainActivity : ComponentActivity() {
 
     private lateinit var viewModel: ObdViewModel
+    private lateinit var updates: AppUpdateViewModel
     private val sessions get() = (application as Obd2DashApp).sessions
+
+    private val updatePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            updates.installerMessage(if (packageManager.canRequestPackageInstalls())
+                "Autorisation accordée. Appuyez sur Installer la mise à jour."
+            else "Autorisation refusée. Vous pouvez réessayer avec le bouton Installer.")
+        }
+
+    private val updateInstallerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_OK) {
+                updates.installerMessage("Installation annulée ou refusée par Android. Le fichier téléchargé est conservé pour réessayer.")
+            }
+        }
+
+    private fun installationBlocked(): Boolean = viewModel.state.value.let {
+        updateInstallationBlocked(it.isRecording, it.isAutoTesting, it.isFapScanning)
+    }
+
+    private fun requestUpdateInstallation() {
+        if (installationBlocked()) {
+            updates.installerMessage(getString(R.string.updates_capture_active))
+            return
+        }
+        try {
+            if (!packageManager.canRequestPackageInstalls()) {
+                updatePermissionLauncher.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")))
+                return
+            }
+            updates.prepareInstall { file ->
+                // L'état REC peut changer pendant la vérification du fichier.
+                if (isFinishing || isDestroyed) return@prepareInstall
+                if (installationBlocked()) updates.installerMessage(getString(R.string.updates_capture_active))
+                else launchUpdateInstaller(file)
+            }
+        } catch (_: Exception) {
+            updates.installerMessage("Impossible d’ouvrir l’autorisation d’installation sur ce téléphone.")
+        }
+    }
+
+    @Suppress("DEPRECATION") // Intent install avec résultat : compatible Android 26+ et confirmation système.
+    private fun launchUpdateInstaller(file: File) {
+        try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            updateInstallerLauncher.launch(Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
+                clipData = ClipData.newRawUri("Mise à jour OBD2 Dash", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            })
+        } catch (_: Exception) {
+            updates.installerMessage("Impossible d’ouvrir l’installateur Android sur ce téléphone.")
+        }
+    }
 
     // Sur Android 13+, RecordingService a besoin de cette permission pour que sa
     // notification (obligatoire pour tout service de premier plan) s'affiche réellement ;
@@ -135,6 +199,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewModel = sessions.acquireUi(this)
+        updates = ViewModelProvider(this)[AppUpdateViewModel::class.java]
         setContent {
             Obd2DashTheme {
                 // contentColor explicite : Surface déduit normalement la couleur de texte par
@@ -273,6 +338,20 @@ class MainActivity : ComponentActivity() {
                                     onStop = { viewModel.stopAutoTest() },
                                     modifier = contentModifier
                                 )
+                                AppScreen.UPDATES -> {
+                                    val updateState by updates.state.collectAsStateWithLifecycle()
+                                    LaunchedEffect(Unit) { updates.checkIfNeeded() }
+                                    AppUpdatesScreen(
+                                        state = updateState,
+                                        installationBlocked = updateInstallationBlocked(state.isRecording, state.isAutoTesting, state.isFapScanning),
+                                        onCheck = updates::check,
+                                        onDownload = updates::download,
+                                        onInstall = ::requestUpdateInstallation,
+                                        onCancel = updates::cancel,
+                                        onSaveAccessToken = updates::saveAccessToken,
+                                        modifier = contentModifier
+                                    )
+                                }
                             }
                         }
                     }
