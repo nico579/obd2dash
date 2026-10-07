@@ -155,7 +155,16 @@ avec le vrai cycle de connexion et les fichiers CSV, sur une sonde simulée loca
 Il vérifie les pauses, reprises, arrêts manuels et changements de transport ; les
 services et le contexte Android sont remplacés par des doubles de test.
 
+Les [reproductions de l'audit du 7 octobre](tools/audit_20261007/README.md) exercent
+des cas supplémentaires de diagnostic, transport, graphique et propriété des CSV.
+Sur la version 0.15, certains contrats échouent : ces probes documentent des bugs
+à corriger et ne font pas partie de la suite CI passante.
+
 ## Documentation
+
+- [`audit_code_2026-10-07.md`](audit_code_2026-10-07.md) : audit courant sur la
+  version 0.15, nouveaux défauts reproduits, limites antérieures réévaluées et
+  optimisations prioritaires. Les corrections proposées restent à appliquer.
 
 - [`recherches/trafic/README.md`](recherches/trafic/README.md) : journal de recherche
   Trafic arrêté le 3 octobre 2026, sources archivées et résultats non validés.
@@ -168,7 +177,7 @@ services et le contexte Android sont remplacés par des doubles de test.
 - [`architecture_multimarque_2026-09-10_20-17.md`](architecture_multimarque_2026-09-10_20-17.md) :
   étude historique d'un moteur de profils ; les décisions de périmètre qu'elle conserve
   précèdent la demande multimarque et les essais Trafic du 12 septembre.
-- [`audit_code_2026-10-02.md`](audit_code_2026-10-02.md) : audit courant, correctifs de
+- [`audit_code_2026-10-02.md`](audit_code_2026-10-02.md) : audit précédent, correctifs de
   la version 0.8, validations locales et améliorations prioritaires restantes.
 - [`audit_code_2026-09-09_20-18-33.md`](audit_code_2026-09-09_20-18-33.md) : historique
   de l'audit de septembre ; certains constats ouverts ont été corrigés depuis.
