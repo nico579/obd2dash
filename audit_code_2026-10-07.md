@@ -455,3 +455,16 @@ et ignorés ; parseurs, tests unitaires, doubles et bancs backend sont versionn�
 La CI rejoue unitaires, build, lint, audit et les 19 scénarios sur le commit du tag
 avant de publier l'APK. Signature/version/digest de l'APK publié sont contrôlés
 séparément lors de sa récupération, avant une éventuelle installation USB.
+
+### Publication vérifiée
+
+Code publié : **`e3ba0b6500059a033019c3215d9a55e09bcde486`**, tag **`v0.16`**.
+Le [run GitHub 37667765140](https://github.com/nico579/obd2dash/actions/runs/37667765140)
+a réussi tous les contrôles, dont l'audit et les 19 scénarios, avant publication.
+La [release v0.16](https://github.com/nico579/obd2dash/releases/tag/v0.16) contient
+l'APK exact récupéré et vérifié : **8 542 484 octets**, SHA-256
+`907b2286e7655cd92aecb3b5a51244b40c09e791dcc9615c75a0b8a20d9693e6`.
+Version `0.16`/code `16`, digest GitHub, certificat identique à la version précédente,
+police et licence embarquées contrôlés. Aucun téléphone USB détecté lors de cette
+vérification : **aucune installation effectuée**. Cette documentation de livraison
+ne modifie ni le code ni le tag de l'APK publié.
