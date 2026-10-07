@@ -27,6 +27,9 @@ internal object DtcPayloadDecoder {
         } else {
             declaredCount = null
             dtcData = payload
+            // Le service seul ne prouve pas une liste vide : en non-CAN, il faut
+            // au moins une paire (éventuellement le remplissage nul documenté).
+            if (dtcData.length < 4) throw IOException("Réponse DTC sans paire complète: $hexstr")
         }
 
         val codes = mutableListOf<String>()
@@ -38,14 +41,12 @@ internal object DtcPayloadDecoder {
             i += 4
             if (b1 == null || b2 == null) throw IOException("Octet DTC illisible: $hexstr")
             pairsRead++
-            // 0000 est le remplissage de fin de trame (CAN comme non-CAN, l'exemple
-            // fabricant "43013300000000" en contient), jamais un vrai code : P0000 n'est
-            // assigné à aucun défaut. On compte quand même la paire (elle occupe un slot
-            // du compteur CAN) mais on ne l'ajoute pas aux DTC retournés.
+            // En non-CAN, 0000 peut être un remplissage documenté (exemple ELM
+            // "43013300000000"). En CAN, cette boucle ne parcourt que les slots
+            // annoncés comme codes : un slot nul rend le compteur incohérent.
+            // Le padding CAN situé après ces slots reste accepté en mode connecté.
             if (b1 == 0 && b2 == 0) {
-                // Politique prudente du rejeu ISO-TP : un slot annoncé comme code
-                // mais vide ne peut pas confirmer un diagnostic sans défaut.
-                if (exactCanPayload) throw IOException("Compteur DTC non nul avec code vide")
+                if (declaredCount != null) throw IOException("Compteur DTC non nul avec code vide")
                 continue
             }
             codes.add(decode(b1, b2))

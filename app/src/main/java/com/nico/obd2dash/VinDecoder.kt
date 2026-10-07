@@ -1,10 +1,16 @@
 package com.nico.obd2dash
 
+import java.util.Calendar
+import java.util.GregorianCalendar
+import java.util.Locale
+
 /**
  * Décodage local du VIN (ISO 3780/SAE J853), entièrement hors ligne et indépendant de la
  * marque connectée (voir demande "solution tout véhicule") : les trois premiers
  * caractères (WMI, World Manufacturer Identifier) identifient le constructeur de façon
- * standardisée internationalement, le 10e caractère l'année-modèle. Ne décode PAS le
+ * standardisée internationalement. Le 10e caractère fournit des années candidates
+ * lorsque le constructeur utilise ce codage, pas une année certaine pour tout VIN.
+ * Ne décode PAS le
  * modèle précis (Ibiza, Golf, Clio...) : ça reste propre à chaque constructeur (section
  * VDS, positions 4-9), sans registre public unifié fiable pour toutes les marques - voir
  * ObdViewModel/Elm327Client pour le PID mode09/04 (identifiant de calibration), plus
@@ -12,7 +18,15 @@ package com.nico.obd2dash
  */
 object VinDecoder {
 
-    data class VinInfo(val manufacturer: String?, val region: String?, val modelYear: Int?)
+    data class VinInfo(
+        val manufacturer: String?,
+        val region: String?,
+        /** Candidate la plus récente plausible, à afficher comme estimation. */
+        val modelYear: Int?,
+        /** Cycles depuis 1980 compatibles avec le caractère et l'année de référence. */
+        val modelYearCandidates: List<Int> = emptyList(),
+        val modelYearIsEstimate: Boolean = modelYear != null
+    )
 
     // Table non exhaustive : les constructeurs les plus courants en Europe (là où ce
     // projet est utilisé, cf. les deux véhicules déjà testés) plutôt qu'un registre
@@ -57,18 +71,11 @@ object VinDecoder {
         "1G2" to "Pontiac"
     )
 
-    // SAE J853, position 10 (index 9) : cycle de 30 ans, lettres I/O/Q/U/Z jamais
-    // utilisées (confusion visuelle avec 1/0 ou déjà réservées). Un seul cycle retenu ici
-    // (2010-2039) : ce décodeur ne tourne que sur un VIN lu par une sonde OBD2 réelle (voir
-    // Elm327Client.readVin), qui suppose déjà un véhicule conforme OBD2/EOBD (Europe :
-    // diesel 2003+, essence 2001+). Un modèle-année du cycle 1980-2000 est donc
-    // physiquement impossible pour tout véhicule que cette appli peut effectivement lire :
-    // la désambiguïsation usuelle par le 7e caractère (règle NHTSA, marché nord-américain
-    // uniquement, non garantie pour un véhicule vendu seulement en Europe - vérifié : elle
-    // donne d'ailleurs le mauvais cycle pour le VIN SEAT déjà utilisé dans ce projet) n'est
-    // donc pas nécessaire ici.
+    // Codage cyclique de l'année-modèle : aucune conformité OBD ne permet de choisir
+    // à elle seule le cycle 2010–2039. Le 7e caractère n'est pas utilisé pour lever
+    // l'ambiguïté : les règles du marché nord-américain ne sont pas universelles.
     private val MODEL_YEAR_CODES: Map<Char, Int> =
-        "ABCDEFGHJKLMNPRSTVWXY123456789".withIndex().associate { (index, c) -> c to (2010 + index) }
+        "ABCDEFGHJKLMNPRSTVWXY123456789".withIndex().associate { (index, c) -> c to (1980 + index) }
 
     /** Région du monde à partir du seul premier caractère (voir ISO 3780), quand le WMI complet n'est pas dans [KNOWN_WMI]. */
     private fun regionFor(first: Char): String? = when {
@@ -82,14 +89,22 @@ object VinDecoder {
     }
 
     /** VIN de 17 caractères déjà validé par [Elm327Client.readVin] (longueur/plage ASCII) attendu ; sinon renvoie une info vide plutôt que de deviner. */
-    fun decode(vin: String): VinInfo {
+    fun decode(vin: String, referenceYear: Int = GregorianCalendar().get(Calendar.YEAR)): VinInfo {
         if (vin.length != 17) return VinInfo(null, null, null)
-        val upper = vin.uppercase()
+        val upper = vin.uppercase(Locale.ROOT)
         val wmi = upper.take(3)
         val manufacturer = KNOWN_WMI[wmi]
         val region = if (manufacturer == null) regionFor(upper[0]) else null
-        val modelYear = MODEL_YEAR_CODES[upper[9]]
-        return VinInfo(manufacturer, region, modelYear)
+        // Une année-modèle de l'année suivante peut déjà être commercialisée.
+        // Les cycles plus lointains restent exclus, sans deviner le marché du VIN.
+        val maxYear = referenceYear.toLong() + 1
+        val candidates = MODEL_YEAR_CODES[upper[9]]?.let { firstYear ->
+            generateSequence(firstYear.toLong()) { it + 30 }
+                .takeWhile { it <= maxYear }
+                .map { it.toInt() }
+                .toList()
+        }.orEmpty()
+        return VinInfo(manufacturer, region, candidates.lastOrNull(), candidates)
     }
 
     /**

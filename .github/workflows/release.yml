@@ -36,6 +36,15 @@ jobs:
       - name: Build APK debug
         run: ./gradlew assembleDebug
 
+      - name: Lint Android
+        run: ./gradlew lintDebug
+
+      - name: Régressions audit et propriété CSV hors véhicule
+        run: python3 tools/audit_20261007/run.py --include-smoke --timeout 120
+
+      - name: Régressions connexion, captures et voyants
+        run: python3 tools/offline_viewmodel/run.py --timeout 240
+
       - name: Publier la release GitHub
         uses: softprops/action-gh-release@v2
         with:

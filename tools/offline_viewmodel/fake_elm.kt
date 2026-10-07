@@ -66,7 +66,9 @@ class FakeElm(
                         "ATH0" -> { headers = false; "OK" }
                         "ATDPN" -> "A6"
                         "0100" -> if (headers) "7E806$bitmap" else bitmap
-                        "0902" -> "NO DATA"
+                        // A stable, documented VIN makes reconnect tests positive
+                        // same-vehicle controls. Unknown-identity probes override this.
+                        "0902" -> "4902013144344750303052353542313233343536"
                         "010C" -> "410C0CE4"
                         "0101" -> if (headers) "7E806410100000000" else "410100000000"
                         "03" -> "4300"

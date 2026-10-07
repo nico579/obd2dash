@@ -106,8 +106,9 @@ class Elm327ClientTest {
     }
 
     @Test
-    fun `parseDtcResponse non-CAN zero DTC confirme`() {
-        assertEquals(emptyList<String>(), client.parseDtcResponse("43", "43", isCan = false))
+    fun `parseDtcResponse non-CAN service seul ne confirme pas zero DTC`() {
+        assertThrows(IOException::class.java) { client.parseDtcResponse("43", "43", isCan = false) }
+        assertEquals(emptyList<String>(), client.parseDtcResponse("430000", "43", isCan = false))
     }
 
     @Test

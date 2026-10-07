@@ -1,5 +1,7 @@
 package com.nico.obd2dash.ui
 
+import android.os.SystemClock
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -56,13 +58,15 @@ fun DashboardScreen(
         ConnectionWaitingScreen(state.connectionMode, modifier)
         return
     }
-    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var tickNowMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(500)
-            nowMs = System.currentTimeMillis()
+            tickNowMs = SystemClock.elapsedRealtime()
         }
     }
+    // Une nouvelle mesure peut arriver entre deux ticks ; comparer à l'heure du rendu.
+    val nowMs = maxOf(tickNowMs, SystemClock.elapsedRealtime())
     val primaryDefs = state.bigGaugePids.filter { it in state.supportedPids }
         .mapNotNull { pid -> PidCatalog.defs.find { it.pid == pid } }
     Column(modifier.fillMaxSize().padding(8.dp)) {
@@ -124,10 +128,11 @@ internal fun DashboardMenuDialogs(
             }
         )
     } else if (dialog != null) {
-        var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+        var tickNowMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
         LaunchedEffect(Unit) {
-            while (true) { delay(500); nowMs = System.currentTimeMillis() }
+            while (true) { delay(500); tickNowMs = SystemClock.elapsedRealtime() }
         }
+        val nowMs = maxOf(tickNowMs, SystemClock.elapsedRealtime())
         val connected = state.connectionState == ConnectionState.CONNECTED
         val secondaryDefs = PidCatalog.defs.filter { it.pid !in state.bigGaugePids && it.pid in state.supportedPids }
         ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -188,7 +193,7 @@ internal fun RecordingRow(recording: RecordingFile, onShare: () -> Unit, onDelet
 internal fun staleness(pid: Int, value: GaugeValue?, nowMs: Long): Pair<String, Boolean> {
     if (value == null) return "--" to false
     if (pid in PidCatalog.CONTEXT_ONLY_PIDS) return value.text to false
-    val age = nowMs - value.updatedAtMs
+    val age = nowMs - value.updatedAtElapsedMs
     val staleAfter = if (pid in PidCatalog.SLOW_PIDS) SLOW_STALE_AFTER_MS else STALE_AFTER_MS
     return when {
         isUnavailable(pid, value, nowMs) -> "--" to false
@@ -201,12 +206,13 @@ internal fun staleness(pid: Int, value: GaugeValue?, nowMs: Long): Pair<String, 
 @Composable
 private fun DashboardPreview() {
     val now = System.currentTimeMillis()
+    val nowElapsed = SystemClock.elapsedRealtime()
     val values = mapOf(0x0C to "1728 rpm", 0x0D to "120 km/h", 0x05 to "75 °C", 0x04 to "38,0 %", 0x42 to "14,20 V", 0x0B to "133,5 kPa")
     val state = ObdUiState(
         connectionState = ConnectionState.CONNECTED,
         dataAvailability = ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE,
         supportedPids = values.keys, bigGaugePids = values.keys.toList(),
-        values = values.mapValues { GaugeValue(it.value, now) }, pidDiscoveryComplete = true
+        values = values.mapValues { GaugeValue(it.value, now, nowElapsed) }, pidDiscoveryComplete = true
     )
     Obd2DashTheme {
         ObdAppChrome(

@@ -12,5 +12,7 @@ class DtcHistoryStore(context: Context) {
     fun record(id: String, codes: List<String>): List<DtcHistoryEntry> = emptyList()
     companion object { const val UNKNOWN_VEHICLE = "inconnu" }
 }
-class RecordingService
+class RecordingService {
+    companion object { const val EXTRA_SESSION_ID = "recording_session_id" }
+}
 object EventLog { fun log(message: String) {} }

@@ -93,13 +93,10 @@ class Elm327Client internal constructor(
         private set
 
     /**
-     * true si l'adaptateur accepte le chiffre "nombre de réponses attendues" en fin de
-     * requête mode 01 (ex: "010C1", ELM327 v1.3+, voir ELM327DS.pdf "Setting the number of
-     * responses") : il rend alors la main dès la première réponse au lieu d'attendre son
-     * délai ATST au cas où un autre calculateur répondrait aussi (~100-200 ms par requête,
-     * cf. scan FAP du 24/09 : ~265 ms par DID sans réponse). Détecté une fois par connexion
-     * (voir [detectResponseCountSupport]), faux par défaut : un clone qui ne le comprend
-     * pas répond "?" et garde le comportement historique.
+     * Optimisation « une réponse » désactivée : accepter sa syntaxe ne prouve pas
+     * l'unicité du calculateur. En diffusion fonctionnelle ATH0, limiter la réponse
+     * masquerait les conflits que le décodeur doit conserver. Aucun répondant unique
+     * ni ciblage physique n'est actuellement établi par ce client.
      */
     var supportsResponseCount: Boolean = false
         private set
@@ -300,14 +297,66 @@ class Elm327Client internal constructor(
         }
     }
 
+    private enum class ReplyPolicy { STANDARD, PID_DISCOVERY, HEADERS_CAPTURE }
+
     /** Envoie une commande brute et retourne la réponse (sans le '>' final). */
-    suspend fun sendRaw(command: String): String {
+    suspend fun sendRaw(command: String): String = sendRaw(command, ReplyPolicy.STANDARD)
+
+    private suspend fun sendRaw(command: String, policy: ReplyPolicy): String {
         // Une commande déjà en attente appartient à cette connexion. Une reconnexion
         // ne doit pas lui donner silencieusement accès au nouveau transport.
         val expected = transport ?: throw IOException("Non connecté")
+        return sendRawOn(expected, command, policy)
+    }
+
+    private suspend fun sendRawOn(
+        expected: Transport,
+        command: String,
+        policy: ReplyPolicy,
+        headerFormat: CanIdFormat? = null
+    ): String {
         return withContext(Dispatchers.IO) {
-            mutex.withLock { exchange(expected, command) }
+            mutex.withLock {
+                val response = exchange(expected, command)
+                rejectTemporaryVehicleReply(expected, command, response, policy, headerFormat)
+                response
+            }
         }
+    }
+
+    /** Le contrôle reste sous mutex : aucune autre commande ne suit un NRC temporaire. */
+    private fun rejectTemporaryVehicleReply(
+        connection: Transport,
+        command: String,
+        response: String,
+        policy: ReplyPolicy,
+        headerFormat: CanIdFormat?
+    ) {
+        val upper = command.trim().uppercase(Locale.ROOT)
+        val service = upper.take(2).toIntOrNull(16)?.takeIf { it in 0..0x3F } ?: return
+        val parsed = HeaderlessObdResponse.parse(response)
+        val negativePrefix = "7F%02X".format(Locale.ROOT, service)
+        val normalizedLines = response.split('\r', '\n')
+            .map { it.trim().replace(" ", "").replace("\t", "").uppercase(Locale.ROOT) }
+        // Seulement pendant la capture ATH1, avec la largeur établie par ATDPN.
+        // Lire les SF séparément : un NRC voisin d'une réponse positive du même ECU
+        // ne doit pas disparaître derrière un échec de réassemblage global.
+        val headerPayloads = if (policy == ReplyPolicy.HEADERS_CAPTURE && headerFormat != null) {
+            normalizedLines.mapNotNull { CanHeaderReassembly.parseCanFrame(it, headerFormat) }
+                .filter { it.sequenceIndex == null }.map { it.data }
+        } else emptyList()
+        val negatives = normalizedLines + parsed.payloads + headerPayloads
+        // Un bitmap complet voisin de NRC21 reste utilisable comme découverte partielle.
+        // NRC78 n'est jamais toléré : une réponse tardive peut encore arriver sur le fil.
+        val allowBusyBitmap = policy == ReplyPolicy.PID_DISCOVERY && service == 0x01 &&
+            upper.length == 4 && parsed.isComplete && parsed.payloads.any {
+                parseHexPayload(it, "41${upper.substring(2)}")?.size == 4
+            }
+        val temporary = negatives.firstOrNull {
+            it == "${negativePrefix}78" || (it == "${negativePrefix}21" && !allowBusyBitmap)
+        } ?: return
+        closeTransport(connection)
+        throw IOException("$upper : réponse négative temporaire (NRC ${temporary.takeLast(2)})")
     }
 
     private suspend fun exchange(connection: Transport, command: String): String {
@@ -374,24 +423,30 @@ class Elm327Client internal constructor(
      * Diagnostic ponctuel, pas utilisé en fonctionnement normal : capture la réponse brute
      * de `0100` (toujours supporté) sans puis avec les headers CAN activés, pour connaître
      * le format exact que produit CETTE sonde sur CE véhicule avant d'adopter ATH1 pour de
-     * bon dans [connect]. Remet les headers dans leur état normal (désactivés) avant de
-     * retourner, quoi qu'il arrive. À supprimer une fois le format headers-on confirmé et
+     * bon dans [connect]. Exige un format CAN établi. Remet les headers désactivés
+     * seulement si le transport capturé est encore ouvert ; une liaison désynchronisée
+     * est fermée avant toute restauration. À supprimer une fois le format confirmé et
      * le vrai correctif multi-ECU écrit.
      */
     suspend fun probeHeaderFormat(): String {
-        val withoutHeaders = sendRaw("0100")
+        val captured = transport ?: throw IOException("Non connecté")
+        val format = headerCaptureFormatForProtocol(detectedProtocol)
+            ?: throw IOException("Capture des headers indisponible : format CAN non établi pour le protocole ${detectedProtocol ?: "inconnu"}. Aucun changement de headers effectué.")
+        val withoutHeaders = sendRawOn(captured, "0100", ReplyPolicy.STANDARD)
         try {
-            sendRaw("ATH1")
-            val withHeaders = sendRaw("0100")
+            sendRawOn(captured, "ATH1", ReplyPolicy.STANDARD)
+            val withHeaders = sendRawOn(captured, "0100", ReplyPolicy.HEADERS_CAPTURE, format)
             return "Sans headers (ATH0): $withoutHeaders\nAvec headers (ATH1): $withHeaders"
         } finally {
-            // withContext(NonCancellable) est nécessaire ici : sendRaw() suspend via son
-            // propre withContext(Dispatchers.IO), qui est un point d'annulation. Sans ça,
-            // si cette coroutine est déjà annulée (ex: un autre onglet relance un refresh
-            // DTC pendant la capture), ce sendRaw("ATH0") ne s'exécuterait jamais et la
-            // sonde resterait avec les headers activés, cassant tout décodage normal
-            // jusqu'à la reconnexion.
-            withContext(NonCancellable) { sendRaw("ATH0") }
+            // Une annulation ne doit pas empêcher la restauration d'une liaison vivante.
+            // Sous mutex, vérifier son identité avant toute écriture : aucun ATH0 sur une
+            // nouvelle connexion, ni sur la liaison fermée après NRC21/78. Cela conserve
+            // aussi l'erreur NRC initiale au lieu de la masquer par « Non connecté ».
+            withContext(NonCancellable + Dispatchers.IO) {
+                mutex.withLock {
+                    if (transport === captured && !captured.closed.get()) exchange(captured, "ATH0")
+                }
+            }
         }
     }
 
@@ -406,11 +461,8 @@ class Elm327Client internal constructor(
     suspend fun readPidBytes(pid: Int): List<Int>? {
         val pidHex = "%02X".format(pid)
         val expectedPrefix = "41$pidHex"
-        // Chiffre "1 réponse attendue" seulement si l'adaptateur l'a accepté à la connexion
-        // (voir supportsResponseCount) : sans lui, la réponse arrive identique mais après le
-        // délai d'attente d'éventuels autres calculateurs.
-        val suffix = if (supportsResponseCount) "1" else ""
-        val response = sendRaw("01$pidHex$suffix")
+        // Toutes les réponses doivent rester visibles pour rejeter un conflit entre ECU.
+        val response = sendRaw("01$pidHex")
         val hexstr = reassembleHex(response, expectedPrefix)
         return parseHexPayload(hexstr, expectedPrefix)
     }
@@ -530,7 +582,7 @@ class Elm327Client internal constructor(
         var base = 0x00
         while (base <= 0xE0) {
             val prefix = "41%02X".format(Locale.ROOT, base)
-            val raw = sendRaw("01%02X".format(Locale.ROOT, base))
+            val raw = sendRaw("01%02X".format(Locale.ROOT, base), ReplyPolicy.PID_DISCOVERY)
             responses[base] = raw
             val normalized = raw.replace(" ", "").replace("\t", "")
             val parsed = HeaderlessObdResponse.parse(normalized)
@@ -655,19 +707,7 @@ class Elm327Client internal constructor(
         return supported.singleOrNull() ?: StandardWarningStatus.NOT_SUPPORTED
     }
 
-    private suspend fun sendDiagnosticRaw(command: String): String {
-        val connection = transport ?: throw IOException("Non connecté")
-        val response = sendRaw(command)
-        val prefix = "7F${command.take(2).uppercase(Locale.ROOT)}"
-        val temporary = HeaderlessObdResponse.parse(response).payloads.firstOrNull {
-            it == "${prefix}21" || it == "${prefix}78"
-        }
-        if (temporary != null) {
-            closeTransport(connection)
-            throw IOException("$command : réponse négative temporaire (NRC ${temporary.takeLast(2)})")
-        }
-        return response
-    }
+    private suspend fun sendDiagnosticRaw(command: String): String = sendRaw(command)
 
     /**
      * Combine les réponses PID01 de tous les calculateurs (une ligne chacun, headers
@@ -881,17 +921,9 @@ class Elm327Client internal constructor(
         return joined
     }
 
-    /**
-     * Vérifie une fois par connexion si l'adaptateur accepte le chiffre "nombre de
-     * réponses" (voir [supportsResponseCount]) : "01001" doit rendre une réponse PID00
-     * normale. Un clone qui ne le comprend pas répond "?" (ou autre chose) et l'option
-     * reste désactivée. Ne lève jamais pour une simple réponse inattendue : seule une
-     * vraie erreur de transport remonte (le socket est alors déjà fermé, voir sendRaw).
-     */
+    /** Aucun test de syntaxe ne peut établir l'unicité ECU nécessaire à cette optimisation. */
     suspend fun detectResponseCountSupport() {
         supportsResponseCount = false
-        val bytes = parseHexPayload(reassembleHex(sendRaw("01001"), "4100"), "4100")
-        supportsResponseCount = bytes != null && bytes.size >= 4
     }
 
     /**
@@ -985,6 +1017,13 @@ class Elm327Client internal constructor(
         }
         return UdsDidResult.NoResponse
     }
+}
+
+/** Format complet ATDPN : aucune largeur CAN n'est déduite d'un préfixe ou des données. */
+internal fun headerCaptureFormatForProtocol(protocol: String?): CanIdFormat? = when (protocol?.trim()?.uppercase(Locale.ROOT)) {
+    "6", "A6", "8", "A8" -> CanIdFormat.CAN_11
+    "7", "A7", "9", "A9" -> CanIdFormat.CAN_29
+    else -> null
 }
 
 /** Échéances hôte, indépendantes du délai de bus configuré dans l'ELM. */

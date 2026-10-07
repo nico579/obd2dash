@@ -19,7 +19,9 @@ open class Context(val filesDir: File) {
     companion object { const val MODE_PRIVATE = 0 }
 }
 
-class Intent(context: Context, type: Class<*>)
+class Intent(context: Context, type: Class<*>) {
+    fun putExtra(key: String, value: Long): Intent = this
+}
 
 class SharedPreferences {
     // No saved Bluetooth address: constructor auto-connect has no target.

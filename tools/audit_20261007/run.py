@@ -1,8 +1,8 @@
-"""Reproduce the 2026-10-07 audit against unchanged production code, on loopback only.
+"""Assert the v0.16 audit fixes against unmodified production sources, on loopback.
 
-Observation probes exit zero even when they report a bug. The smoke probe asserts
-the required ownership contract and is expected to fail on the audited v0.15.
-No Gradle, ADB, downloads, radio or vehicle address is used.
+Each selected probe must exit zero; acceptance failures yield a nonzero status.
+The original v0.15 observations and failing contracts remain in archived captures
+and the audit report. No Gradle, ADB, downloads, radio or vehicle address is used.
 """
 from __future__ import annotations
 
@@ -33,7 +33,10 @@ CASES = {
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--case', choices=CASES)
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--case', choices=CASES)
+    selection.add_argument('--include-smoke', action='store_true',
+                           help='Run all four probes with one shared compilation')
     parser.add_argument('--compile-timeout', type=float, default=120)
     parser.add_argument('--timeout', type=float, default=90)
     args = parser.parse_args()
@@ -72,6 +75,8 @@ def main() -> int:
                        '-jvm-target', '17', '-cp', os.pathsep.join(map(str, [stdlib, coroutines, annotations])),
                        '-d', str(classes), *map(str, [*sources, *harness, generated])]
     selected = [args.case] if args.case else ['parser', 'transport', 'vm']
+    if args.include_smoke:
+        selected.append('smoke')
     commands = {
         case: [str(java), '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8',
                '-cp', os.pathsep.join(map(str, [classes, stdlib, coroutines])),

@@ -18,9 +18,8 @@ fun main(args: Array<String>) = runBlocking {
                     vm.state.value.isRecording
             }
             withContext(auditDispatcher) {
-                check(privateField(vm, "autoTestOwnsRecording") == true) {
-                    "Precondition failed: the real smoke test did not start its own CSV"
-                }
+                val smokeSession = vm.state.value.recordingSessionId
+                check(smokeSession != null) { "Smoke recording has no session token" }
                 val smokeWriter = privateField(vm, "recordingWriter")
                 val smokeFile = csvFile(dir)
                 println("Smoke CSV: ${smokeFile.name}; recording=${vm.state.value.isRecording}")
@@ -30,11 +29,13 @@ fun main(args: Array<String>) = runBlocking {
                 check(!vm.state.value.isRecording)
                 vm.startRecording()
                 check(vm.state.value.isRecording)
+                val manualSession = vm.state.value.recordingSessionId
+                check(manualSession != null && manualSession != smokeSession)
                 val manualWriter = privateField(vm, "recordingWriter")
                 check(manualWriter != null && manualWriter !== smokeWriter)
                 val manualFile = File(dir, "recordings").listFiles()!!
                     .single { it.extension == "csv" && it != smokeFile }
-                println("New manual CSV: ${manualFile.name}; owner flag=${privateField(vm, "autoTestOwnsRecording")}")
+                println("New manual CSV: ${manualFile.name}; smoke token=$smokeSession; manual token=$manualSession")
 
                 vm.stopAutoTest()
                 println("After stopping smoke: manual recording=${vm.state.value.isRecording}; " +

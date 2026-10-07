@@ -1,19 +1,35 @@
 package com.nico.obd2dash
 
 import com.nico.obd2dash.profiles.strictHexBytes
+import java.io.IOException
 
 /**
  * Read-only audit probe. Merely constructs an ELM client; never connects, calls
  * sendRaw, opens sockets, accesses Bluetooth, or changes production sources.
  * Compile in the same Kotlin module as current, unmodified production sources.
- * Observations, rather than assertions, preserve every pre-fix result in one run.
+ * Every observation now checks the corrected contract and the valid controls.
  */
+private val rejected = setOf("can_count_one_empty_slot", "can_count_two_one_empty_slot",
+    "can_zero_plus_count_one_empty_slot", "noncan_bare_stored_service", "noncan_bare_pending_service",
+    "dtc_zero_plus_buffer_full", "dtc_zero_plus_can_error", "mil_off_plus_data_error", "mil_off_plus_buffer_full")
+private val expected = mapOf("vin_model_year_code_6" to "2006", "vin_existing_seat_control" to "2011",
+    "profile_tab_separated_payload" to "[97, 66, 16, 0]", "control_can_zero" to "[]",
+    "control_can_one_plus_padding" to "[P0087]", "control_noncan_zero_padding" to "[]",
+    "control_profile_space_separated" to "[97, 66, 16, 0]", "control_profile_compact" to "[97, 66, 16, 0]",
+    "control_dtc_zero_plus_searching" to "[]", "freeze_frame_trigger_only_exported" to "true",
+    "control_freeze_frame_trigger_and_measure_exported" to "true")
+private val failures = mutableListOf<String>()
+
 private fun observe(name: String, block: () -> Any?) {
-    val result = runCatching(block).fold(
+    val outcome = runCatching(block)
+    val result = outcome.fold(
         onSuccess = { "RETURN ${it.toString()}" },
         onFailure = { "THROW ${it.javaClass.simpleName}: ${it.message}" }
     )
     println("$name\t${result.replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")}")
+    val valid = if (name in rejected) outcome.exceptionOrNull() is IOException
+        else outcome.isSuccess && outcome.getOrNull().toString() == expected.getValue(name)
+    if (!valid) failures += name
 }
 
 fun main() {
@@ -47,13 +63,16 @@ fun main() {
         client.parseMilStatus("410100000000\rBUFFER FULL")
     }
 
-    // Synthetic syntax-valid VIN, not an observation from a vehicle. In October
-    // 2026 its year code 6 is forced to 2036 despite also encoding 2006.
+    // Synthetic syntax-valid VIN, not an observation from a vehicle.
     observe("vin_model_year_code_6") {
-        VinDecoder.decode("VSSZZZ6JZ6R000000")
+        val info = VinDecoder.decode("VSSZZZ6JZ6R000000", referenceYear = 2026)
+        check(info.modelYearIsEstimate && info.modelYearCandidates == listOf(2006))
+        info.modelYear
     }
     observe("vin_existing_seat_control") {
-        VinDecoder.decode("VSSZZZ6JZBR000000")
+        val info = VinDecoder.decode("VSSZZZ6JZBR000000", referenceYear = 2026)
+        check(info.modelYearIsEstimate && info.modelYearCandidates == listOf(1981, 2011))
+        info.modelYear
     }
     observe("profile_tab_separated_payload") {
         strictHexBytes("61\t42\t10\t00")
@@ -88,4 +107,6 @@ fun main() {
             freezeFrameLastSuccessAtMs = 1_000L
         )).contains("Code déclencheur : P0087")
     }
+    check(failures.isEmpty()) { "Parser/export regressions: ${failures.joinToString()}" }
+    println("PASS parser/export: ${rejected.size + expected.size} contracts")
 }

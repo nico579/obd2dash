@@ -77,19 +77,73 @@ private suspend fun stopDuringReconnect(dir: File) {
 }
 
 private suspend fun noMeasurements(dir: File) {
-    FakeElm().use { initial -> FakeElm(bitmap = "410000000000").use { empty -> FakeElm().use { next ->
+    FakeElm().use { initial -> FakeElm(bitmap = "410000000000", blockDiscovery = true).use { empty -> FakeElm().use { next ->
         val vm = makeVm(initial, dir)
         try {
             start(vm)
-            val before = csvFile(dir).readBytes()
+            awaitUntil { vm.state.value.recordingSamples > 0 }
+            val file = csvFile(dir)
+            val before = file.readBytes()
+            val samples = vm.state.value.recordingSamples
+            val sessionId = checkNotNull(vm.state.value.recordingSessionId)
+            val writer = privateField(vm, "recordingWriter")
             reconnect(vm, empty)
+            awaitUntil { empty.discoveryBlocked.count == 0L }
+            // An unfinished discovery still pauses the current capture: it has
+            // not yet established whether this is the same vehicle.
+            delay(ONE_CSV_INTERVAL_PLUS_MARGIN)
+            assertPaused(vm, dir, before, samples)
+            check(vm.state.value.recordingSessionId == sessionId)
+            check(privateField(vm, "recordingWriter") === writer)
+            empty.releaseDiscovery.countDown()
             awaitUntil { vm.state.value.connectionState == ConnectionState.CONNECTED }
             check(vm.state.value.dataAvailability == ObdDataAvailability.NO_STANDARD_MEASUREMENTS)
+            check(vm.state.value.vin == null)
+            val discoveryCommands = synchronized(empty.commands) { empty.commands.toList() }
+            // The zero bitmap permits only discovery/adapter identification;
+            // VIN, live measurements and diagnostics must not be queried.
+            check(discoveryCommands.filterNot { it.startsWith("AT") }
+                .all { it in setOf("0100", "STI", "STDI") }) {
+                "Unexpected operational query after empty discovery: $discoveryCommands"
+            }
+            suspend fun assertStopped() = withContext(auditDispatcher) {
+                val state = vm.state.value
+                check(!state.isRecording) { "Unverifiable identity kept the old capture active" }
+                check(state.recordingSessionId == null)
+                check(privateField(vm, "recordingWriter") == null)
+                check(privateField(vm, "recordingJob") == null)
+                check(state.recordingSamples == samples)
+                val reason = state.recordingError.orEmpty()
+                check(reason.contains("Enregistrement arrêté") && reason.contains("identité") &&
+                    reason.contains("conservé")) { "Missing explicit identity stop reason: $reason" }
+                check(csvFile(dir) == file) { "An automatic replacement CSV was created" }
+                check(file.readBytes().contentEquals(before)) { "The previous CSV was changed" }
+                check(state.recordings.size == 1)
+            }
+            // A confirmed zero bitmap cannot verify the prior VIN. The old
+            // file must be closed and retained, rather than paused indefinitely.
+            assertStopped()
             delay(ONE_CSV_INTERVAL_PLUS_MARGIN)
-            assertPaused(vm, dir, before, 0)
+            assertStopped()
+            check(synchronized(empty.commands) { empty.commands.toList() } == discoveryCommands) {
+                "Automatic queries continued after confirmed empty discovery"
+            }
             reconnect(vm, next)
+            awaitUntil {
+                vm.state.value.connectionState == ConnectionState.CONNECTED &&
+                    vm.state.value.values.isNotEmpty()
+            }
+            check(vm.state.value.vin == "1D4GP00R55B123456")
+            assertStopped() // Returning to the old VIN does not restart a closed CSV.
+            // The user can explicitly start a separate capture on the recovered
+            // vehicle; the already closed CSV remains untouched.
+            start(vm)
+            check(vm.state.value.recordingSessionId != sessionId)
             awaitUntil { vm.state.value.recordingSamples > 0 }
-            check(csvFile(dir).readBytes().take(before.size).toByteArray().contentEquals(before))
+            val files = File(dir, "recordings").listFiles()!!.filter { it.extension == "csv" }
+            check(files.size == 2 && file in files)
+            check(file.readBytes().contentEquals(before))
+            check(files.single { it != file }.readBytes().isNotEmpty())
         } finally { finish(vm) }
     } } }
 }

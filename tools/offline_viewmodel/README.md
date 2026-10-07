@@ -29,6 +29,15 @@ Les préférences du double désactivent la connexion initiale sans cible ; le t
 appelle ensuite explicitement la connexion locale. Le transport Bluetooth du
 double lève une erreur s'il est sollicité.
 
+Depuis la correction de la version 0.16, la reprise automatique d'un même CSV
+exige deux lectures du **même VIN connu**. Le FakeElm par défaut annonce donc un
+VIN stable : les scénarios de reprise sont des contrôles positifs du même véhicule.
+Un changement de VIN, sa disparition ou deux identités inconnues arrêtent la
+capture avec un motif explicite ; le fichier précédent est conservé. Le graphique
+efface également l'historique dont l'identité ne peut plus être confirmée.
+Ces variantes et l'appartenance du CSV d'un smoke test actif sont couvertes par le
+[banc de l'audit du 7 octobre](../audit_20261007/README.md).
+
 Les dix-neuf scénarios couvrent : reconnexion explicite prolongée puis reprise dans le
 même CSV ; arrêt manuel pendant la reconnexion ; connexion sans mesures ; échec de
 connexion ; coupure TCP puis reprise automatique ; adresse Wi-Fi invalide avec une
@@ -36,7 +45,12 @@ session active ; choix Bluetooth sans appareil ; échec du transport Bluetooth
 simulé ; conservation de la capture manuelle pendant un refresh DTC et son
 nettoyage ; arrêt puis nouveau fichier pendant une écriture IO inachevée.
 Les tests de pause dépassent l'intervalle CSV réel de cinq secondes et comparent
-les octets du fichier ainsi que le compteur. Le dernier scénario interpose un
+les octets du fichier ainsi que le compteur. `--case no_measurements` distingue
+la pause pendant une découverte inachevée de l'arrêt après confirmation d'un
+bitmap vide, qui ne permet pas de vérifier le VIN précédent. Il vérifie le motif
+d'arrêt, la conservation du CSV, l'absence de lectures automatiques après cette
+découverte et l'absence de nouveau fichier avant un nouveau REC explicite.
+Le dernier scénario interpose un
 writer à verrou contrôlé et utilise la réflexion pour démarrer la vraie boucle
 sur ce writer ; il ne modifie pas les sources applicatives. Les deux nouveaux cas
 vérifient la publication du MIL malgré un premier échec des codes, leur relecture
@@ -68,6 +82,8 @@ simplifiée ne teste pas les traductions, Android/aapt ou les règles de pluriel
 autres langues. Ces tests ne vérifient ni Compose, ni le cycle de vie réel Android,
 ni les notifications, permissions, interruptions radio ou le comportement d'un
 véhicule/adaptateur physique.
-Le scénario de nettoyage ne lance pas de smoke test actif : la capture qui
-appartient à ce smoke test et les autres entrelacements de diagnostic restent
-hors de cette couverture.
+Le scénario de nettoyage de ce banc ne lance pas de smoke test actif. Son cycle
+d'appartenance est exercé séparément par le banc du 7 octobre ; d'autres
+entrelacements de diagnostic restent hors de cette couverture. Le double
+`SystemClock` fournit le temps monotone de l'hôte ; il ne simule pas la veille
+profonde d'un téléphone Android.

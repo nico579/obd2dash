@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 /**
- * Audit observations, not acceptance tests: baseline unsafe behavior is reported.
+ * Regression checks for the corrected audit contracts; unsafe behavior fails.
  * Real, unmodified Elm327Client and TCP transport; server bound to 127.0.0.1 only.
  * Compile with the existing offline_viewmodel production sources/Android doubles.
  * No Android Bluetooth, Wi-Fi network request, hardware address or vehicle access.
@@ -117,6 +117,11 @@ internal object TransportAuditProbe {
                         check(secondSpeedSeen.await(5, TimeUnit.SECONDS)) { "Second speed request was not received" }
                     }
                 }
+                check(rpm.exceptionOrNull() is IOException) { "NRC78 was accepted as an ordinary PID result" }
+                check(!connectedAfterPending) { "NRC78 left the transport reusable" }
+                check(server.commands.filter { !it.startsWith("AT") } == listOf("010C")) {
+                    "A request followed NRC78: ${server.commands}"
+                }
                 return linkedMapOf(
                     "method" to "real Elm327Client; deterministic delayed-reply TCP loopback simulation",
                     "rpm_result" to outcome(rpm),
@@ -126,6 +131,7 @@ internal object TransportAuditProbe {
                     "simulated_current_second_speed" to "[80]",
                     "previous_speed_accepted_for_second_request" to (secondSpeed?.getOrNull() == listOf(40)).toString(),
                     "commands" to server.commands.toList().joinToString(","),
+                    "fixed_contract_assertions" to "passed",
                     "physical_adapter_behavior_verified" to "false"
                 )
             } finally { client.disconnect() }
@@ -154,15 +160,22 @@ internal object TransportAuditProbe {
                 val before = client.readPidBytes(0x0C)
                 client.detectResponseCountSupport()
                 val after = client.readPidBytes(0x0C)
+                val conflictHiddenByLimit = before == null && after != null
+                check(before == null && after == null) { "An ECU conflict was masked: before=$before; after=$after" }
+                check(!client.supportsResponseCount) { "Response limiting enabled without a known unique ECU" }
+                check(server.commands.none { it == "01001" || it == "010C1" }) {
+                    "A request limited replies without ECU uniqueness: ${server.commands}"
+                }
                 return linkedMapOf(
                     "method" to "real Elm327Client; simulated adapter honors first-response limit",
                     "first_ecu_payload" to firstValue,
                     "second_ecu_payload" to secondValue,
                     "full_response_result" to before.toString(),
                     "response_count_supported" to client.supportsResponseCount.toString(),
-                    "limited_response_result" to after.toString(),
-                    "conflict_hidden_by_limit" to (before == null && after != null).toString(),
+                    "after_detection_result" to after.toString(),
+                    "conflict_hidden_by_limit" to conflictHiddenByLimit.toString(),
                     "commands" to server.commands.toList().joinToString(","),
+                    "fixed_contract_assertions" to "passed",
                     "physical_adapter_behavior_verified" to "false"
                 )
             } finally { client.disconnect() }

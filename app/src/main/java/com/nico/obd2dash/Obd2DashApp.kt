@@ -3,14 +3,14 @@ package com.nico.obd2dash
 import android.app.Application
 
 /**
- * Seul rôle : initialiser EventLog le plus tôt possible dans le cycle de vie du processus,
- * avant la moindre Activity. Nécessaire en particulier pour RecordingService : après
- * qu'Android a tué le processus pour libérer de la mémoire, un service de premier plan
- * redémarré (redelivery) peut s'exécuter sans qu'aucune Activity n'ait encore tourné ;
- * sans cette classe, EventLog.init ne serait appelé que depuis MainActivity.onCreate et
- * manquerait ce cas.
+ * Initialise le journal dès le début du processus et possède la session partagée.
+ * Une capture active peut survivre à la fermeture de l'Activity grâce au service.
+ * Une création du processus par un Intent de service initialise aussi le journal ;
+ * elle ne reprend pas le CSV ni le transport d'un processus tué (START_NOT_STICKY).
  */
 class Obd2DashApp : Application() {
+    internal val sessions by lazy { ObdSessionOwner(this) }
+
     override fun onCreate() {
         super.onCreate()
         EventLog.init(this)

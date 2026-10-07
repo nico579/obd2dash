@@ -521,18 +521,18 @@ class Elm327TransportTest {
     }
 
     @Test
-    fun `les alertes utilisent uniquement des lectures 01 sans suffixe meme si adapte accepte une reponse unique`() = runBlocking {
+    fun `les alertes et la detection ne limitent aucun echange a un repondant sans unicite connue`() = runBlocking {
         val replies = mapOf("01001" to "410000100000", "0165" to "41650808",
             "0190" to "41900C0000", "0191" to "41910200000000", "0194" to ("41940101" + "00".repeat(10)))
         withElm(reply = { command, out ->
             replies[command]?.let { out.reply(it) } ?: standardReply(command, out)
         }) { client, server ->
             client.detectResponseCountSupport()
-            assertTrue(client.supportsResponseCount)
+            assertFalse(client.supportsResponseCount)
             val statuses = StandardWarningLight.entries.map { client.readStandardWarning(it) }
             assertEquals(listOf(StandardWarningStatus.ON, StandardWarningStatus.CONTINUOUS,
                 StandardWarningStatus.SHORT, StandardWarningStatus.ON), statuses)
-            assertEquals(listOf("01001", "0165", "0190", "0191", "0194"), server.commands.filter { !it.startsWith("AT") })
+            assertEquals(listOf("0165", "0190", "0191", "0194"), server.commands.filter { !it.startsWith("AT") })
         }
     }
 

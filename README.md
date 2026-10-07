@@ -47,7 +47,9 @@ diagnostics, les enregistrements et le dashboard.
   Pendant l'attente de connexion, le dashboard et le graphique affichent seulement
   **Attente de connexion** et un symbole Wi-Fi ou Bluetooth clignotant selon le mode
   choisi. Le menu et l'arrêt d'enregistrement restent accessibles. Le graphique
-  retrouve ses points et sa sélection après la reconnexion.
+  retrouve ses points et sa sélection lorsque le même VIN est confirmé après la
+  reconnexion. Si le véhicule change ou si son identité ne peut plus être vérifiée,
+  l'historique est effacé avant les nouvelles mesures.
 - **Résultat de découverte explicite** : une sonde joignable ne prouve pas une réponse
   véhicule ; un bitmap PID nul confirme une réponse sans fournir de mesures standard.
   Dans ce dernier cas, l'app affiche la limite et ne lance pas de polling vide, de
@@ -61,6 +63,20 @@ diagnostics, les enregistrements et le dashboard.
   ou reste inconnu. Une réponse ambiguë ne confirme jamais une absence de défauts.
   Les CSV conservent aussi les dates de lecture du MIL et des codes : ces états sont
   échantillonnés depuis le cache, sans lecture supplémentaire à chaque ligne.
+  Le code déclencheur du freeze frame et sa date restent exportés même lorsque
+  aucune mesure exploitable n'accompagne la capture du défaut.
+- **Captures CSV** : une coupure met la capture en pause. La reprise dans le même
+  fichier exige un VIN connu identique ; un VIN différent ou non vérifiable arrête
+  la capture avec un motif explicite et conserve le fichier précédent. Un nouvel
+  enregistrement reste possible, y compris lorsque le véhicule ne fournit pas son VIN.
+  Le smoke test ne peut arrêter que le fichier qu'il a démarré : un REC manuel
+  créé ensuite reste actif.
+  La session de capture est conservée lorsque l'interface est fermée, tant que
+  l'enregistrement et le processus restent actifs. Sa notification permet de
+  **revenir à l'application** ou **arrêter la capture**. Les mesures utilisent le
+  temps écoulé, y compris pendant la veille, pour leur fraîcheur ; les dates du
+  CSV conservent l'heure civile. Une réponse groupée garde sa date de réception
+  même lorsqu'une autre mesure nécessite une nouvelle lecture plus lente.
 - **Alertes automatiques dans les captures** : MIL, voyant de préchauffage (PID65),
   activation de l'alerte NOx (PID94) et modes d'indication de défaut WWH-OBD
   véhicule/calculateur (PID90/91), selon les paramètres annoncés et les réponses.
@@ -86,7 +102,9 @@ diagnostics, les enregistrements et le dashboard.
   recherche ouvre explicitement le BLE. La validation radio Android reste à réaliser.
 - **VIN validé** : longueur et alphabet contrôlés, compteur CAN vérifié, assemblage
   du format non-CAN à cinq segments documenté par ELM. Aucun octet intrus n'est retiré
-  pour fabriquer une identité ; une réponse ambiguë reste inconnue.
+  pour fabriquer une identité ; une réponse ambiguë reste inconnue. L'année-modèle
+  déduite du code VIN est affichée comme une **estimation** : ce code se répète par
+  cycles et ne prouve pas, seul, l'année du véhicule.
 - **Analyse de capture hors ligne** dans Réglages : extraction d'une identité Renault
   STD_A depuis une réponse KWP enregistrée à `2180`, contrôle du checksum et recherche
   exacte d'un profil. Le protocole vient du journal, sans être déduit de la trame.
@@ -117,6 +135,10 @@ diagnostics, les enregistrements et le dashboard.
   ne remplace pas un profil de lectures documenté.
 - **Enregistrement des échecs automatiques** et des réponses de découverte dans le
   journal, sans afficher les détails techniques sur le tableau de bord.
+- **Arrêt du processus** : la fermeture de l'interface conserve une capture active,
+  mais une terminaison du processus ou un arrêt forcé ne permet pas de reconstruire
+  automatiquement sa session. Les doubles hors ligne ne valident pas le comportement
+  réel d'un téléphone, des notifications ou des sondes physiques.
 
 ## Build et installation
 
@@ -146,9 +168,20 @@ entier, même lorsqu'une réponse arrive lentement par fragments.
 Si l'hôte configuré est un nom de domaine, sa résolution DNS Java peut dépasser
 la marge de connexion ; cette limite ne concerne pas l'adresse IP habituelle de la sonde.
 Une réponse temporaire « occupé » ou « en attente » ne valide pas une absence de PID.
-Dans la séquence DTC aussi, NRC21/NRC78 ferme la connexion avant toute autre requête.
+Dans les lectures individuelles, groupées et DTC, NRC21/NRC78 ferme la connexion
+avant toute autre requête. Les mesures automatiques conservent toutes les réponses,
+même si l'adaptateur accepte une limite d'une réponse ; un conflit entre calculateurs
+ne doit pas disparaître derrière cette optimisation.
 La surveillance de connexion tolère un échec MIL isolé et les pauses de diagnostic ;
 elle distingue le cas où PID01 est la seule lecture automatique du polling de mesures.
+Un transport déjà fermé est également détecté sans polling, pour permettre une
+reconnexion normale sans ajouter de lecture véhicule arbitraire. Cela ne détecte
+pas une fermeture TCP distante que le transport local n'a pas encore observée.
+
+La capture manuelle des en-têtes protège également les réponses temporaires CAN
+et n'envoie aucune restauration sur un transport fermé. Elle exige un protocole
+CAN 11/29 bits établi (6/7/8/9) ; elle reste indisponible si ce format est inconnu
+ou non-CAN. Les lectures OBD standard non-CAN restent inchangées.
 
 Le [banc de tests du ViewModel](tools/offline_viewmodel/README.md) complète ces tests
 avec le vrai cycle de connexion et les fichiers CSV, sur une sonde simulée locale.
@@ -157,14 +190,16 @@ services et le contexte Android sont remplacés par des doubles de test.
 
 Les [reproductions de l'audit du 7 octobre](tools/audit_20261007/README.md) exercent
 des cas supplémentaires de diagnostic, transport, graphique et propriété des CSV.
-Sur la version 0.15, certains contrats échouent : ces probes documentent des bugs
-à corriger et ne font pas partie de la suite CI passante.
+Le banc courant de la version 0.16 impose des assertions d'acceptation des corrections.
+Les observations et contrats échoués de la version 0.15 restent conservés comme preuves
+historiques. Ces essais locaux ne constituent pas une validation matérielle Android
+ou véhicule.
 
 ## Documentation
 
 - [`audit_code_2026-10-07.md`](audit_code_2026-10-07.md) : audit courant sur la
   version 0.15, nouveaux défauts reproduits, limites antérieures réévaluées et
-  optimisations prioritaires. Les corrections proposées restent à appliquer.
+  optimisations prioritaires, avec suivi des corrections et de leur validation.
 
 - [`recherches/trafic/README.md`](recherches/trafic/README.md) : journal de recherche
   Trafic arrêté le 3 octobre 2026, sources archivées et résultats non validés.

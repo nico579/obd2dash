@@ -40,7 +40,9 @@ internal fun captureStatus(hasValidResponse: Boolean, hasFailure: Boolean): CanC
  * multi-ECU restent synthétiques. CAN FD, adressage étendu ISO-TP, J1939 et affichage
  * avec DLC ne sont pas pris en charge par ce parseur.
  *
- * PAS ENCORE ACTIVÉ dans Elm327Client : aucun changement de configuration de sonde.
+ * Le réassemblage par ECU n'est pas activé dans les lectures connectées. Seule la
+ * lecture d'une SF est utilisée pour le garde NRC de la capture manuelle ATH1,
+ * avec la largeur CAN établie par le protocole ; aucun choix depuis les octets.
  * Une seule réponse distincte par ECU est admise, pas une succession de messages
  * (par exemple NRC provisoire puis réponse positive). L'absence d'un ECU dans le
  * résultat signifie réponse inutilisable ou absente, jamais « aucun défaut ».

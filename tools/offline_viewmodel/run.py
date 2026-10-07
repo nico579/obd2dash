@@ -29,6 +29,7 @@ SOURCE_NAMES = (
     "DiagnosticReadSequence", "BleSerialTransport",
     "DashboardGaugeOrder",
     "StandardWarningLights",
+    "RecordingSessionIds",
 )
 
 

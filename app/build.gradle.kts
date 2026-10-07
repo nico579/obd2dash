@@ -15,8 +15,8 @@ android {
         targetSdk = 34
         // À incrémenter avant de pousser un tag vX.Y (voir .github/workflows/release.yml) :
         // rien ne les synchronise automatiquement avec le tag.
-        versionCode = 15
-        versionName = "0.15"
+        versionCode = 16
+        versionName = "0.16"
     }
 
     signingConfigs {
@@ -86,6 +86,9 @@ dependencies {
     // Lifecycle 2.8.7 : correctifs de la branche Kotlin 1.9 ; 2.9 exige Kotlin 2.0.
     //noinspection GradleDependency
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    // Même branche que runtime/viewmodel : la migration Kotlin reste séparée.
+    //noinspection GradleDependency
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     //noinspection GradleDependency
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     //noinspection GradleDependency

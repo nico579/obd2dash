@@ -156,4 +156,15 @@ class DashboardLayoutTest {
         assertEquals("--" to false, staleness(0x05, GaugeValue("75 °C", now - 20_001L), now))
         assertEquals("10 / 10" to false, staleness(0x4F, GaugeValue("10 / 10", 0L), now))
     }
+
+    @Test
+    fun `les cadrans ignorent une correction de l'heure civile`() {
+        val elapsedAt = 100_000L
+        for (civilAt in listOf(0L, 1_700_000_000_000L, Long.MAX_VALUE)) {
+            val value = GaugeValue("120 km/h", civilAt, elapsedAt)
+            assertEquals("120 km/h" to false, staleness(0x0D, value, elapsedAt + 1000))
+            assertEquals("120 km/h" to true, staleness(0x0D, value, elapsedAt + 4000))
+            assertEquals("--" to false, staleness(0x0D, value, elapsedAt + 11_000))
+        }
+    }
 }

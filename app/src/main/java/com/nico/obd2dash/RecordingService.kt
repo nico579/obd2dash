@@ -2,8 +2,10 @@ package com.nico.obd2dash
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -12,8 +14,8 @@ import androidx.core.app.NotificationCompat
 
 /**
  * Service de premier plan sans autre rôle que d'exister pendant un enregistrement CSV :
- * l'enregistrement lui-même tourne dans ObdViewModel.viewModelScope, déjà propre au
- * processus entier, pas à ce service. Sans lui, Android peut ralentir ou tuer le
+ * l'enregistrement tourne dans une session partagée avec ce service, conservée hors
+ * du lifecycle de l'Activity tant que REC est actif. Sans lui, Android peut ralentir ou tuer le
  * processus une fois l'écran éteint ou l'app en arrière-plan pendant un enregistrement
  * long (voir audit, "Écran éteint et arrière-plan") : un ViewModel qui survit à la
  * navigation ne garantit rien une fois le processus lui-même mis en veille par l'OS.
@@ -31,21 +33,50 @@ import androidx.core.app.NotificationCompat
 class RecordingService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var sessionId: Long? = null
+    private val sessions get() = (application as Obd2DashApp).sessions
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val requestedId = intent?.getLongExtra(EXTRA_SESSION_ID, -1L)?.takeIf { it >= 0L }
+        val model = sessions.current
+        if (intent?.action == ACTION_STOP) {
+            if (requestedId != null && model?.state?.value?.recordingSessionId == requestedId) {
+                model.stopRecording()
+            }
+            if (model?.state?.value?.isRecording != true) stopSelf(startId)
+            return START_NOT_STICKY
+        }
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel_recording), NotificationManager.IMPORTANCE_LOW)
         )
+        val openApp = PendingIntent.getActivity(this, 0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 1,
+            Intent(this, RecordingService::class.java).setAction(ACTION_STOP)
+                .setData(Uri.parse(recordingStopActionUri(requestedId ?: -1L)))
+                .putExtra(EXTRA_SESSION_ID, requestedId ?: -1L),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.notification_recording_content))
             .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentIntent(openApp)
+            .addAction(android.R.drawable.ic_media_pause, getString(R.string.notification_recording_stop), stop)
             .setOngoing(true)
             .build()
         startForeground(NOTIFICATION_ID, notification)
+
+        // Fulfil Android's foreground deadline even for a start queued before REC stopped.
+        // A stale service instance must never adopt or stop a replacement recording.
+        if (requestedId == null || model?.state?.value?.recordingSessionId != requestedId) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        sessionId = requestedId
 
         if (wakeLock == null) {
             val powerManager = getSystemService(PowerManager::class.java)
@@ -75,16 +106,24 @@ class RecordingService : Service() {
     }
 
     override fun onDestroy() {
-        // Libéré ici plutôt que dans ObdViewModel.stopRecording() : ce service peut être
-        // arrêté par l'OS (mémoire faible) sans passer par un appel explicite de l'app,
-        // onDestroy() reste le seul endroit garanti d'être appelé dans les deux cas.
+        // Fermer la capture si Android détruit normalement son service propriétaire.
+        // Un kill du processus ne garantit pas onDestroy() : l'OS libère alors ses
+        // ressources, et START_NOT_STICKY ne recrée pas une capture interrompue.
         handler.removeCallbacks(renewWakeLock)
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+        sessions.current?.let { model ->
+            if (sessionId != null && model.state.value.recordingSessionId == sessionId) {
+                model.stopRecording()
+            }
+        }
+        sessionId = null
         super.onDestroy()
     }
 
     companion object {
+        internal const val EXTRA_SESSION_ID = "recording_session_id"
+        private const val ACTION_STOP = "com.nico.obd2dash.STOP_RECORDING"
         private const val CHANNEL_ID = "recording"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "obd2dash:recording"

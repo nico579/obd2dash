@@ -152,6 +152,7 @@
     <string name="dtc_vin_label">VIN %1$s</string>
     <string name="dtc_protocol_label">Protocol %1$s</string>
     <string name="dtc_model_year_label">model year %1$s</string>
+    <string name="dtc_model_year_estimated_label">estimated model year %1$s</string>
     <string name="dtc_loading">Reading…</string>
     <string name="dtc_mil_last_read">Last MIL reading: %1$s</string>
     <string name="dtc_stored_last_read">Last stored-code reading: %1$s</string>
@@ -274,6 +275,7 @@
     <!-- RecordingService: notification channel and foreground notification -->
     <string name="notification_channel_recording">OBD2 Recording</string>
     <string name="notification_recording_content">Recording in progress</string>
+    <string name="notification_recording_stop">Stop recording</string>
     <string name="settings_bluetooth_transport_title">Adapter connection</string>
     <string name="settings_bluetooth_auto">Auto</string>
     <string name="settings_bluetooth_classic">Classic</string>

@@ -1,6 +1,7 @@
 package com.nico.obd2dash
 
 import androidx.lifecycle.auditDispatcher
+import android.app.Application
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -19,7 +20,9 @@ object VmIdentityFreshnessProbe {
         val selected = args.getOrElse(1) { "all" }
         val cases: Map<String, suspend (File) -> Unit> = linkedMapOf(
             "identity_graph" to ::identityGraph,
-            "grouped_freshness" to ::groupedFreshness
+            "grouped_freshness" to ::groupedFreshness,
+            "csv_identity" to ::csvIdentity,
+            "closed_without_polling" to ::closedWithoutPolling
         )
         require(selected == "all" || selected in cases) { "Unknown case: $selected" }
         val failures = mutableListOf<String>()
@@ -127,6 +130,100 @@ object VmIdentityFreshnessProbe {
             } finally {
                 finish(vm)
             }
+        }
+    }
+
+    private suspend fun csvIdentity(dir: File) {
+        val vinA = "1D4GP00R55B123456"
+        val vinB = "1D4GP00R55B123457"
+        for ((name, identities) in linkedMapOf(
+            "same_known" to (vinA to vinA),
+            "changed_known" to (vinA to vinB),
+            "known_to_unknown" to (vinA to null),
+            "unknown_to_known" to (null to vinA),
+            "unknown_to_unknown" to (null to null)
+        )) {
+            val (beforeVin, afterVin) = identities
+            val caseDir = File(dir, name).apply { mkdirs() }
+            FakeElm(replyOverride = { command -> when (command) {
+                "0902" -> beforeVin?.let(::vinReply) ?: "NO DATA"
+                "010C" -> "410C0FA0"
+                else -> null
+            } }).use { first ->
+                FakeElm(replyOverride = { command -> when (command) {
+                    "0902" -> afterVin?.let(::vinReply) ?: "NO DATA"
+                    "010C" -> "410C1F40"
+                    else -> null
+                } }).use { second ->
+                    val vm = makeVm(first, caseDir)
+                    try {
+                        check(vm.state.value.vin == beforeVin)
+                        withContext(auditDispatcher) { vm.startRecording() }
+                        check(vm.state.value.isRecording)
+                        val token = vm.state.value.recordingSessionId
+                        val original = csvFile(caseDir)
+                        withContext(auditDispatcher) { vm.connect("127.0.0.1", second.port) }
+                        awaitUntil {
+                            vm.state.value.connectionState == ConnectionState.CONNECTED &&
+                                vm.state.value.vin == afterVin && vm.state.value.values[0x0C]?.text == "2000 rpm"
+                        }
+                        val shouldResume = beforeVin != null && beforeVin == afterVin
+                        if (shouldResume) {
+                            check(vm.state.value.isRecording && vm.state.value.recordingSessionId == token)
+                            awaitUntil { vm.state.value.recordingSamples > 0 }
+                            check(original.readText().contains("2000 rpm"))
+                            check(File(caseDir, "recordings").listFiles()!!.size == 1)
+                        } else {
+                            check(!vm.state.value.isRecording && vm.state.value.recordingSessionId == null)
+                            check(vm.state.value.recordingError?.contains("Enregistrement arrêté") == true)
+                            check(!original.readText().contains("2000 rpm"))
+                        }
+                        File(caseDir, "result.txt").writeText(
+                            "VIN=$beforeVin -> $afterVin\nresume=$shouldResume\n" +
+                                "recording=${vm.state.value.isRecording}\ntoken=${vm.state.value.recordingSessionId}\n" +
+                                "reason=${vm.state.value.recordingError}\n"
+                        )
+                        println("CSV $name: resume=$shouldResume, token=${vm.state.value.recordingSessionId}, reason=${vm.state.value.recordingError}")
+                    } finally { finish(vm) }
+                }
+            }
+        }
+    }
+
+    private suspend fun closedWithoutPolling(dir: File) {
+        val milAt = AtomicLong()
+        FakeElm(bitmap = "410000000000", replyOverride = { command ->
+            if (command == "0101") {
+                milAt.set(System.currentTimeMillis())
+                "7F0178" // An explicit smoke-test read closes the real transport.
+            } else null
+        }).use { server ->
+            val vm = withContext(auditDispatcher) {
+                ObdViewModel(Application(dir)).apply {
+                    updateHost("127.0.0.1")
+                    updatePort(server.port)
+                    connect("127.0.0.1", server.port)
+                }
+            }
+            try {
+                awaitUntil { vm.state.value.connectionState == ConnectionState.CONNECTED }
+                check(vm.state.value.dataAvailability == ObdDataAvailability.NO_STANDARD_MEASUREMENTS)
+                check(vm.state.value.supportedPids.isEmpty())
+                withContext(auditDispatcher) { vm.runAutoTest() }
+                awaitUntil { vm.state.value.connectionState == ConnectionState.RECONNECTING }
+                val beforeRetry = synchronized(server.commands) { server.commands.toList() }
+                check(beforeRetry.last() == "0101") {
+                    "The closed-transport watcher issued unexpected commands before reconnection: $beforeRetry"
+                }
+                check(milAt.get() != 0L)
+                awaitUntil {
+                    vm.state.value.connectionState == ConnectionState.CONNECTED &&
+                        synchronized(server.commands) { server.commands.count { it == "0100" } } >= 2
+                }
+                File(dir, "commands.txt").writeText(synchronized(server.commands) { server.commands.joinToString("\n") })
+                File(dir, "result.txt").writeText("closed_without_polling detected and automatically reconnected\n")
+                println("Closed no-polling transport detected; retry succeeded without a watcher vehicle query")
+            } finally { finish(vm) }
         }
     }
 }

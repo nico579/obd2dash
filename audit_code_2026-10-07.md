@@ -1,9 +1,10 @@
 # Audit du code — 7 octobre 2026
 
 La passe identifie des défauts résiduels de diagnostic, de corrélation des réponses,
-d'appartenance des enregistrements et d'identité des graphiques. Les corrections
-proposées ci-dessous restent à appliquer. L'affichage d'attente demandé est livré
-séparément en **version 0.15** ; cet audit ne change pas le dialogue avec le véhicule.
+d'appartenance des enregistrements et d'identité des graphiques sur **v0.15**.
+Les corrections de **v0.16** sont suivies à la fin de ce rapport. Les constats et
+preuves historiques ci-dessous restent rattachés à la version auditée ; ils ne
+décrivent pas l'état de la version corrigée.
 
 Révision auditée : **`ab7a5b6d2f14bcd3c1274a39fe8981cdc5081b04`**, tag `v0.15`.
 Les liens de code ci-dessous se réfèrent à cette révision, même après des corrections
@@ -253,7 +254,7 @@ forme compacte et renvoie dans les trois cas `[97, 66, 16, 0]`. Une lecture du
 texte échappé avait conduit à surestimer le nombre d'antislashs du littéral.
 Ce point n'est pas compté comme bug et ne demande aucune correction.
 
-## Constats déjà connus et toujours ouverts
+## Constats déjà connus, ouverts dans la version auditée
 
 Ils sont réévalués, **pas présentés comme de nouvelles découvertes**.
 
@@ -373,3 +374,84 @@ Preuves locales :
 Le rapport et les probes sont versionnés ; les fichiers générés sous `captures/`
 restent locaux et ignorés. Le banc permet de recréer les preuves sur le commit
 audité, puis de vérifier les corrections sur une révision suivante.
+
+## Suivi des corrections — version 0.16
+
+Les preuves précédentes sont conservées comme état initial de v0.15. Cette
+livraison corrige les dix nouveaux constats et les quatre défauts antérieurs
+réévalués. La validation est effectuée sans sonde ni véhicule ; les propriétaires
+Android réels et la radio restent hors du périmètre des doubles JVM.
+
+| Constat | Comportement corrigé |
+|---|---|
+| N1 | Slot DTC nul dans le compte CAN et service non-CAN sans paire refusés. Zéro confirmé et padding valide restent acceptés. |
+| N2 | Erreur ELM avant/après une réponse positive rend l'échange incomplet ; un succès survivant ne confirme plus un résultat complet. |
+| N3 | NRC21/NRC78 corrélé vérifié et transport fermé sous mutex avant toute requête suivante. La découverte conserve son exception NRC21 avec bitmap complet. |
+| N4 | Suppression du suffixe limitant à une réponse et de sa détection ; les contradictions entre calculateurs restent visibles. Groupage conservé. |
+| N5 | Smoke test propriétaire d'un token exact de capture ; annulation et fin ne ferment pas un REC manuel de remplacement. Tokens uniques entre propriétaires dans le processus et action STOP distincte par URI. |
+| N6 | Date civile et temps écoulé capturés dès réception du groupe, avant les replis individuels. |
+| N7/K1 | Courbes et CSV liés à leur VIN. Même VIN connu : reprise ; VIN différent ou identité non vérifiable : courbes vidées et CSV arrêté avec motif, fichier conservé. Le motif survit aux reconnexions suivantes jusqu'au prochain REC explicite. Deux VIN inconnus ne prouvent pas une identité commune. |
+| N8 | Cycles d'années candidats et borne de contexte ; année présentée comme estimée dans l'écran et le partage. Pas de règle nord-américaine appliquée à tous les VIN. |
+| N9 | Déclencheur et date du freeze frame exportés même sans mesure, avec absence de mesure explicitement indiquée. |
+| N10 | Surveillance du transport déjà fermé indépendante du polling, sans requête véhicule ajoutée ; état de reconnexion et retry exercés sur bitmap nul. |
+| K2 | Horloge monotone `elapsedRealtime()` pour fraîcheur, cadences et durées des courbes ; heure civile conservée pour dates/export/CSV. L'affichage prend aussi l'heure du rendu : une valeur arrivée après le dernier tick UI n'est pas brièvement classée indisponible. |
+| K3 | Journal et crash sérialisés sur un seul writer/formatter IO ; appels normaux non bloquants, attente de crash bornée. |
+| K4 | Session détenue hors de l'Activity pendant REC, réutilisée au retour ; libération lorsqu'il n'y a plus d'interface ni de capture. Notification de retour et d'arrêt liée à la capture exacte. Aucune reconstruction automatique après terminaison du processus. |
+
+Optimisations appliquées : pas de reconnexion en quittant Réglages sans changement
+de cible Wi-Fi, collecte de l'état liée au lifecycle, animation du petit point créée
+uniquement lorsqu'elle est utilisée, métrique renommée « mesures seules, hors
+alertes ». Lint, banc assertif d'audit et suite connexion/CSV/voyants ajoutés avant
+publication en CI ; les quatre probes d'audit utilisent une compilation commune.
+
+La revue du correctif N3 a également identifié son cas manuel ATH1 : une SF CAN
+`7E8037F0178` conservait encore la liaison et déclenchait `ATH0`. La capture vérifie
+désormais ces NRC sous le même mutex, en CAN11/CAN29 selon le protocole complet
+établi, sans déduction depuis la trame. La restauration n'utilise que le transport
+capturé encore ouvert et ne masque pas l'erreur NRC. Un format inconnu/non-CAN
+refuse cette capture manuelle avant ATH1 ; les lectures standard non-CAN restent
+disponibles. Le réassemblage général ECU connecté n'est pas activé.
+
+Les autres propositions restent des améliorations possibles : propriétaire IO du
+cycle complet des CSV et de la liste des fichiers, suspension explicite des tickers
+UI en arrière-plan, découverte séparée des capacités mode 02 et extraction du
+recorder/ordonnanceur. Aucun gain de batterie ou de latence sur téléphone n'est
+annoncé. Le cache DTC à MIL/compteur constants, les profils BLE pris en charge et
+l'absence d'attribution ECU dans les lectures ATH0 restent des limites connues.
+
+### Validation de v0.16
+
+- `testDebugUnitTest` : **406 tests**, zéro échec/erreur/test ignoré. `assembleDebug`
+  réussi, `lintDebug` : **No issues found**. Les tests incluent le gardien sous mutex,
+  les NRC CAN11/CAN29 de capture manuelle, l'annulation et les contrôles positifs,
+  la propriété des sessions et les écritures concurrentes du journal.
+- Banc d'audit complet : compilation 0, parser/transport/VM/smoke **tous à 0**,
+  `inputs_unchanged=true`. Les 20 contrats parseur/export passent ; les conflits ECU
+  restent refusés dans les deux ordres, la session NRC78 ferme avant la requête
+  suivante, le groupe est daté avant son repli, les cinq politiques VIN/CSV passent,
+  la reconnexion sans polling et la conservation du REC manuel sont confirmées.
+  Preuve : `captures/audit_code_20261007/runs/run_20261007_200744_0fqv0n96/`.
+- Suite connexion/CSV/voyants : **19 scénarios, zéro échec**,
+  `inputs_unchanged=true`. Le scénario bitmap nul vérifie pause pendant découverte,
+  arrêt après identité non vérifiable, fichier conservé, absence de nouvelle lecture
+  automatique, motif conservé après reconnexion et nouveau REC uniquement explicite.
+  Preuve : `captures/audit_2026-09-13/recording_reconnect/run_20261007_195655_vb1t3w0u/`.
+  L'ancien contrat de ce scénario autorisait la reprise sans identité ; il a été
+  remplacé par le contrat annoncé N7/K1. Une compilation locale a dépassé son délai
+  de 120 s avant les tests ; le rejeu réussi utilise 360 s pour la compilation.
+  Les échéances de lecture véhicule ne sont pas concernées.
+- **36 tests de rendu** : 35 images statiques et une animation réelle de deux cycles
+  (25 frames). Les 34 images statiques antérieures et l'animation sont identiques
+  aux images v0.15 ; seule l'image supplémentaire du motif d'arrêt CSV est nouvelle.
+  Grandes polices, cadrans/menus et états frais/anciens/indisponibles inspectés.
+  Le clignotement modifie uniquement le symbole, rectangle `(202,428)-(298,506)` ;
+  son texte reste fixe. La fabrication des timestamps du banc se fait après la
+  remise à zéro de l'horloge Layoutlib, sans modifier les timestamps de production.
+  Rapport : `captures/dashboard_unified_20261003/build/reports/paparazzi/debug/`.
+
+Inventaire des empreintes et résultats :
+`captures/audit_fixes_20261007/validation.json`. Les artefacts générés restent locaux
+et ignorés ; parseurs, tests unitaires, doubles et bancs backend sont versionnés.
+La CI rejoue unitaires, build, lint, audit et les 19 scénarios sur le commit du tag
+avant de publier l'APK. Signature/version/digest de l'APK publié sont contrôlés
+séparément lors de sa récupération, avant une éventuelle installation USB.

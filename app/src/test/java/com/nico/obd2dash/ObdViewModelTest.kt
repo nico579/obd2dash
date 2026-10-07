@@ -109,7 +109,7 @@ class ObdViewModelTest {
     fun `buildDiagnosticReport marque une valeur live perimee`() {
         val old = GaugeValue("830 rpm", updatedAtMs = 0L) // horodatage tres ancien par construction
         val state = ObdUiState(values = mapOf(0x0C to old))
-        assertTrue(buildDiagnosticReport(state).contains("830 rpm (périmé)"))
+        assertTrue(buildDiagnosticReport(state, nowElapsedMs = 100_000L).contains("830 rpm (périmé)"))
     }
 
     @Test
@@ -120,7 +120,7 @@ class ObdViewModelTest {
         // session sans que la valeur soit fausse. "10 / 10" etait marque perime a tort.
         val old = GaugeValue("10 / 10", updatedAtMs = 0L)
         val state = ObdUiState(values = mapOf(0x4F to old))
-        val report = buildDiagnosticReport(state)
+        val report = buildDiagnosticReport(state, nowElapsedMs = 100_000L)
         assertTrue(report.contains("10 / 10"))
         assertFalse(report.contains("10 / 10 (périmé)"))
     }
@@ -166,6 +166,39 @@ class ObdViewModelTest {
     fun `buildDiagnosticReport indique le code declencheur du freeze frame`() {
         val state = ObdUiState(freezeFrame = mapOf(0x0C to "1305 rpm"), freezeFrameDtc = "P0087")
         assertTrue(buildDiagnosticReport(state).contains("Code déclencheur : P0087"))
+    }
+
+    @Test
+    fun `le declencheur du freeze frame reste exporte meme sans mesure`() {
+        val state = ObdUiState(freezeFrameDtc = "P0087", freezeFrameLastSuccessAtMs = 1_700_000_000_000L)
+        val report = buildDiagnosticReport(state)
+        assertTrue(report.contains("Code déclencheur : P0087"))
+        assertTrue(report.contains("Dernière lecture de la capture du défaut réussie :"))
+        assertTrue(report.contains("Aucune mesure exploitable"))
+        assertTrue(report.contains("--- Freeze frame"))
+    }
+
+    @Test
+    fun `les dates civiles n'affectent ni la fraicheur ni la date exportee`() {
+        val elapsedAt = 10_000L
+        for (civilAt in listOf(0L, 1_700_000_000_000L, Long.MAX_VALUE)) {
+            val sample = GaugeValue("830 rpm", civilAt, elapsedAt)
+            assertFalse(isUnavailable(0x0C, sample, elapsedAt + 500L))
+            assertTrue(isUnavailable(0x0C, sample, elapsedAt + 10_001L))
+            assertEquals(civilAt, sample.updatedAtMs)
+            assertTrue(buildDiagnosticReport(ObdUiState(values = mapOf(0x0C to sample)), elapsedAt + 10_001L)
+                .contains("830 rpm (périmé)"))
+        }
+        assertTrue(isUnavailable(0x0C, GaugeValue("830 rpm", 1_700_000_000_000L, 10_000L), 9_999L))
+    }
+
+    @Test
+    fun `la reprise exige deux identites connues egales`() {
+        assertTrue(sameVerifiedVehicle("1D4GP00R55B123456", "1D4GP00R55B123456"))
+        assertFalse(sameVerifiedVehicle("1D4GP00R55B123456", "1D4GP00R55B123457"))
+        assertFalse(sameVerifiedVehicle(null, null))
+        assertFalse(sameVerifiedVehicle("1D4GP00R55B123456", null))
+        assertFalse(sameVerifiedVehicle(null, "1D4GP00R55B123456"))
     }
 
     // --- DtcDictionary ---

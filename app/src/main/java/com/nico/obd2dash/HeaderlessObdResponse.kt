@@ -27,6 +27,14 @@ internal data class HeaderlessObdResponse(val payloads: List<String>, val isComp
     companion object {
         private val hex = Regex("^[0-9A-F]+$")
         private val numbered = Regex("^([0-9A-F]):(.*)$")
+        // Ces statuts concernent l'échange entier. Une ligne positive survivante
+        // après une perte de données ou une interruption n'en prouve pas la fin.
+        private val elmFailures = setOf(
+            "?", "ERROR", "NODATA", "UNABLETOCONNECT", "STOPPED", "BUFFERFULL",
+            "BUSBUSY", "BUSERROR", "CANERROR", "DATAERROR", "RXERROR", "FBERROR", "LVRESET",
+            "LPALERT", "!LPALERT", "ACTALERT", "!ACTALERT"
+        )
+        private val elmInternalError = Regex("^ERR[0-9A-F]{2}$")
 
         /**
          * Conserve les lignes simples voisines d'une séquence ELM numérotée. Sans
@@ -43,6 +51,11 @@ internal data class HeaderlessObdResponse(val payloads: List<String>, val isComp
             for (rawLine in response.split('\r', '\n')) {
                 val line = rawLine.trim().replace(" ", "").replace("\t", "").uppercase(Locale.ROOT)
                 if (line.isEmpty()) continue
+                if (line in elmFailures || elmInternalError.matches(line) || line.contains("<DATAERROR") ||
+                    (line.startsWith("BUSINIT:") && line.endsWith("ERROR"))) {
+                    complete = false
+                    continue
+                }
                 val frame = numbered.matchEntire(line)
                 if (frame != null) {
                     val data = frame.groupValues[2]

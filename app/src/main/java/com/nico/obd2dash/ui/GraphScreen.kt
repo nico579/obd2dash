@@ -1,5 +1,7 @@
 package com.nico.obd2dash.ui
 
+import android.os.SystemClock
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,13 +66,14 @@ fun GraphScreen(
     // Même ticker que DashboardScreen (voir staleness) : sans lui, "Actuel" resterait figé
     // sur la valeur du dernier recomposition déclenché par autre chose que le temps, au
     // lieu de retomber sur "--" une fois VALUE_UNAVAILABLE_AFTER_MS dépassé (voir audit B5).
-    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var tickNowMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(500)
-            nowMs = System.currentTimeMillis()
+            tickNowMs = SystemClock.elapsedRealtime()
         }
     }
+    val nowMs = maxOf(tickNowMs, SystemClock.elapsedRealtime())
 
     Column(
         modifier = modifier
@@ -168,8 +171,8 @@ private fun LineChart(points: List<GraphPoint>, modifier: Modifier = Modifier) {
     val minValue = points.minOf { it.value }
     val maxValue = points.maxOf { it.value }
     val valueRange = (maxValue - minValue).takeIf { it > 0.0 } ?: 1.0
-    val minTime = points.first().atMs
-    val timeRange = (points.last().atMs - minTime).takeIf { it > 0L } ?: 1L
+    val minTime = points.first().atElapsedMs
+    val timeRange = (points.last().atElapsedMs - minTime).takeIf { it > 0L } ?: 1L
 
     Box(modifier = modifier) {
         Canvas(modifier = Modifier.fillMaxSize().padding(vertical = 10.dp)) {
@@ -180,14 +183,14 @@ private fun LineChart(points: List<GraphPoint>, modifier: Modifier = Modifier) {
 
             val path = Path()
             points.forEachIndexed { index, point ->
-                val x = (point.atMs - minTime).toFloat() / timeRange.toFloat() * size.width
+                val x = (point.atElapsedMs - minTime).toFloat() / timeRange.toFloat() * size.width
                 val yFraction = ((point.value - minValue) / valueRange).toFloat()
                 val y = size.height - yFraction * size.height
                 // Une coupure réelle (perte réseau, pause diagnostique prolongée) ne doit
                 // pas se lire comme une transition continue entre deux valeurs sans rapport
                 // (voir audit B5) : on relève le crayon plutôt que relier deux points de
                 // part et d'autre d'un trou. Même seuil que la péremption des jauges.
-                val gapBeforeThis = index > 0 && point.atMs - points[index - 1].atMs > VALUE_UNAVAILABLE_AFTER_MS
+                val gapBeforeThis = index > 0 && point.atElapsedMs - points[index - 1].atElapsedMs > VALUE_UNAVAILABLE_AFTER_MS
                 if (index == 0 || gapBeforeThis) path.moveTo(x, y) else path.lineTo(x, y)
             }
             drawPath(

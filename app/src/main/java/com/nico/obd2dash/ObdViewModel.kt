@@ -10,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.annotation.PluralsRes
 import androidx.core.content.ContextCompat
@@ -58,10 +59,20 @@ data class AutoTestCheck(val name: String, val status: AutoTestStatus, val detai
 data class RecordingFile(val path: String, val name: String, val sizeBytes: Long, val date: String)
 
 /** Valeur d'une jauge avec l'instant de sa dernière lecture réussie, pour en afficher la fraîcheur. */
-data class GaugeValue(val text: String, val updatedAtMs: Long)
+data class GaugeValue(
+    val text: String,
+    val updatedAtMs: Long,
+    // Le défaut conserve les anciens constructeurs synthétiques ; les acquisitions
+    // fournissent explicitement elapsedRealtime, indépendamment de l'heure civile.
+    val updatedAtElapsedMs: Long = updatedAtMs
+)
 
 /** Un point du graphique (voir GraphScreen) : [value] vient de PidCatalog.extractLeadingNumber sur le texte déjà décodé, pas d'un second décodeur numérique séparé. */
-data class GraphPoint(val atMs: Long, val value: Double)
+data class GraphPoint(val atMs: Long, val value: Double, val atElapsedMs: Long = atMs)
+
+/** Une identité absente ne prouve jamais qu'une reprise concerne le même véhicule. */
+internal fun sameVerifiedVehicle(previousVin: String?, nextVin: String?): Boolean =
+    previousVin != null && previousVin == nextVin
 
 // Fenêtre glissante plutôt qu'un historique complet de session : un PID rapide (300ms)
 // sur un trajet d'une heure ferait ~12000 points, illisible sur un écran de téléphone et
@@ -92,7 +103,8 @@ internal fun unavailableAfterMs(pid: Int): Long =
  * sans que la valeur soit fausse.
  */
 internal fun isUnavailable(pid: Int, value: GaugeValue, nowMs: Long): Boolean =
-    pid !in PidCatalog.CONTEXT_ONLY_PIDS && nowMs - value.updatedAtMs > unavailableAfterMs(pid)
+    pid !in PidCatalog.CONTEXT_ONLY_PIDS &&
+        (nowMs < value.updatedAtElapsedMs || nowMs - value.updatedAtElapsedMs > unavailableAfterMs(pid))
 
 data class ObdUiState(
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
@@ -122,9 +134,8 @@ data class ObdUiState(
     // l'égalité d'un Set ignorait les déplacements et l'affichage suivait le catalogue.
     val bigGaugePids: List<Int> = PidCatalog.PRIMARY_PIDS.toList(),
     // PID actuellement suivi par l'écran Graphique, et son historique (voir GraphPoint).
-    // Repartent à zéro à chaque nouvelle connexion (comme le reste de l'état) : un
-    // historique qui continuerait après une coupure/reconnexion afficherait une tendance
-    // avec un trou silencieux au milieu.
+    // Conservés lors d'une reprise du même VIN confirmé ; effacés si le véhicule
+    // change ou si son identité ne peut plus être vérifiée.
     val graphPid: Int? = null,
     val graphHistory: List<GraphPoint> = emptyList(),
     val vin: String? = null,
@@ -172,6 +183,7 @@ data class ObdUiState(
     // voyants toutes les 5 s au lieu de 30 s ; aucune requête depuis le writer CSV.
     val isRecording: Boolean = false,
     val recordingSamples: Int = 0,
+    val recordingSessionId: Long? = null,
     // Distinct de errorMessage (réservé à la connexion, affiché uniquement hors CONNECTED
     // par DashboardScreen) : une erreur d'enregistrement doit rester visible près de son
     // propre bouton MÊME connecté, sinon elle n'apparaît nulle part sur cet écran (voir
@@ -211,7 +223,7 @@ data class ObdUiState(
  * de quoi analyser une session ailleurs que sur le téléphone. Fonction pure de l'état,
  * testable sans ViewModel ni contexte Android.
  */
-internal fun buildDiagnosticReport(state: ObdUiState): String {
+internal fun buildDiagnosticReport(state: ObdUiState, nowElapsedMs: Long? = null): String {
     val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.FRANCE).format(Date())
     val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE)
     val sb = StringBuilder()
@@ -231,7 +243,9 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
     // rapport plus tard (partage, forum) sans avoir le véhicule sous les yeux.
     state.vin?.let { vin ->
         val info = VinDecoder.decode(vin)
-        val details = listOfNotNull(info.manufacturer ?: info.region, info.modelYear?.let { "année-modèle $it" })
+        val details = listOfNotNull(info.manufacturer ?: info.region, info.modelYear?.let {
+            "${if (info.modelYearIsEstimate) "année-modèle estimée" else "année-modèle"} $it"
+        })
         if (details.isNotEmpty()) sb.appendLine("Décodage VIN : " + details.joinToString(", "))
     }
     sb.appendLine("Protocole : ${state.protocol ?: "inconnu"}")
@@ -306,10 +320,11 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
         else -> state.pendingDtcs.forEach { sb.appendLine("$it : ${DtcDictionary.describe(it)}") }
     }
 
-    if (state.freezeFrame.isNotEmpty()) {
+    if (state.freezeFrame.isNotEmpty() || state.freezeFrameDtc != null || state.freezeFrameLastSuccessAtMs != null) {
         sb.appendLine()
         sb.appendLine("--- Freeze frame (au moment du défaut) ---")
         state.freezeFrameDtc?.let { sb.appendLine("Code déclencheur : $it") }
+        if (state.freezeFrame.isEmpty()) sb.appendLine("Aucune mesure exploitable fournie pour cette capture.")
         for (def in PidCatalog.defs) {
             state.freezeFrame[def.pid]?.let { sb.appendLine("${def.label} : $it") }
         }
@@ -338,7 +353,7 @@ internal fun buildDiagnosticReport(state: ObdUiState): String {
     if (state.values.isNotEmpty()) {
         sb.appendLine()
         sb.appendLine("--- Valeurs live (dernière lecture) ---")
-        val nowMs = System.currentTimeMillis()
+        val nowMs = nowElapsedMs ?: SystemClock.elapsedRealtime()
         for (def in PidCatalog.defs) {
             state.values[def.pid]?.let {
                 // Marqueur de péremption (voir A6) : sans lui, une valeur figée depuis la
@@ -414,6 +429,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var client: Elm327Client? = null
     private var connectJob: Job? = null
     private var pollJob: Job? = null
+    private var connectionWatchJob: Job? = null
     private var dtcJob: Job? = null
     @Volatile private var bleScanner: AndroidBleScanner? = null
     private var bleScanJob: Job? = null
@@ -430,6 +446,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private var recordingWriter: BufferedWriter? = null
     private var recordingColumns: List<PidCatalog.Def> = emptyList()
     private var recordingWarningLights: List<StandardWarningLight> = emptyList()
+    private var recordingGeneration = 0L
+    private var recordingVin: String? = null
+    private var graphVin: String? = null
 
     // Job dédié, pas dtcJob : runAutoTest() déclenche lui-même startRecording()/
     // startFapScan() en cours de séquence, qui gèrent déjà dtcJob pour leur propre
@@ -438,15 +457,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     // soit l'auto-test lui-même si on le lui avait assigné).
     private var autoTestJob: Job? = null
 
-    // true seulement si CE smoke test a lui-même démarré l'enregistrement en cours (voir
-    // B1) : sans ce garde-fou, stopAutoTest() arrêtait n'importe quel enregistrement actif
-    // au moment de son appel, y compris un enregistrement manuel démarré AVANT le test ou
-    // toujours en cours après lui, simplement parce qu'un enregistrement était actif :
-    // stopAutoTest() est aussi appelé par précaution depuis refreshDtcs()/
-    // probeHeaderFormat()/prepareForNewConnection()/handleConnectionLost(), bien avant tout
-    // smoke test réel. Remis à false dès que le test relâche ou n'a jamais pris cette
-    // propriété.
-    private var autoTestOwnsRecording = false
+    // Token du CSV démarré par ce smoke test : arrêter puis recréer un CSV pendant
+    // le test ne doit pas lui transférer la propriété du nouvel enregistrement.
+    private var autoTestRecordingGeneration: Long? = null
+    private var autoTestGeneration = 0L
 
     private var probeWriter: BufferedWriter? = null
 
@@ -792,6 +806,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     fun selectGraphPid(pid: Int?) {
         if (pid != null) EventLog.log("Graphique : suivi du PID $pid")
         _state.update { it.copy(graphPid = pid, graphHistory = emptyList()) }
+        graphVin = _state.value.vin
     }
 
     fun connect(host: String, portText: String, isAutoRetry: Boolean = false) {
@@ -912,7 +927,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private fun beginConnecting(mode: ConnectionMode, bluetoothName: String? = null) {
         // Commun au Wi-Fi et au Bluetooth, y compris au retour des Réglages : mettre
         // la capture en pause AVANT d'effacer les valeurs ou de lancer le nouveau job.
-        // Le fichier reste ouvert et finishConnecting reprendra seulement ses mesures.
+        // La reprise dépend du VIN confirmé. Un motif d'arrêt reste visible jusqu'à
+        // la prochaine tentative explicite d'enregistrement.
         pauseRecordingForReconnect()
         _state.update {
             ObdUiState(
@@ -927,6 +943,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 logs = it.logs,
                 isRecording = it.isRecording,
                 recordingSamples = it.recordingSamples,
+                recordingSessionId = it.recordingSessionId,
+                recordingError = it.recordingError,
                 graphPid = it.graphPid,
                 graphHistory = it.graphHistory,
                 supportedPids = it.supportedPids,
@@ -941,6 +959,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * sondage FAP et l'auto-test, non conçus pour survivre à une reconnexion, le sont. */
     private fun prepareForNewConnection() {
         pollJob?.cancel()
+        connectionWatchJob?.cancel()
         stopAutoTest()
         stopFapScan()
         unregisterNetworkCallback()
@@ -998,6 +1017,18 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // inattendu et readVin() renvoie null normalement, sans lever.
             // No additional automatic vehicle query after an empty/refused discovery.
             val vin = if (supported.isNotEmpty()) c.readVin() else null
+            if (recordingWriter != null && !sameVerifiedVehicle(recordingVin, vin)) {
+                val reason = if (recordingVin != null && vin != null) "le véhicule a changé"
+                    else "l'identité du véhicule ne peut pas être vérifiée après reconnexion"
+                stopRecording()
+                val message = "Enregistrement arrêté : $reason. Le CSV précédent est conservé ; démarrez une nouvelle capture."
+                _state.update { it.copy(recordingError = message) }
+                EventLog.log(message)
+            }
+            if (!sameVerifiedVehicle(graphVin, vin)) {
+                _state.update { it.copy(graphHistory = emptyList()) }
+            }
+            graphVin = vin
             vehicleId = vin ?: DtcHistoryStore.UNKNOWN_VEHICLE
             vehicleFileTag = VinDecoder.fileTag(vin)
             // Sans VIN, l'historique de CETTE connexion ne doit rien hériter d'une
@@ -1029,14 +1060,14 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             PidCatalog.defs.firstOrNull { it.pid == 0x4F }?.let { def ->
                 if (scaleBytes != null && scaleBytes.size >= def.expectedBytes) {
                     runCatching { def.decode(scaleBytes) }.getOrNull()?.let {
-                        contextValues[def.pid] = GaugeValue(it, now)
+                        contextValues[def.pid] = GaugeValue(it, now, SystemClock.elapsedRealtime())
                     }
                 }
             }
             PidCatalog.defs.firstOrNull { it.pid == 0x50 }?.let { def ->
                 if (mafScaleBytes != null && mafScaleBytes.size >= def.expectedBytes) {
                     runCatching { def.decode(mafScaleBytes) }.getOrNull()?.let {
-                        contextValues[def.pid] = GaugeValue(it, now)
+                        contextValues[def.pid] = GaugeValue(it, now, SystemClock.elapsedRealtime())
                     }
                 }
             }
@@ -1084,6 +1115,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 (if (isAutoRetry) "Reconnecté" else "Connecté") +
                     " : VIN=${vin ?: "inconnu"}, protocole=${c.detectedProtocol ?: "inconnu"}"
             )
+            startConnectionWatch(c)
             if (hasAutomaticObdReads(supported)) {
                 startPolling(c, supported)
             } else {
@@ -1094,7 +1126,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // pauseRecordingForReconnect) reprend sur le MÊME fichier dès que la session
             // revit : recordingWriter non nul mais recordingJob nul signale ce cas précis
             // (un enregistrement démarré normalement a déjà les deux non nuls, voir
-            // startRecording). Le stop reste manuel : ce n'est jamais ici qu'on en démarre
+            // startRecording). L'identité a déjà été vérifiée ci-dessus ; ce n'est jamais ici qu'on en démarre
             // un nouveau, seulement qu'on reprend celui déjà en cours.
             if (recordingWriter != null && recordingJob == null &&
                 availability == ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE) {
@@ -1185,6 +1217,20 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Surveille uniquement le transport déjà fermé, même en l'absence de polling. */
+    private fun startConnectionWatch(c: Elm327Client) {
+        connectionWatchJob?.cancel()
+        connectionWatchJob = viewModelScope.launch {
+            while (client === c) {
+                delay(500)
+                if (!c.isConnected) {
+                    handleConnectionLost(c, getString(R.string.error_connection_lost))
+                    return@launch
+                }
+            }
+        }
+    }
+
     private fun startPolling(c: Elm327Client, supported: Set<Int>) {
         // CONTEXT_ONLY_PIDS (PID4F/PID50) sont déjà lus une fois dans connect() et
         // n'évoluent pas pendant la session : les réinterroger ici ne changerait jamais
@@ -1210,7 +1256,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // évalué qu'en fin de cycle.
             val health = PollingHealth(
                 measurementsExpected = fastPids.isNotEmpty() || slowPids.isNotEmpty(),
-                failureTimeoutMs = ZOMBIE_CONNECTION_TIMEOUT_MS
+                failureTimeoutMs = ZOMBIE_CONNECTION_TIMEOUT_MS,
+                nowMs = { SystemClock.elapsedRealtime() }
             )
             // Premier relevé immédiat ; dates monotones des tentatives pour la cadence.
             var lastMilCheckAtMs: Long? = null
@@ -1219,10 +1266,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             // le compteur n'ont pas changé depuis la réussite du PID01.
             var storedRefreshPending = true
             // Même logique pour les PID lents : lus dès le premier cycle.
-            var lastSlowPollAtMs = 0L
-            // Durée des cycles complets, journalisée périodiquement (voir EventLog) : seul
-            // moyen de comparer objectivement deux adaptateurs (Wi-Fi/Bluetooth) ou l'effet
-            // des optimisations de lecture sur un vrai véhicule.
+            var lastSlowPollAtMs: Long? = null
+            // Durée des mesures uniquement, journalisée périodiquement. Les lectures
+            // MIL/codes/alertes ci-dessous sont exclues et le libellé le précise.
             var cycleSamples = 0
             var cycleTotalMs = 0L
             var lastCycleLogAtMs = 0L
@@ -1231,12 +1277,12 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     health.diagnosticPause()
                 } else {
                     try {
-                        val cycleStartMs = System.currentTimeMillis()
+                        val cycleStartMs = SystemClock.elapsedRealtime()
                         // Les PID lents (SLOW_PIDS) sont relus à intervalle de TEMPS, pas tous
                         // les N cycles : la durée d'un cycle dépend de l'adaptateur (2-3s en
                         // Bluetooth le 24/09), si bien que "tous les 5 cycles" dépassait le
                         // seuil de péremption et vidait les températures une ligne sur deux.
-                        val includeSlow = cycleStartMs - lastSlowPollAtMs >= SLOW_PID_INTERVAL_MS
+                        val includeSlow = lastSlowPollAtMs == null || cycleStartMs - lastSlowPollAtMs >= SLOW_PID_INTERVAL_MS
                         if (includeSlow) lastSlowPollAtMs = cycleStartMs
                         val toPoll = if (includeSlow) fastPids + slowPids else fastPids
                         val newValues = mutableMapOf<Int, GaugeValue>()
@@ -1257,27 +1303,31 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                             // diagnostic vient de changer sa configuration (ex: ATH1 en cours).
                             if (dtcOperationInProgress) break
                             val grouped = if (batch.size > 1) readGroupedOrEmpty(c, batch.map { it.pid }) else emptyMap()
+                            val groupedAtMs = System.currentTimeMillis()
+                            val groupedAtElapsedMs = SystemClock.elapsedRealtime()
                             for (def in batch) {
                                 if (dtcOperationInProgress) break
                                 val bytes = grouped[def.pid] ?: c.readPidBytes(def.pid)
+                                val receivedAtMs = if (def.pid in grouped) groupedAtMs else System.currentTimeMillis()
+                                val receivedAtElapsedMs = if (def.pid in grouped) groupedAtElapsedMs else SystemClock.elapsedRealtime()
                                 if (bytes != null && bytes.size >= def.expectedBytes) {
                                     // Horodaté au retour de CETTE lecture, pas au début du cycle
                                     // (voir A1) : un cycle de plusieurs dizaines de PID peut durer
                                     // plus d'une seconde, la première valeur lue ne doit pas hériter
                                     // de l'âge de la dernière.
                                     runCatching { def.decode(bytes) }.getOrNull()?.let {
-                                        newValues[def.pid] = GaugeValue(it, System.currentTimeMillis())
+                                        newValues[def.pid] = GaugeValue(it, receivedAtMs, receivedAtElapsedMs)
                                     }
                                 }
                             }
                         }
                         if (!dtcOperationInProgress) {
-                            val nowMs = System.currentTimeMillis()
+                            val nowMs = SystemClock.elapsedRealtime()
                             cycleSamples++
                             cycleTotalMs += nowMs - cycleStartMs
                             if (cycleSamples >= CYCLE_LOG_MIN_SAMPLES && nowMs - lastCycleLogAtMs >= CYCLE_LOG_INTERVAL_MS) {
                                 EventLog.log(
-                                    "Cycle de lecture moyen : ${cycleTotalMs / cycleSamples} ms sur $cycleSamples cycles " +
+                                    "Lecture des mesures seules : ${cycleTotalMs / cycleSamples} ms en moyenne sur $cycleSamples cycles (hors alertes) " +
                                         "(${fastPids.size} PID rapides + ${slowPids.size} lents, " +
                                         "groupage ${if (c.supportsMultiPid) "oui" else "non"}, " +
                                         "réponse unique ${if (c.supportsResponseCount) "oui" else "non"})"
@@ -1296,7 +1346,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                                 val graphValue = s.graphPid?.let { newValues[it] }
                                 val number = graphValue?.let { extractLeadingNumber(it.text) }
                                 val history = if (number != null) {
-                                    (s.graphHistory + GraphPoint(graphValue.updatedAtMs, number))
+                                    (s.graphHistory + GraphPoint(graphValue.updatedAtMs, number, graphValue.updatedAtElapsedMs))
                                         .takeLast(GRAPH_HISTORY_MAX_POINTS)
                                 } else {
                                     s.graphHistory
@@ -1314,9 +1364,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                         // Toutes ces requêtes restent sérialisées dans le polling, et
                         // suspendues pendant une opération diagnostique exclusive.
                         if (0x01 in supported && !dtcOperationInProgress &&
-                            warningPollDue(lastMilCheckAtMs, System.nanoTime() / 1_000_000L, _state.value.isRecording)
+                            warningPollDue(lastMilCheckAtMs, SystemClock.elapsedRealtime(), _state.value.isRecording)
                         ) {
-                            lastMilCheckAtMs = System.nanoTime() / 1_000_000L
+                            lastMilCheckAtMs = SystemClock.elapsedRealtime()
                             val previous = _state.value
                             var milTurnedOn = false
                             try {
@@ -1379,7 +1429,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                             // PID65 peut être annoncé pour les rapports de boîte sans
                             // fournir le préchauffage. Ne pas répéter un non-support explicite.
                             if (_state.value.standardWarnings[light]?.status == StandardWarningStatus.NOT_SUPPORTED) continue
-                            val nowMs = System.nanoTime() / 1_000_000L
+                            val nowMs = SystemClock.elapsedRealtime()
                             if (!warningPollDue(lastWarningChecks[light], nowMs, _state.value.isRecording)) continue
                             lastWarningChecks[light] = nowMs
                             warningAttempted = true
@@ -1473,6 +1523,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun handleConnectionLost(source: Elm327Client, message: String) {
         if (client !== source) return
+        connectionWatchJob?.cancel()
+        pollJob?.cancel()
         EventLog.log("Coupure : $message")
         stopAutoTest()
         pauseRecordingForReconnect()
@@ -1495,7 +1547,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
      * vrai. Seule la coroutine de la boucle (recordingJob) est annulée, pour ne pas
      * continuer à écrire des lignes vides pendant la coupure. Reprend via
      * resumeRecordingLoop() dès que finishConnecting() réussit à nouveau, sur le MÊME
-     * fichier : "le stop doit être manuel" (voir stopRecording, le seul vrai arrêt).
+     * fichier si le même VIN est confirmé. Une identité différente ou non vérifiable
+     * entraîne un arrêt explicite, avec motif, avant toute nouvelle mesure.
      */
     private fun pauseRecordingForReconnect() {
         recordingJob?.cancel()
@@ -1955,7 +2008,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         recordingColumns = columns
         recordingWarningLights = warnings
         recordingWriter = writer
-        _state.update { it.copy(isRecording = true, recordingSamples = 0, recordingError = null) }
+        recordingVin = _state.value.vin
+        recordingGeneration = RecordingSessionIds.next()
+        _state.update { it.copy(isRecording = true, recordingSamples = 0, recordingError = null,
+            recordingSessionId = recordingGeneration) }
         // Effort raisonnable, pas une condition bloquante : démarré depuis un bouton
         // visible à l'écran, c'est un cas autorisé à lancer un service de premier plan
         // (voir RecordingService). Un échec ici (rare) laisse l'enregistrement fonctionner
@@ -1965,6 +2021,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             ContextCompat.startForegroundService(
                 getApplication(),
                 Intent(getApplication(), RecordingService::class.java)
+                    .putExtra(RecordingService.EXTRA_SESSION_ID, recordingGeneration)
             )
         }
 
@@ -1997,6 +2054,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                 delay(RECORDING_INTERVAL_MS)
                 val snapshot = _state.value
                 val now = System.currentTimeMillis()
+                val nowElapsedMs = SystemClock.elapsedRealtime()
                 val cells = columns.map { def ->
                     val value = snapshot.values[def.pid]
                     // CONTEXT_ONLY_PIDS exclus de la limite d'âge : lus une seule fois à
@@ -2004,7 +2062,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     // seuil dès les 10 premières secondes de CHAQUE enregistrement sans
                     // que la valeur soit fausse (constaté sur capture réelle : colonne
                     // "Ratio/tension O2 max annoncés" vide dans tout l'enregistrement).
-                    if (value != null && !isUnavailable(def.pid, value, now)) {
+                    if (value != null && !isUnavailable(def.pid, value, nowElapsedMs)) {
                         value.text
                     } else {
                         ""
@@ -2061,9 +2119,11 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         recordingJob?.cancel()
         recordingJob = null
         val wasRecording = recordingWriter != null
+        if (autoTestRecordingGeneration == _state.value.recordingSessionId) autoTestRecordingGeneration = null
         runCatching { recordingWriter?.close() }
             .onFailure { EventLog.log("Fermeture de l'enregistrement échouée : ${it.message}") }
         recordingWriter = null
+        recordingVin = null
         if (wasRecording) {
             EventLog.log("Arrêt de l'enregistrement (${_state.value.recordingSamples} échantillons)")
             runCatching {
@@ -2071,7 +2131,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             }
             // Le fichier qui vient de se fermer doit apparaître dans la liste tout de
             // suite, sans attendre un redémarrage de l'app.
-            _state.update { it.copy(isRecording = false, recordings = listRecordings()) }
+            _state.update { it.copy(isRecording = false, recordingSessionId = null, recordings = listRecordings()) }
         }
     }
 
@@ -2092,6 +2152,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     fun runAutoTest() {
         if (_state.value.isAutoTesting) return
         val c = client ?: return
+        val testGeneration = ++autoTestGeneration
         EventLog.log("Démarrage du smoke test automatique")
 
         // Attend la fin réelle d'un refresh DTC / capture headers / sondage manuel déjà en
@@ -2117,6 +2178,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
         fun setCheck(index: Int, status: AutoTestStatus, detail: String? = null) {
             _state.update { s ->
+                if (autoTestGeneration != testGeneration) return@update s
                 val updated = s.autoTestChecks.toMutableList()
                 updated[index] = AutoTestCheck(names[index], status, detail)
                 s.copy(autoTestChecks = updated)
@@ -2124,6 +2186,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         autoTestJob = viewModelScope.launch {
+            var ownedRecordingGeneration: Long? = null
             try {
                 // dtcOperationCount géré directement ici, pas via dtcJob (voir son champ) :
                 // relâché avant l'étape d'enregistrement pour que le polling normal
@@ -2222,19 +2285,22 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
                     val alreadyRecording = _state.value.isRecording
                     if (!alreadyRecording) {
                         startRecording()
-                        autoTestOwnsRecording = _state.value.isRecording
+                        ownedRecordingGeneration = _state.value.recordingSessionId
+                        autoTestRecordingGeneration = ownedRecordingGeneration
                     }
                     if (!_state.value.isRecording) {
                         setCheck(5, AutoTestStatus.ECHEC, _state.value.recordingError ?: getString(R.string.smoketest_recording_not_started))
                     } else {
+                        val observedRecordingGeneration = _state.value.recordingSessionId
                         val samplesBefore = _state.value.recordingSamples
                         delay(10_000)
                         val samplesDuring = _state.value.recordingSamples - samplesBefore
-                        if (autoTestOwnsRecording) {
-                            stopRecording()
-                            autoTestOwnsRecording = false
-                        }
-                        if (samplesDuring >= 1) {
+                        val sameRecording = _state.value.recordingSessionId == observedRecordingGeneration
+                        releaseAutoTestRecording(ownedRecordingGeneration)
+                        ownedRecordingGeneration = null
+                        if (!sameRecording) {
+                            setCheck(5, AutoTestStatus.ATTENTION, "Enregistrement arrêté ou remplacé pendant le test.")
+                        } else if (samplesDuring >= 1) {
                             setCheck(5, AutoTestStatus.OK, getQuantityString(R.plurals.smoketest_recording_samples, samplesDuring))
                         } else {
                             setCheck(5, AutoTestStatus.ECHEC, getString(R.string.smoketest_recording_zero_samples))
@@ -2265,25 +2331,30 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 handleConnectionLost(c, e.message ?: getString(R.string.error_smoke_test_failed_fallback))
             } finally {
-                _state.update { it.copy(isAutoTesting = false) }
+                releaseAutoTestRecording(ownedRecordingGeneration)
+                if (autoTestGeneration == testGeneration) _state.update { it.copy(isAutoTesting = false) }
             }
         }
     }
 
     /** Arrête le smoke test automatique en cours (bouton, déconnexion, ou perte de connexion). */
     fun stopAutoTest() {
+        autoTestGeneration++
         autoTestJob?.cancel()
         autoTestJob = null
         // Seule la ressource que LUI a démarrée doit s'arrêter avec lui (voir B1) : cette
         // fonction est aussi appelée par précaution depuis refreshDtcs()/probeHeaderFormat()/
         // prepareForNewConnection()/handleConnectionLost(), bien avant tout smoke test réel,
         // et ne doit alors jamais toucher un enregistrement manuel en cours.
-        if (autoTestOwnsRecording) {
-            stopRecording()
-            autoTestOwnsRecording = false
-        }
+        releaseAutoTestRecording(autoTestRecordingGeneration)
         stopFapScan()
         _state.update { it.copy(isAutoTesting = false) }
+    }
+
+    private fun releaseAutoTestRecording(generation: Long?) {
+        if (generation == null) return
+        if (_state.value.recordingSessionId == generation) stopRecording()
+        if (autoTestRecordingGeneration == generation) autoTestRecordingGeneration = null
     }
 
     /**
@@ -2303,10 +2374,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         val previousAutoTestJob = autoTestJob
         autoTestJob?.cancel()
         autoTestJob = null
-        if (autoTestOwnsRecording) {
-            stopRecording()
-            autoTestOwnsRecording = false
-        }
+        autoTestGeneration++
+        releaseAutoTestRecording(autoTestRecordingGeneration)
         _state.update { it.copy(isAutoTesting = false) }
         val previousDtcJob = stopFapScanAndGetPrevious()
         return listOfNotNull(previousDtcJob, previousAutoTestJob)
@@ -2325,6 +2394,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     private fun cancelJobsAndReleaseNetwork(): Elm327Client? {
         connectJob?.cancel()
         pollJob?.cancel()
+        connectionWatchJob?.cancel()
         stopAutoTest()
         stopRecording()
         stopFapScan()

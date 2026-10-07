@@ -214,4 +214,49 @@ class HeaderlessObdResponseTest {
         assertEquals("", result.select("4100"))
         assertEquals("", result.select("62114E"))
     }
+
+    @Test
+    fun `une erreur ELM avant ou apres un positif invalide le verdict complet`() {
+        for (failure in listOf(
+            "BUFFER FULL", "CAN ERROR", "DATA ERROR", "BUS ERROR", "RX ERROR", "FB ERROR",
+            "STOPPED", "UNABLE TO CONNECT", "NO DATA", "ERROR", "?", "LV RESET",
+            "BUS INIT: ...ERROR", "BUS BUSY", "<DATA ERROR", "ERR94", "!LP ALERT", "!ACT ALERT"
+        )) {
+            for (response in listOf("$failure\r4300", "4300\r$failure", "4300\r$failure\r43010087")) {
+                val result = HeaderlessObdResponse.parse(response)
+                assertFalse(response, result.isComplete)
+                assertEquals(response, "", result.select("43"))
+            }
+        }
+    }
+
+    @Test
+    fun `erreur d adaptateur invalide aussi MIL mesure et sequence numerotee`() {
+        for ((response, prefix) in listOf(
+            "410100000000\rDATA ERROR" to "4101",
+            "BUFFER FULL\r410C1AF8" to "410C",
+            "410100000000<DATA ERROR\r410C1AF8" to "410C",
+            "004\r0:43010087\rCAN ERROR" to "43",
+            "CAN ERROR\r004\r0:43010087" to "43"
+        )) {
+            val parsed = HeaderlessObdResponse.parse(response)
+            assertFalse(response, parsed.isComplete)
+            assertEquals(response, "", parsed.select(prefix))
+        }
+    }
+
+    @Test
+    fun `echo searching et initialisation reussie restent compatibles`() {
+        val response = "03\rSEARCHING...\rBUS INIT: OK\r43 00"
+        val parsed = HeaderlessObdResponse.parse(response)
+        assertTrue(parsed.isComplete)
+        assertEquals("4300", parsed.select("43"))
+    }
+
+    @Test
+    fun `statuts erreur sont reconnus malgre casse espaces et tabulations`() {
+        val parsed = HeaderlessObdResponse.parse("4300\rbuffer\t full")
+        assertFalse(parsed.isComplete)
+        assertEquals("", parsed.select("43"))
+    }
 }

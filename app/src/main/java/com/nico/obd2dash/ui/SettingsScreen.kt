@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,9 +79,11 @@ fun SettingsScreen(
     // voie bien la dernière valeur.
     val currentState by rememberUpdatedState(state)
     val currentOnConnect by rememberUpdatedState(onConnect)
+    val initialWifiAddress = remember { state.host to state.port }
     DisposableEffect(Unit) {
         onDispose {
-            if (currentState.connectionMode == ConnectionMode.WIFI) {
+            if (currentState.connectionMode == ConnectionMode.WIFI &&
+                initialWifiAddress != (currentState.host to currentState.port)) {
                 currentOnConnect(currentState.host, currentState.port)
             }
         }

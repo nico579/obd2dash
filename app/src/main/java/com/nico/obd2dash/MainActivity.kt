@@ -12,7 +12,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.annotation.StringRes
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -31,7 +30,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +49,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nico.obd2dash.ui.AutoTestScreen
 import com.nico.obd2dash.ui.DashboardScreen
 import com.nico.obd2dash.ui.AppScreen
@@ -66,7 +65,8 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: ObdViewModel by viewModels()
+    private lateinit var viewModel: ObdViewModel
+    private val sessions get() = (application as Obd2DashApp).sessions
 
     // Sur Android 13+, RecordingService a besoin de cette permission pour que sa
     // notification (obligatoire pour tout service de premier plan) s'affiche réellement ;
@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        viewModel = sessions.acquireUi(this)
         setContent {
             Obd2DashTheme {
                 // contentColor explicite : Surface déduit normalement la couleur de texte par
@@ -150,7 +151,7 @@ class MainActivity : ComponentActivity() {
                     var screen by rememberSaveable { mutableStateOf(AppScreen.DASHBOARD) }
                     val showSettings = screen == AppScreen.SETTINGS
                     var menuDialog by remember { mutableStateOf<AppMenuAction?>(null) }
-                    val state by viewModel.state.collectAsState()
+                    val state by viewModel.state.collectAsStateWithLifecycle()
                     // Le téléphone posé sur le tableau de bord bénéficie d'emblée de
                     // toute la surface en paysage. Le bouton conserve le choix manuel
                     // lors des rotations, et reste disponible aussi en portrait.
@@ -285,6 +286,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        stopBleSearch()
+        sessions.releaseUi(this, isChangingConfigurations)
+    }
+
     /** Partage Android standard (sharesheet) : identique pour un enregistrement, un sondage ou un journal (mimeType "text/plain" pour ce dernier, ce n'est pas un tableau). */
     private fun shareCsvFile(path: String, @StringRes chooserTitleRes: Int, mimeType: String = "text/csv") {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", File(path))
@@ -347,16 +354,18 @@ internal fun ConnectionIndicator(state: ConnectionState, availability: ObdDataAv
         ConnectionState.DISCONNECTED -> Color(0xFF9E9E9E) to stringResource(R.string.connection_status_disconnected)
     }
     val blinking = state == ConnectionState.CONNECTING || state == ConnectionState.RECONNECTING
-    val infiniteTransition = rememberInfiniteTransition(label = "connectionIndicatorBlink")
     // Creux remonté de 0.2 à 0.5 : en dessous, la couleur se mélange trop au fond sombre de la
     // barre du haut et prend une teinte "sale" à chaque bas de cycle (constaté sur le
     // téléphone) - le clignotement reste net avec un creux moins prononcé.
-    val blinkAlpha by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.5f,
-        animationSpec = infiniteRepeatable(animation = tween(600), repeatMode = RepeatMode.Reverse),
-        label = "connectionIndicatorAlpha"
-    )
+    val blinkAlpha = if (blinking) {
+        val transition = rememberInfiniteTransition(label = "connectionIndicatorBlink")
+        val animated by transition.animateFloat(
+            initialValue = 1f, targetValue = 0.5f,
+            animationSpec = infiniteRepeatable(animation = tween(600), repeatMode = RepeatMode.Reverse),
+            label = "connectionIndicatorAlpha"
+        )
+        animated
+    } else 1f
     Box(
         modifier = modifier
             .size(16.dp)

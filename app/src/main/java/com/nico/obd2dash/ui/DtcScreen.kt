@@ -91,7 +91,10 @@ fun DtcScreen(
                     state.vin?.let { stringResource(R.string.dtc_vin_label, it) },
                     state.protocol?.let { stringResource(R.string.dtc_protocol_label, it) },
                     vinInfo?.manufacturer ?: vinInfo?.region,
-                    vinInfo?.modelYear?.let { stringResource(R.string.dtc_model_year_label, it) }
+                    vinInfo?.modelYear?.let {
+                        stringResource(if (vinInfo.modelYearIsEstimate) R.string.dtc_model_year_estimated_label
+                            else R.string.dtc_model_year_label, it)
+                    }
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
