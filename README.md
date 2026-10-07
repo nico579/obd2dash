@@ -44,6 +44,10 @@ diagnostics, les enregistrements et le dashboard.
   Le choix des cadrans et du mode Wi-Fi/Bluetooth se fait dans Réglages.
   Le bouton d'enregistrement reste accessible, y compris pour arrêter pendant une
   reconnexion. Les échelles sont graphiques et ne constituent pas des seuils d'alerte.
+  Pendant l'attente de connexion, le dashboard et le graphique affichent seulement
+  **Attente de connexion** et un symbole Wi-Fi ou Bluetooth clignotant selon le mode
+  choisi. Le menu et l'arrêt d'enregistrement restent accessibles. Le graphique
+  retrouve ses points et sa sélection après la reconnexion.
 - **Résultat de découverte explicite** : une sonde joignable ne prouve pas une réponse
   véhicule ; un bitmap PID nul confirme une réponse sans fournir de mesures standard.
   Dans ce dernier cas, l'app affiche la limite et ne lance pas de polling vide, de

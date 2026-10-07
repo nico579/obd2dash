@@ -15,8 +15,8 @@ android {
         targetSdk = 34
         // À incrémenter avant de pousser un tag vX.Y (voir .github/workflows/release.yml) :
         // rien ne les synchronise automatiquement avec le tag.
-        versionCode = 14
-        versionName = "0.14"
+        versionCode = 15
+        versionName = "0.15"
     }
 
     signingConfigs {

@@ -7,14 +7,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -55,6 +52,10 @@ fun DashboardScreen(
     modifier: Modifier = Modifier,
     onReorderGauges: (List<Int>) -> Unit = {}
 ) {
+    if (state.connectionState != ConnectionState.CONNECTED) {
+        ConnectionWaitingScreen(state.connectionMode, modifier)
+        return
+    }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -62,31 +63,19 @@ fun DashboardScreen(
             nowMs = System.currentTimeMillis()
         }
     }
-    val connected = state.connectionState == ConnectionState.CONNECTED
     val primaryDefs = state.bigGaugePids.filter { it in state.supportedPids }
         .mapNotNull { pid -> PidCatalog.defs.find { it.pid == pid } }
     Column(modifier.fillMaxSize().padding(8.dp)) {
         state.recordingError?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
-        if (state.isRecording && (!connected || state.dataAvailability != ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE)) {
+        if (state.isRecording && state.dataAvailability != ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE) {
             Text(
-                if (!connected) pluralStringResource(R.plurals.dashboard_recording_paused, state.recordingSamples, state.recordingSamples)
-                else stringResource(R.string.dashboard_recording_no_data), style = MaterialTheme.typography.bodySmall,
+                stringResource(R.string.dashboard_recording_no_data), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        if (!connected) {
-            Column(
-                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
-            ) {
-                CircularProgressIndicator(Modifier.size(32.dp))
-                Text(stringResource(R.string.dashboard_waiting_connection), style = MaterialTheme.typography.bodyMedium)
-                Text(stringResource(R.string.dashboard_settings_hint), style = MaterialTheme.typography.bodyMedium)
-            }
-        } else if (state.dataAvailability == ObdDataAvailability.NO_VEHICLE_RESPONSE ||
+        if (state.dataAvailability == ObdDataAvailability.NO_VEHICLE_RESPONSE ||
             state.dataAvailability == ObdDataAvailability.NO_STANDARD_MEASUREMENTS) {
             Column(
                 Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),

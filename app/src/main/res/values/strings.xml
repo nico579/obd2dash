@@ -29,6 +29,8 @@
 
     <!-- DashboardScreen -->
     <string name="dashboard_waiting_connection">Attente de connexion</string>
+    <string name="connection_transport_wifi">Wi-Fi</string>
+    <string name="connection_transport_bluetooth">Bluetooth</string>
     <string name="dashboard_settings_hint">Menu … → Réglages : connexion et choix des cadrans.</string>
     <string name="dashboard_adapter_only">Sonde connectée</string>
     <string name="dashboard_no_vehicle_response">Aucune réponse du véhicule confirmée. Vérifiez le contact et le branchement, puis reconnectez la sonde depuis les réglages.</string>
@@ -194,8 +196,6 @@
 
     <!-- GraphScreen -->
     <string name="graph_title">Graphique</string>
-    <string name="graph_not_connected">Connecte-toi à la sonde depuis le Dashboard pour tracer une courbe.</string>
-    <string name="graph_reconnecting_note">Reconnexion en cours, la courbe reprendra automatiquement.</string>
     <string name="graph_choose_param">Choisis un paramètre ci-dessus pour voir sa courbe.</string>
     <string name="graph_collecting">Collecte des données…</string>
     <string name="graph_current_value">Actuel : %1$s</string>

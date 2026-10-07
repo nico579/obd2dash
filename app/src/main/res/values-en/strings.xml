@@ -29,6 +29,8 @@
 
     <!-- DashboardScreen -->
     <string name="dashboard_waiting_connection">Waiting for connection</string>
+    <string name="connection_transport_wifi">Wi-Fi</string>
+    <string name="connection_transport_bluetooth">Bluetooth</string>
     <string name="dashboard_settings_hint">Menu … → Settings: connection and gauge selection.</string>
     <string name="dashboard_adapter_only">Adapter connected</string>
     <string name="dashboard_no_vehicle_response">No vehicle response confirmed. Check the ignition and connection, then reconnect using Settings.</string>
@@ -194,8 +196,6 @@
 
     <!-- GraphScreen -->
     <string name="graph_title">Graph</string>
-    <string name="graph_not_connected">Connect to the probe from the Dashboard to plot a graph.</string>
-    <string name="graph_reconnecting_note">Reconnecting, the graph will resume automatically.</string>
     <string name="graph_choose_param">Choose a parameter above to see its graph.</string>
     <string name="graph_collecting">Collecting data…</string>
     <string name="graph_current_value">Current: %1$s</string>

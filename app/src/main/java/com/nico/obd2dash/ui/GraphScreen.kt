@@ -56,6 +56,11 @@ fun GraphScreen(
     onSelectPid: (Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (state.connectionState != ConnectionState.CONNECTED) {
+        // Le ViewModel conserve la sélection et les points pour la reprise.
+        ConnectionWaitingScreen(state.connectionMode, modifier)
+        return
+    }
     // Même ticker que DashboardScreen (voir staleness) : sans lui, "Actuel" resterait figé
     // sur la valeur du dernier recomposition déclenché par autre chose que le temps, au
     // lieu de retomber sur "--" une fois VALUE_UNAVAILABLE_AFTER_MS dépassé (voir audit B5).
@@ -82,24 +87,9 @@ fun GraphScreen(
         // (voir audit B5, P3 associé).
         val options = PidCatalog.defs.filter { it.pid in state.supportedPids && it.pid !in PidCatalog.CONTEXT_ONLY_PIDS }
 
-        // Basé sur "y a-t-il un paramètre à proposer", pas directement sur connectionState :
-        // pendant la phase de connexion (CONNECTING/RECONNECTING avant tout premier succès,
-        // ou entre deux tentatives auto), supportedPids est vide, donc options aussi, et le
-        // picker n'aurait rien à proposer. Avec l'ancienne condition (!= CONNECTED &&
-        // != RECONNECTING), CONNECTING affichait ce message mais RECONNECTING affichait déjà
-        // le picker (vide) juste en dessous : les deux se succèdent toutes les ~5s tant que
-        // la connexion n'a jamais abouti, d'où le battement constaté. RECONNECTING inclus, pas
-        // seulement CONNECTED, une fois options non vide : une coupure transitoire APRÈS une
-        // connexion réussie ne doit pas effacer la courbe déjà tracée ni forcer à recommencer
-        // (voir ObdViewModel.handleConnectionLost, "le stop doit être manuel") - graphPid/
-        // graphHistory/supportedPids survivent tous les trois à une telle coupure (.copy()),
-        // la courbe continue donc de s'afficher, en pause, jusqu'à la reprise du polling.
         if (options.isEmpty()) {
             Text(
-                stringResource(
-                    if (state.connectionState == ConnectionState.CONNECTED) R.string.graph_no_standard_measurements
-                    else R.string.graph_not_connected
-                ),
+                stringResource(R.string.graph_no_standard_measurements),
                 style = MaterialTheme.typography.bodyMedium
             )
         } else {
@@ -110,14 +100,6 @@ fun GraphScreen(
                 selectedLabel = selectedDef?.label,
                 onSelect = { onSelectPid(it) }
             )
-
-            if (state.connectionState == ConnectionState.RECONNECTING) {
-                Text(
-                    stringResource(R.string.graph_reconnecting_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
 
             when {
                 selectedDef == null -> Text(

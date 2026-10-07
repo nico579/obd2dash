@@ -72,6 +72,7 @@ internal fun ObdAppChrome(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val connected = state.connectionState == ConnectionState.CONNECTED
+    val waitingScreen = !connected && (screen == AppScreen.DASHBOARD || screen == AppScreen.GRAPH)
     val canRecord = state.isRecording || (connected &&
         state.dataAvailability == ObdDataAvailability.STANDARD_MEASUREMENTS_AVAILABLE)
     val secondaryCount = PidCatalog.defs.count { it.pid in state.supportedPids && it.pid !in state.bigGaugePids }
@@ -87,10 +88,12 @@ internal fun ObdAppChrome(
                 stringResource(R.string.nav_dashboard), { onNavigate(AppScreen.DASHBOARD) },
                 buttonModifier.testTag("command_dashboard"), selected = screen == AppScreen.DASHBOARD
             ) {
-                ConnectionIndicator(
-                    state.connectionState, state.dataAvailability,
-                    Modifier.align(Alignment.TopEnd).padding(4.dp).size(12.dp)
-                )
+                if (!waitingScreen) {
+                    ConnectionIndicator(
+                        state.connectionState, state.dataAvailability,
+                        Modifier.align(Alignment.TopEnd).padding(4.dp).size(12.dp)
+                    )
+                }
             }
             AppCommandButton(
                 painterResource(R.drawable.ic_chart), stringResource(R.string.nav_graph),
@@ -101,7 +104,10 @@ internal fun ObdAppChrome(
                 painterResource(if (state.isRecording) R.drawable.ic_stop_recording else R.drawable.ic_record),
                 stringResource(if (state.isRecording) R.string.dashboard_stop_short else R.string.dashboard_record_short),
                 if (state.isRecording) {
-                    pluralStringResource(R.plurals.dashboard_stop_recording, state.recordingSamples, state.recordingSamples)
+                    val stop = pluralStringResource(R.plurals.dashboard_stop_recording, state.recordingSamples, state.recordingSamples)
+                    if (!connected) {
+                        pluralStringResource(R.plurals.dashboard_recording_paused, state.recordingSamples, state.recordingSamples) + ". " + stop
+                    } else stop
                 } else stringResource(R.string.dashboard_start_recording),
                 onToggleRecording, buttonModifier.testTag("command_record"), enabled = canRecord, recording = state.isRecording
             )
