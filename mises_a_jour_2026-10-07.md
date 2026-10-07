@@ -75,3 +75,29 @@ Ce test JVM ne valide pas Android Keystore, l’allocation d’espace Android ni
 l’interface de l’installateur sur un vrai téléphone. Aucun téléphone USB n’était
 détecté au moment des contrôles locaux ; ces étapes nécessitent le prochain branchement.
 L’APK 0.17 doit être installé une première fois pour disposer du menu.
+
+## Publication et vérification du 8 octobre 2026
+
+La [release v0.17](https://github.com/nico579/obd2dash/releases/tag/v0.17) est
+publiée depuis le commit `d021e11f5923f781d4d0ab6f97711c07dee65209`.
+Toutes les étapes du [workflow de publication](https://github.com/nico579/obd2dash/actions/runs/37681491187)
+ont réussi : tests unitaires, compilation APK, lint, régressions d’audit/CSV,
+régressions connexion/captures/voyants et publication. Les notes de release
+expliquent l’accès au dépôt privé et la première installation nécessaire.
+
+Le contrôle Internet utilisant le code de production a téléchargé cette release :
+**8 612 551 octets**, SHA-256
+`4660026d4f1d87d2b40ad0e4ac560604fe43134e4ca9e3b8e7ff2d9ec48ae73b`.
+Le résultat correspond exactement à l’asset GitHub ; les sources sont restées
+inchangées. Un second téléchargement annulé a bien supprimé son fichier partiel.
+Preuve : `captures/updates_20261007/live_20261008_014819_ipf06v5y/validation.json`.
+
+L’inspection de cet APK publié confirme le paquet `com.nico.obd2dash`,
+`versionCode=17`, `versionName=0.17`, une signature valide identique à celle du
+v0.16, la présence de la permission d’installation et les octets de la police
+et de sa licence. Preuve :
+`captures/updates_20261007/live_20261008_014819_ipf06v5y/apk_validation.json`.
+
+Le nouveau contrôle `adb devices -l` ne détecte aucun téléphone. Aucune installation
+n’a donc été effectuée ; le parcours Android et le stockage Keystore restent à
+valider sur l’appareil. Le dépôt et les APK restent privés.
