@@ -6,9 +6,9 @@ progression et annulation, puis ouvre la confirmation de l’installateur Androi
 Les commandes de téléchargement/installation précèdent l’aide et sont placées
 à côté du résumé en paysage. La barre commune conserve ses cinq commandes.
 
-## Dépôt privé
+## Dépôt privé au lancement
 
-`nico579/obd2dash` est privé, vérifié avec `gh repo view` le 7 octobre 2026.
+`nico579/obd2dash` était privé, vérifié avec `gh repo view` le 7 octobre 2026.
 L’API sans authentification renvoie 404 ; l’accès authentifié lit bien la release.
 L’application utilise donc un jeton personnel saisi dans **Accès GitHub** :
 propriétaire `nico579`, seul dépôt `obd2dash`, permission **Contents: read-only**.
@@ -98,6 +98,54 @@ v0.16, la présence de la permission d’installation et les octets de la police
 et de sa licence. Preuve :
 `captures/updates_20261007/live_20261008_014819_ipf06v5y/apk_validation.json`.
 
-Le nouveau contrôle `adb devices -l` ne détecte aucun téléphone. Aucune installation
-n’a donc été effectuée ; le parcours Android et le stockage Keystore restent à
-valider sur l’appareil. Le dépôt et les APK restent privés.
+Ce contrôle `adb devices -l` ne détectait aucun téléphone. Aucune installation
+n’avait donc été effectuée par l’agent ; le parcours Android et le stockage Keystore
+restaient à valider sur l’appareil. Le dépôt et les APK étaient encore privés lors
+de cette première vérification.
+
+## Passage en public et nom de l’APK — 8 octobre 2026
+
+À la demande explicite de l'utilisateur, le même dépôt `nico579/obd2dash` est passé en
+**public**. Les vérifications GitHub authentifiée puis anonyme confirment
+`visibility=public` et `private=false`. Aucun jeton n’est désormais nécessaire
+pour consulter les releases ou télécharger leurs APK. L’aide du réglage
+**Accès GitHub** dans le binaire 0.17 décrit encore le fonctionnement privé
+initial ; ce réglage est facultatif, et un ancien jeton peut être supprimé.
+
+Avant le changement, 556 blobs de l’historique et des tags récupérés depuis
+`origin` ont été contrôlés, soit 13 743 211 octets. Aucun motif de jeton GitHub,
+clé d’API des familles recherchées ou clé privée PEM n’a été détecté. Les captures
+locales ne sont pas suivies par Git. Ce contrôle ciblé n’est pas un audit exhaustif.
+Preuve locale : `captures/updates_20261007/public_preflight_20261008.json`.
+La clé de signature **debug** `app/debug.keystore`, déjà volontairement versionnée,
+est également publique : elle assure la continuité des APK de développement,
+mais ne constitue pas une identité d’éditeur protégée pour une distribution de
+production. Aucune clé de signature Play n’est versionnée.
+
+L’asset principal de la release 0.17 a été renommé **`OBD2-Dash-v0.17.apk`**.
+Une copie identique, étiquetée **Compatibilité des mises à jour 0.17**, conserve
+le nom `app-debug.apk` : le client déjà installé recherche exactement cet ancien
+nom. Les deux assets font **8 612 551 octets** et ont la même empreinte SHA-256
+`4660026d4f1d87d2b40ad0e4ac560604fe43134e4ca9e3b8e7ff2d9ec48ae73b`.
+Le fichier binaire, sa version et sa signature n’ont pas changé ; le tag v0.17
+n’a pas été déplacé. Les notes de release et le README expliquent les deux noms.
+
+Le workflow prépare automatiquement **`OBD2-Dash-vX.Y.apk`** à partir du tag
+pour les prochaines publications, avec l’alias identique pour les anciens clients.
+Le YAML, les deux chemins publiés et la commande de copie ont été vérifiés sur
+l’APK local ; aucun nouveau build de l’application n’est nécessaire pour renommer
+l’asset existant.
+
+Validation après renommage :
+
+- Téléchargement et annulation avec le HTTP/parseur/hash de production, en accès
+  **anonyme**, réussi. Le banc efface explicitement `OBD_UPDATE_TOKEN` de son
+  environnement lorsqu’il est lancé sans `--use-gh-auth`.
+  Preuve : `captures/updates_20261007/live_20261008_021032_mdv0ixb5/validation.json`.
+- Téléchargement anonyme du nouvel asset `OBD2-Dash-v0.17.apk`, empreinte et taille
+  comparées à la publication, signature/paquet/version/police/licence vérifiés.
+  Preuves : `captures/updates_20261007/public_20261008_jx0wagf6/validation.json`
+  et `apk_validation.json` dans ce même dossier.
+- l'utilisateur a confirmé avoir mis à jour son téléphone manuellement et que c’est OK.
+  Cette confirmation utilisateur ne vaut pas un contrôle automatisé de Keystore
+  ou de l’installateur ; aucun nouvel accès USB n’a été utilisé ici.

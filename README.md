@@ -65,17 +65,18 @@ diagnostics, les enregistrements et le dashboard.
   Les téléchargements utilisent HTTPS, avec redirections limitées aux hôtes GitHub,
   sans modifier le réseau de la sonde. Internet est nécessaire ; les interruptions
   et fichiers invalides donnent un message et permettent un nouvel essai.
-  Le dépôt GitHub est **privé** : configurer **Accès GitHub** avec un jeton personnel
-  à permissions fines, propriétaire `nico579`, seul dépôt `obd2dash`, permission
-  **Contents: read-only**. Le bouton de création ouvre les réglages GitHub ; le jeton
-  est saisi uniquement dans l’application, chiffré avec Android Keystore et exclu des
-  sauvegardes/transferts Android. Aucun secret n’est embarqué dans l’APK ni écrit au
-  journal. Le jeton reste sur l’hôte API GitHub du dépôt et ne suit pas les redirections
-  vers le CDN. Son expiration/refus permet de le remplacer ; il peut aussi être supprimé.
-  Les permissions de lecture nécessaires aux releases sont documentées par
-  [GitHub](https://docs.github.com/en/rest/releases/assets#get-a-release-asset).
+  Le dépôt et ses releases sont **publics depuis le 8 octobre 2026** : aucun jeton
+  n’est nécessaire pour vérifier et télécharger les mises à jour. Le réglage
+  **Accès GitHub** de la 0.17 reste facultatif, même si son aide historique parle
+  encore d’un dépôt privé. Un ancien jeton refusé ou expiré peut être supprimé dans
+  ce réglage pour retrouver l’accès public. Les jetons éventuellement saisis sont
+  chiffrés avec Android Keystore et exclus des sauvegardes/transferts Android ; ils
+  ne suivent pas les redirections vers le CDN.
+  Dans les releases, télécharger **`OBD2-Dash-vX.Y.apk`**. Une copie identique
+  `app-debug.apk` est conservée pour le système de mise à jour de la 0.17, qui cherche
+  ce nom précis. Le nom publié n’affecte ni le paquet Android ni sa signature.
   L’APK doit être installé une première fois par le PC ou manuellement pour obtenir
-  ce nouveau menu. Un miroir d’APK public serait une autre diffusion, à décider explicitement.
+  ce nouveau menu.
   [Détails et validation de la mise à jour 0.17](mises_a_jour_2026-10-07.md).
 - **Résultat de découverte explicite** : une sonde joignable ne prouve pas une réponse
   véhicule ; un bitmap PID nul confirme une réponse sans fournir de mesures standard.

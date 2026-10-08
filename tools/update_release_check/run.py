@@ -28,7 +28,7 @@ SPEC.loader.exec_module(BASE)
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--timeout", type=int, default=240)
-    parser.add_argument("--use-gh-auth", action="store_true", help="Use local gh authentication in memory for this private repository; never log/embed the token")
+    parser.add_argument("--use-gh-auth", action="store_true", help="Optionally use local gh authentication in memory; never log/embed the token")
     args = parser.parse_args()
     sdk = Path(os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or
                str(Path.home() / "AppData/Local/Android/Sdk"))
@@ -62,8 +62,12 @@ def main() -> int:
                    os.pathsep.join(map(str, [classes, stdlib, json_jar])),
                    "com.nico.obd2dash.updates.Live_checkKt", str(directory)]
     proof = {"utc": datetime.now(timezone.utc).isoformat(), "source_sha256": hashes,
-             "scope": "GitHub network, no installation or OBD", "runs": []}
+             "scope": "GitHub network, no installation or OBD",
+             "authentication": "gh-in-memory" if args.use_gh_auth else "anonymous", "runs": []}
     environment = os.environ.copy()
+    # Sans option explicite, le test doit réellement exercer l'accès public,
+    # même si un shell précédent possède encore cette variable d'environnement.
+    environment.pop("OBD_UPDATE_TOKEN", None)
     if args.use_gh_auth:
         auth = subprocess.run(["gh", "auth", "token"], capture_output=True, encoding="utf-8", timeout=20)
         if auth.returncode or not auth.stdout.strip():
