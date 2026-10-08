@@ -149,3 +149,14 @@ Validation après renommage :
 - l'utilisateur a confirmé avoir mis à jour son téléphone manuellement et que c’est OK.
   Cette confirmation utilisateur ne vaut pas un contrôle automatisé de Keystore
   ou de l’installateur ; aucun nouvel accès USB n’a été utilisé ici.
+
+## Nettoyage de confidentialité — 8 octobre 2026
+
+Après ce passage en public, l'inspection des images et documents a identifié des
+données personnelles distinctes des secrets recherchés avant publication. Le dépôt
+a été remis en privé et son historique réécrit, y compris les tags. Les numéros de
+série des fixtures sont désormais fictifs. Les identifiants de commits cités plus
+haut décrivent les publications d'origine ; leurs APK et signatures sont conservés.
+Le retrait des anciennes références de demandes de fusion et des vues en cache
+nécessite encore une intervention de GitHub. Voir le
+[suivi de confidentialité](confidentialite_2026-10-08.md).

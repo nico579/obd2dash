@@ -6,6 +6,8 @@
 /app/build
 /build
 /captures
+/screenshots
+/rapport_obd2.html
 .externalNativeBuild
 .cxx
 

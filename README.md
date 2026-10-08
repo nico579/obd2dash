@@ -65,11 +65,10 @@ diagnostics, les enregistrements et le dashboard.
   Les téléchargements utilisent HTTPS, avec redirections limitées aux hôtes GitHub,
   sans modifier le réseau de la sonde. Internet est nécessaire ; les interruptions
   et fichiers invalides donnent un message et permettent un nouvel essai.
-  Le dépôt et ses releases sont **publics depuis le 8 octobre 2026** : aucun jeton
-  n’est nécessaire pour vérifier et télécharger les mises à jour. Le réglage
-  **Accès GitHub** de la 0.17 reste facultatif, même si son aide historique parle
-  encore d’un dépôt privé. Un ancien jeton refusé ou expiré peut être supprimé dans
-  ce réglage pour retrouver l’accès public. Les jetons éventuellement saisis sont
+  Le dépôt a été **temporairement remis en privé le 8 octobre 2026** pendant le
+  nettoyage des données personnelles et des anciennes références GitHub.
+  Tant qu’il est privé, le réglage **Accès GitHub** demande un jeton de lecture
+  limité à ce dépôt pour vérifier et télécharger les mises à jour. Les jetons saisis sont
   chiffrés avec Android Keystore et exclus des sauvegardes/transferts Android ; ils
   ne suivent pas les redirections vers le CDN.
   Dans les releases, télécharger **`OBD2-Dash-vX.Y.apk`**. Une copie identique
@@ -244,9 +243,8 @@ ou véhicule.
   la version 0.8, validations locales et améliorations prioritaires restantes.
 - [`audit_code_2026-09-09_20-18-33.md`](audit_code_2026-09-09_20-18-33.md) : historique
   de l'audit de septembre ; certains constats ouverts ont été corrigés depuis.
-- [`rapport_obd2.html`](rapport_obd2.html) : rapport de recherche OBD2 (PID testés sur
-  le véhicule de mise au point, décodage DTC, comparaison avec les applications du
-  Play Store).
+- [`confidentialite_2026-10-08.md`](confidentialite_2026-10-08.md) : retrait des données
+  personnelles de l’historique Git et règles pour les prochaines publications.
 
 ## Véhicules de test
 

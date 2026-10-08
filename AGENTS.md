@@ -1,5 +1,14 @@
 # Instructions du dépôt
 
+Préfixer toutes les commandes shell par `rtk`.
+
+## Confidentialité
+
+Ne pas versionner les captures brutes, les photos de terrain, les identifiants de
+véhicules réels ou les chemins vers un profil utilisateur. Employer des VIN fictifs
+dans les tests, avec un numéro de série réservé aux fixtures. Avant de publier,
+exécuter `rtk proxy python tools/check_repository_privacy.py` après mise en index.
+Le contrôle est préventif et ne remplace pas la relecture des nouveaux fichiers.
 
 ## Périmètre actuel
 
