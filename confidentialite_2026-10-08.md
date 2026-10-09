@@ -25,7 +25,13 @@ et des cas de refus, y compris une valeur retirée du fichier mais encore dans l
 
 La réécriture change les identifiants de commits. Les deux anciennes demandes de
 fusion et les vues en cache peuvent encore référencer des objets antérieurs.
-Le dépôt reste privé tant que ce nettoyage côté GitHub n'est pas terminé.
+Le **dépôt d’origine**, renommé le 9 octobre 2026, reste privé tant que ce nettoyage
+côté GitHub n'est pas terminé. L'adresse publique `nico579/obd2dash` désigne depuis
+cette migration un **nouveau dépôt**, créé uniquement à partir des branches et
+tags nettoyés. Les anciennes demandes de fusion n'ont pas été transférées.
+Le support doit intervenir sur le dépôt d'origine ; la migration ne vaut pas
+confirmation d'une purge de ses objets conservés. Voir le
+[suivi de migration](migration_depot_2026-10-09.md).
 La [procédure GitHub de retrait des données sensibles](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository)
 prévoit une demande au support pour les références de demandes de fusion et les
 vues conservées. Une réécriture ne supprime pas les copies déjà téléchargées ailleurs.

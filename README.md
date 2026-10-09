@@ -65,10 +65,12 @@ diagnostics, les enregistrements et le dashboard.
   Les téléchargements utilisent HTTPS, avec redirections limitées aux hôtes GitHub,
   sans modifier le réseau de la sonde. Internet est nécessaire ; les interruptions
   et fichiers invalides donnent un message et permettent un nouvel essai.
-  Le dépôt a été **temporairement remis en privé le 8 octobre 2026** pendant le
-  nettoyage des données personnelles et des anciennes références GitHub.
-  Tant qu’il est privé, le réglage **Accès GitHub** demande un jeton de lecture
-  limité à ce dépôt pour vérifier et télécharger les mises à jour. Les jetons saisis sont
+  Depuis le **9 octobre 2026**, cette adresse désigne un **nouveau dépôt public**
+  contenant uniquement l’historique nettoyé. Les mises à jour sont accessibles sans
+  jeton. L’ancien dépôt reste privé pendant le traitement de la demande de purge
+  par GitHub. Voir le [suivi de migration](migration_depot_2026-10-09.md).
+  Le réglage **Accès GitHub** de la 0.17 est facultatif ; un ancien jeton peut être
+  supprimé, notamment s’il est refusé après la migration. Les jetons saisis sont
   chiffrés avec Android Keystore et exclus des sauvegardes/transferts Android ; ils
   ne suivent pas les redirections vers le CDN.
   Dans les releases, télécharger **`OBD2-Dash-vX.Y.apk`**. Une copie identique
@@ -245,6 +247,8 @@ ou véhicule.
   de l'audit de septembre ; certains constats ouverts ont été corrigés depuis.
 - [`confidentialite_2026-10-08.md`](confidentialite_2026-10-08.md) : retrait des données
   personnelles de l’historique Git et règles pour les prochaines publications.
+- [`migration_depot_2026-10-09.md`](migration_depot_2026-10-09.md) : nouveau dépôt
+  public, conservation des APK et suivi du nettoyage de l’ancien dépôt privé.
 
 ## Véhicules de test
 

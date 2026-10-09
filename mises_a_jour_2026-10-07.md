@@ -80,7 +80,7 @@ L’APK 0.17 doit être installé une première fois pour disposer du menu.
 
 La [release v0.17](https://github.com/nico579/obd2dash/releases/tag/v0.17) est
 publiée depuis le commit `d021e11f5923f781d4d0ab6f97711c07dee65209`.
-Toutes les étapes du [workflow de publication](https://github.com/nico579/obd2dash/actions/runs/37681491187)
+Toutes les étapes du [workflow de publication d’origine, conservé dans le dépôt privé](https://github.com/nico579/obd2dash-archive-prive-20261009/actions/runs/37681491187)
 ont réussi : tests unitaires, compilation APK, lint, régressions d’audit/CSV,
 régressions connexion/captures/voyants et publication. Les notes de release
 expliquent l’accès au dépôt privé et la première installation nécessaire.
@@ -160,3 +160,23 @@ haut décrivent les publications d'origine ; leurs APK et signatures sont conser
 Le retrait des anciennes références de demandes de fusion et des vues en cache
 nécessite encore une intervention de GitHub. Voir le
 [suivi de confidentialité](confidentialite_2026-10-08.md).
+
+## Migration du dépôt — 9 octobre 2026
+
+L'adresse `nico579/obd2dash` désigne désormais un nouveau dépôt public, alimenté
+uniquement par les deux branches et les 17 tags nettoyés. Les 17 releases et leurs
+18 APK ont été transférés sans reconstruction : chaque taille et chaque SHA-256
+correspondent aux fichiers d'origine. La 0.17 et son alias `app-debug.apk` conservent
+la version et la signature déjà installées sur le téléphone.
+
+L'API de dernière release et les liens de téléchargement gardent la même adresse.
+Le contrôle Internet avec le code de mise à jour de production a réussi sans jeton,
+y compris l'annulation et la suppression du fichier partiel. Le réglage
+**Accès GitHub** est facultatif ; supprimer un ancien jeton s'il est refusé.
+Aucune nouvelle installation sur le téléphone n'est nécessaire pour la migration.
+
+Les dates et identifiants des releases GitHub recréées changent ; leur contenu
+binaire est conservé. Les anciens liens de workflow renvoient au dépôt d'origine,
+resté privé. La purge de ses anciennes références reste à confirmer par GitHub.
+Les contrôles et la provenance sont décrits dans le
+[suivi de migration](migration_depot_2026-10-09.md).
