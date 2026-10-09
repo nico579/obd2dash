@@ -1,19 +1,92 @@
 # OBD2 Dash
 
+[**FR — Français**](README.md) | [EN — English](README.en.md)
+
+**Version stable : [0.17](https://github.com/nico579/obd2dash/releases/tag/v0.17)**
+(`versionCode = 17`) · **Android 8.0 minimum** (API 26).
+Ce README décrit les fonctions de la 0.17 et l'état du dépôt au 9 octobre 2026.
+
 Application Android (Kotlin, Jetpack Compose) pour se connecter à une sonde ELM327 Wi-Fi, Bluetooth classique ou BLE
 et lire les données OBD2 d'un véhicule en direct.
 
 Projet à usage personnel, non publié sur le Play Store : première installation
-par APK (`adb install` / `gradlew installDebug`), puis mises à jour depuis le menu de l’application.
-Le socle commun repose
-sur la découverte et la lecture des PID SAE standard disponibles sur le véhicule connecté.
-Depuis le 3 octobre 2026, le périmètre retenu est **multimarque, pour les véhicules
-récents compatibles avec les lectures OBD standard de l'application**. Les données
+par APK, puis mises à jour depuis le menu de l’application.
+Le socle commun repose sur la découverte et la lecture des PID SAE standard
+disponibles sur le véhicule connecté. L'application est **multimarque, pour les
+véhicules récents compatibles avec ses lectures OBD standard**. Les données
 disponibles sont celles effectivement annoncées et lues sur le véhicule connecté ;
 l'année du véhicule seule ne garantit pas la compatibilité.
-Les recherches spécifiques au Trafic II sont arrêtées à la demande de l'utilisateur.
-La priorité porte sur la fiabilité de la connexion, les mesures standard, les
-diagnostics, les enregistrements et le dashboard.
+
+## Installer et démarrer
+
+1. Télécharger [**OBD2-Dash-v0.17.apk**](https://github.com/nico579/obd2dash/releases/download/v0.17/OBD2-Dash-v0.17.apk)
+   depuis la [release 0.17](https://github.com/nico579/obd2dash/releases/tag/v0.17)
+   et l'ouvrir sur le téléphone. Autoriser l'installation pour l'application qui
+   ouvre l'APK si Android le demande. Aucun compte ni jeton GitHub n'est nécessaire.
+2. Ouvrir **… → Réglages**, puis choisir la connexion à la sonde :
+
+   | Connexion | Préparation et choix dans Réglages |
+   |---|---|
+   | Wi-Fi | Connecter le téléphone au réseau de la sonde, renseigner son IP/port, puis quitter Réglages pour appliquer les changements. |
+   | Bluetooth classique | Appairer la sonde dans Android, actualiser la liste dans l'application, puis utiliser **Connecter** sur l'appareil choisi. |
+   | BLE | Utiliser **Rechercher une sonde BLE**, autoriser les permissions demandées, puis choisir sa sonde parmi les résultats. Le profil BLE doit être pris en charge. |
+
+3. Une fois les mesures découvertes, choisir jusqu'à six cadrans dans **Réglages**,
+   puis les ordonner par appui long et glissement. **Graphique** affiche l'évolution
+   d'une mesure ; **REC** démarre ou arrête une capture CSV. Les enregistrements
+   se retrouvent dans le menu **…**.
+
+La connexion se relance automatiquement vers la cible enregistrée. Si la sonde
+répond mais que le véhicule ne fournit aucune mesure standard, l'application
+affiche cette limite. Elle ne crée pas de valeurs pour les données absentes.
+
+## Mises à jour
+
+### Depuis l'application — à partir de la 0.17
+
+1. Ouvrir **… → Mises à jour**, puis **Vérifier maintenant**. La sonde n'a
+   pas besoin d'être connectée ; un accès Internet est nécessaire.
+2. Si une version plus récente est disponible, appuyer sur **Télécharger la mise
+   à jour** et attendre la fin du téléchargement et de la vérification. La
+   progression est affichée ; l'annulation et un nouvel essai sont possibles.
+3. Terminer tout enregistrement, sondage ou Smoke test en cours, puis appuyer sur
+   **Installer la mise à jour**. L'application bloque l'installation pendant ces
+   opérations ; la vérification et le téléchargement restent disponibles.
+4. À la première installation depuis l'application, autoriser **OBD2 Dash** à
+   installer ses mises à jour dans l'écran Android, revenir dans l'application et
+   appuyer de nouveau sur **Installer la mise à jour**. Confirmer ensuite
+   l'installation dans Android.
+
+Si la version installée est déjà la dernière, l'application l'indique et ne
+propose pas de la réinstaller. Les réglages et captures sont conservés lors
+d'une mise à jour du même paquet et de la même signature.
+
+### Installation manuelle ou version sans le menu Mises à jour
+
+Ouvrir la [dernière release](https://github.com/nico579/obd2dash/releases/latest),
+télécharger **`OBD2-Dash-vX.Y.apk`** et ouvrir le fichier sur le téléphone.
+Autoriser l'installation pour l'application qui ouvre l'APK si Android le demande,
+puis confirmer la mise à jour. Conserver l'application installée pour garder ses
+réglages et captures. Une version antérieure à la 0.17 doit être mise à jour
+manuellement une première fois pour obtenir le nouveau menu.
+
+Le dépôt est **public** : aucun jeton GitHub n'est nécessaire.
+**Accès GitHub** reste facultatif dans la 0.17, dont l'aide
+décrit encore l'ancien dépôt privé ; supprimer un ancien jeton s'il est refusé.
+Les jetons saisis sont chiffrés avec Android Keystore, exclus des sauvegardes et
+transferts Android et ne suivent pas les redirections vers le CDN.
+
+Le client 0.17 cherche exactement **`app-debug.apk`** : cette copie identique est
+conservée à côté du fichier portant le nom de l'application. Le nom de l'asset
+n'affecte ni le paquet Android ni sa signature. Avant installation, le fichier
+doit correspondre à la taille et au SHA-256 publiés, au paquet installé, à ses
+signataires et à une version strictement plus récente correspondant à la release.
+Le cache est revalidé avant installation. Les téléchargements utilisent HTTPS,
+avec des redirections limitées aux hôtes GitHub, sans modifier le réseau de la
+sonde. Une interruption ou un fichier invalide permet un nouvel essai.
+
+Les versions publiées et leurs nouveautés sont disponibles dans les
+[releases](https://github.com/nico579/obd2dash/releases).
 
 ## Fonctionnalités
 
@@ -51,34 +124,6 @@ diagnostics, les enregistrements et le dashboard.
   retrouve ses points et sa sélection lorsque le même VIN est confirmé après la
   reconnexion. Si le véhicule change ou si son identité ne peut plus être vérifiée,
   l'historique est effacé avant les nouvelles mesures.
-- **Mises à jour** : le menu **… → Mises à jour** vérifie la dernière release stable
-  du dépôt GitHub, affiche les versions installée/publiée et permet de télécharger
-  l’APK avec progression et annulation, puis de lancer l’installation Android.
-  La première fois, Android demande d’autoriser OBD2 Dash à installer ses mises à jour ;
-  une fois l’autorisation accordée, appuyer de nouveau sur **Installer la mise à jour**.
-  Android conserve la confirmation d’installation. Les réglages et captures restent
-  en place. L’installation est bloquée pendant REC, un sondage ou un Smoke test ;
-  la vérification et le téléchargement restent disponibles.
-  Le fichier doit correspondre à la taille et au SHA-256 publiés par GitHub, au paquet
-  installé, à ses signataires et à une version strictement plus récente, avec le même
-  numéro de version que la publication. Le cache est revalidé avant installation.
-  Les téléchargements utilisent HTTPS, avec redirections limitées aux hôtes GitHub,
-  sans modifier le réseau de la sonde. Internet est nécessaire ; les interruptions
-  et fichiers invalides donnent un message et permettent un nouvel essai.
-  Depuis le **9 octobre 2026**, cette adresse désigne un **nouveau dépôt public**
-  contenant uniquement l’historique nettoyé. Les mises à jour sont accessibles sans
-  jeton. L’ancien dépôt reste privé pendant le traitement de la demande de purge
-  par GitHub. Voir le [suivi de migration](migration_depot_2026-10-09.md).
-  Le réglage **Accès GitHub** de la 0.17 est facultatif ; un ancien jeton peut être
-  supprimé, notamment s’il est refusé après la migration. Les jetons saisis sont
-  chiffrés avec Android Keystore et exclus des sauvegardes/transferts Android ; ils
-  ne suivent pas les redirections vers le CDN.
-  Dans les releases, télécharger **`OBD2-Dash-vX.Y.apk`**. Une copie identique
-  `app-debug.apk` est conservée pour le système de mise à jour de la 0.17, qui cherche
-  ce nom précis. Le nom publié n’affecte ni le paquet Android ni sa signature.
-  L’APK doit être installé une première fois par le PC ou manuellement pour obtenir
-  ce nouveau menu.
-  [Détails et validation de la mise à jour 0.17](mises_a_jour_2026-10-07.md).
 - **Résultat de découverte explicite** : une sonde joignable ne prouve pas une réponse
   véhicule ; un bitmap PID nul confirme une réponse sans fournir de mesures standard.
   Dans ce dernier cas, l'app affiche la limite et ne lance pas de polling vide, de
@@ -128,7 +173,8 @@ diagnostics, les enregistrements et le dashboard.
   aux réponses est confirmé avant les commandes ELM ; les paquets respectent le MTU
   minimal, sans réémission d'une écriture incertaine. Auto conserve SPP pour un appareil
   classique/double et choisit BLE pour un appareil BLE seul ; la liste issue de la
-  recherche ouvre explicitement le BLE. La validation radio Android reste à réaliser.
+  recherche ouvre explicitement le BLE. La validation radio BLE sous Android reste
+  à réaliser.
 - **VIN validé** : longueur et alphabet contrôlés, compteur CAN vérifié, assemblage
   du format non-CAN à cinq segments documenté par ELM. Aucun octet intrus n'est retiré
   pour fabriquer une identité ; une réponse ambiguë reste inconnue. L'année-modèle
@@ -171,11 +217,22 @@ diagnostics, les enregistrements et le dashboard.
 
 ## Build et installation
 
-```
-./gradlew installDebug
+Pour compiler : **JDK 17**, **SDK Android 34** et le wrapper Gradle du dépôt.
+Les exemples suivent la convention RTK du projet. Sous Windows / PowerShell :
+
+```powershell
+rtk proxy ./gradlew.bat assembleDebug
+rtk proxy ./gradlew.bat installDebug
 ```
 
-Nécessite le SDK Android (minSdk 26) et un appareil connecté (débogage USB activé).
+`installDebug` nécessite un appareil Android 8.0 ou ultérieur connecté avec le
+débogage USB activé. L'APK local est produit dans
+`app/build/outputs/apk/debug/app-debug.apk`.
+Sous Linux/macOS, utiliser `./gradlew` à la place de `./gradlew.bat`.
+
+Les APK GitHub utilisent la clé **debug** versionnée pour conserver leur signature
+d'une version à l'autre. Cette clé est publique avec le dépôt ; elle ne constitue
+pas une identité de signature protégée pour une distribution de production.
 
 La police embarquée [DSEG7 Modern Bold](https://github.com/keshikan/DSEG/releases/tag/v0.46)
 (DSEG 0.46), créée par keshikan, est distribuée sous SIL Open Font License 1.1.
@@ -184,76 +241,17 @@ Sa licence est incluse dans l'APK et dans
 
 ## Tests
 
+```powershell
+rtk proxy ./gradlew.bat testDebugUnitTest
+rtk proxy ./gradlew.bat lintDebug
 ```
-./gradlew testDebugUnitTest
-```
 
-Couvre le décodage (DTC, protocole, réassemblage), les décisions de disponibilité et
-le transport au moyen de sondes TCP simulées sur l'adresse locale. Les tests ne se
-connectent pas à un véhicule. La première requête OBD dispose d'une marge de 45 s,
-les commandes d'adaptateur de 10 s, puis les lectures établies de 3 s ; ces marges sont
-des choix applicatifs, pas des délais constructeur. L'échéance porte sur l'échange
-entier, même lorsqu'une réponse arrive lentement par fragments.
-Si l'hôte configuré est un nom de domaine, sa résolution DNS Java peut dépasser
-la marge de connexion ; cette limite ne concerne pas l'adresse IP habituelle de la sonde.
-Une réponse temporaire « occupé » ou « en attente » ne valide pas une absence de PID.
-Dans les lectures individuelles, groupées et DTC, NRC21/NRC78 ferme la connexion
-avant toute autre requête. Les mesures automatiques conservent toutes les réponses,
-même si l'adaptateur accepte une limite d'une réponse ; un conflit entre calculateurs
-ne doit pas disparaître derrière cette optimisation.
-La surveillance de connexion tolère un échec MIL isolé et les pauses de diagnostic ;
-elle distingue le cas où PID01 est la seule lecture automatique du polling de mesures.
-Un transport déjà fermé est également détecté sans polling, pour permettre une
-reconnexion normale sans ajouter de lecture véhicule arbitraire. Cela ne détecte
-pas une fermeture TCP distante que le transport local n'a pas encore observée.
+La validation de la **0.17** comprend **433 tests unitaires**, **47 rendus**,
+une compilation réussie et un lint sans erreur ni avertissement. Le téléchargement
+réel et son annulation ont été vérifiés depuis le dépôt public avec le code de
+mise à jour de production.
 
-La capture manuelle des en-têtes protège également les réponses temporaires CAN
-et n'envoie aucune restauration sur un transport fermé. Elle exige un protocole
-CAN 11/29 bits établi (6/7/8/9) ; elle reste indisponible si ce format est inconnu
-ou non-CAN. Les lectures OBD standard non-CAN restent inchangées.
-
-Le [banc de tests du ViewModel](tools/offline_viewmodel/README.md) complète ces tests
-avec le vrai cycle de connexion et les fichiers CSV, sur une sonde simulée locale.
-Il vérifie les pauses, reprises, arrêts manuels et changements de transport ; les
-services et le contexte Android sont remplacés par des doubles de test.
-
-Les [reproductions de l'audit du 7 octobre](tools/audit_20261007/README.md) exercent
-des cas supplémentaires de diagnostic, transport, graphique et propriété des CSV.
-Le banc courant de la version 0.16 impose des assertions d'acceptation des corrections.
-Les observations et contrats échoués de la version 0.15 restent conservés comme preuves
-historiques. Ces essais locaux ne constituent pas une validation matérielle Android
-ou véhicule.
-
-## Documentation
-
-- [`audit_code_2026-10-07.md`](audit_code_2026-10-07.md) : audit courant sur la
-  version 0.15, nouveaux défauts reproduits, limites antérieures réévaluées et
-  optimisations prioritaires, avec suivi des corrections et de leur validation.
-
-- [`recherches/trafic/README.md`](recherches/trafic/README.md) : journal de recherche
-  Trafic arrêté le 3 octobre 2026, sources archivées et résultats non validés.
-  Conservé comme historique ; reprise uniquement sur demande explicite de l'utilisateur.
-- [`audit_ble_diagnostic_2026-10-02.md`](audit_ble_diagnostic_2026-10-02.md) :
-  Bluetooth BLE, lectures de diagnostic indépendantes et limite du profil Renault.
-- [`audit_voyants_2026-10-03.md`](audit_voyants_2026-10-03.md) : définitions des
-  alertes standard, protection contre les faux états éteints et validation du CSV.
-
-- [`architecture_multimarque_2026-09-10_20-17.md`](architecture_multimarque_2026-09-10_20-17.md) :
-  étude historique d'un moteur de profils ; les décisions de périmètre qu'elle conserve
-  précèdent la demande multimarque et les essais Trafic du 12 septembre.
-- [`audit_code_2026-10-02.md`](audit_code_2026-10-02.md) : audit précédent, correctifs de
-  la version 0.8, validations locales et améliorations prioritaires restantes.
-- [`audit_code_2026-09-09_20-18-33.md`](audit_code_2026-09-09_20-18-33.md) : historique
-  de l'audit de septembre ; certains constats ouverts ont été corrigés depuis.
-- [`confidentialite_2026-10-08.md`](confidentialite_2026-10-08.md) : retrait des données
-  personnelles de l’historique Git et règles pour les prochaines publications.
-- [`migration_depot_2026-10-09.md`](migration_depot_2026-10-09.md) : nouveau dépôt
-  public, conservation des APK et suivi du nettoyage de l’ancien dépôt privé.
-
-## Véhicules de test
-
-Mis au point sur une SEAT diesel (CAN 11 bits confirmé). Des essais PC indépendants ont
-établi une liaison KWP avec un Renault Trafic II de 2005 et lu son identité et son VIN
-constructeur, sans changement de session. Ils ne valident pas l'APK sur le Trafic :
-ses mesures constructeur n'ont pas été validées. Cette recherche est arrêtée ;
-le Trafic ne fait pas partie du périmètre de validation actuel.
+Les tests couvrent notamment les mesures, les diagnostics, les reconnexions,
+les captures et les mises à jour. Ils utilisent des sondes simulées sur l'adresse
+locale, sans connexion à un véhicule. Ils ne remplacent pas une validation
+matérielle sur un téléphone et une sonde physique.
